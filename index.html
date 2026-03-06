@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>天気予報比較アプリ</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>各社の天気予報を比較</h1>
+        <p>都市名を入力すると、複数モデルの予報を並べて確認できます。</p>
+      </header>
+
+      <section class="search-panel">
+        <label for="city">都市名</label>
+        <div class="search-row">
+          <input id="city" type="text" placeholder="例: 東京、大阪、Sapporo" value="東京" />
+          <button id="searchBtn">比較する</button>
+        </div>
+        <p id="locationInfo" class="location-info"></p>
+      </section>
+
+      <section>
+        <div id="status" class="status">都市を指定して「比較する」を押してください。</div>
+        <div id="results" class="results"></div>
+      </section>
+    </main>
+
+    <template id="cardTemplate">
+      <article class="forecast-card">
+        <h2 class="provider"></h2>
+        <table>
+          <thead>
+            <tr>
+              <th>日付</th>
+              <th>天気</th>
+              <th>最高 / 最低</th>
+              <th>降水確率</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </article>
+    </template>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
