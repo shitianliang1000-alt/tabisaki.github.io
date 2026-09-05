@@ -148,80 +148,96 @@ test("置き換えたことを、結果に書き添える", () => {
 // 鉄道とバスの旅程を車の所要時間で組むと、とくに地方で
 // 「1時間に1本のバス」を「車で10分」と見積もり、旅程が現地で破綻します。
 //
-// 「どの区間を、どのモードで、何回に分けて取るか」は planLegRequests が
-// 決めます。実際に投げる前の判断なので、APIキーが無くても確かめられます。
+// 日本では、Googleの経路APIは公共交通の経路を返しません。投げても必ず
+// 「経路が見つかりません」になり、それでも課金対象のリクエストは消えます。
+// 駅の位置から組み立てるようにしたので、そこを固定します。
 
 import {
-  clearRouteCache, computeRoute, planLegRequests, resetRoutesBreaker,
-  routesUsage,
+  MAX_POINTS, clearRouteCache, computeRoute, resetRoutesBreaker, routesUsage,
 } from "../js/routes.js";
 import { TUNING } from "../js/config.js";
+import { resetStopsCache } from "../js/stops.js";
 
-/** 鎌倉のあたり。徒歩でつながる3区間のあとに、離れた区間が2つ。 */
-const CHAIN = [
-  { lat: 35.3190, lng: 139.5500 },   // 鎌倉駅
-  { lat: 35.3197, lng: 139.5519 },   // 0.19km
-  { lat: 35.3208, lng: 139.5530 },   // 0.16km
-  { lat: 35.3261, lng: 139.5563 },   // 0.66km
-  { lat: 35.3086, lng: 139.5411 },   // 2.39km
-  { lat: 35.2997, lng: 139.4805 },   // 5.59km
-];
-
-test("公共交通の区間を、車に読み替えない", () => {
-  const { requests } = planLegRequests(CHAIN, { budget: 10 });
-  assert.equal(requests.filter((r) => r.mode === "DRIVE").length, 0,
-    `車で代用しています: ${JSON.stringify(requests)}`);
-  assert.equal(requests.filter((r) => r.mode === "TRANSIT").length, 2);
-});
-
-test("公共交通は必ず1区間ずつ（経由地を付けない）", () => {
-  const { requests } = planLegRequests(CHAIN, { budget: 10 });
-  for (const r of requests) {
-    if (r.mode === "TRANSIT") assert.equal(r.from, r.to, "経由地を付けています");
-  }
-});
-
-test("徒歩が続くところは、まとめて1回で取る", () => {
-  const { requests } = planLegRequests(CHAIN, { budget: 10 });
-  const walks = requests.filter((r) => r.mode === "WALK");
-  assert.equal(walks.length, 1, `徒歩の問い合わせ: ${walks.length}回`);
-  assert.equal(walks[0].from, 0);
-  assert.equal(walks[0].to, 2, "3区間がまとめられていません");
-});
-
-test("短い徒歩区間のために、経路検索を使わない", () => {
-  const short = [CHAIN[0], CHAIN[1], CHAIN[4]];   // 徒歩は1区間だけ
-  const { requests, estimated } = planLegRequests(short, { budget: 10 });
-  assert.equal(requests.filter((r) => r.mode === "WALK").length, 0,
-    "1区間の徒歩に1リクエスト使っています");
-  assert.deepEqual(estimated, [0], "短い徒歩が推定に回っていません");
-});
-
-test("回数の上限を超えたぶんは、推定に回す", () => {
-  const many = Array.from({ length: 14 },
-    (_, i) => ({ lat: 35.0 + i * 0.2, lng: 139.0 + i * 0.05 }));
-  const { requests, estimated } = planLegRequests(many, { budget: 4 });
-  assert.equal(requests.length, 4, `${requests.length}回 計画しています`);
-  assert.equal(requests.length + estimated.length, many.length - 1,
-    "どの区間も、取るか推定するかのどちらかに入っていること");
-});
-
-test("長い区間から先に、実際の経路を取る", () => {
-  const pts = [
-    { lat: 35.00, lng: 139.00 },
-    { lat: 35.05, lng: 139.05 },   // 中くらい
-    { lat: 36.50, lng: 139.50 },   // いちばん長い
-    { lat: 36.55, lng: 139.55 },   // 中くらい
-  ];
-  const { requests } = planLegRequests(pts, { budget: 1 });
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0].from, 1, "いちばん長い区間を選んでいません");
-});
-
-test("実際に投げるときも、上限は旅程1回ぶんの通し", async () => {
-  // 予算はモジュール側で数えます。数え直しの入口があることを確かめます。
+/** 駅のデータを差し替えます（実データを取りに行かせないため）。 */
+function withStations(stops, fn) {
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    json: async () => (String(url).includes("stops-rail")
+      ? { year: 2008, stops } : { year: 2012, stops: [] }),
+  });
+  clearRouteCache();
   resetRoutesBreaker();
-  assert.equal(routesUsage().transitSpent, 0);
+  return fn().finally(() => {
+    globalThis.fetch = real;
+    resetStopsCache();
+    clearRouteCache();
+  });
+}
+
+const SHINJUKU_ST = { lat: 35.6896, lng: 139.7006 };
+const HAKONE_YUMOTO = { lat: 35.2325, lng: 139.1063 };
+
+test("公共交通の区間では、経路APIを1回も呼ばない", () =>
+  withStations([
+    [35.6896, 139.7006, "新宿"],
+    [35.2325, 139.1063, "箱根湯本"],
+  ], async () => {
+    // キーが無ければそもそも呼びませんが、呼ぶ設計かどうかを見たいので
+    // 呼び出し回数そのものを確かめます。
+    const r = await computeRoute([SHINJUKU_ST, HAKONE_YUMOTO], { mode: "TRANSIT" });
+    assert.equal(routesUsage().calls, 0,
+      "日本では返らない公共交通に、リクエストを使っています");
+    assert.equal(r.legs.length, 1);
+    assert.ok(r.legs[0].minutes > 0);
+  }));
+
+test("最寄り駅どうしの移動として組み立て、そのことを伝える", () =>
+  withStations([
+    [35.6896, 139.7006, "新宿"],
+    [35.2325, 139.1063, "箱根湯本"],
+  ], async () => {
+    const r = await computeRoute([SHINJUKU_ST, HAKONE_YUMOTO], { mode: "TRANSIT" });
+    assert.match(r.modeNote ?? "", /最寄りの駅・バス停/);
+    assert.equal(r.legs[0].stations?.from, "新宿");
+    assert.equal(r.legs[0].stations?.to, "箱根湯本");
+  }));
+
+test("駅から遠い目的地は、そのぶん時間がかかる", () =>
+  withStations([
+    [35.6896, 139.7006, "新宿"],
+    [35.2325, 139.1063, "箱根湯本"],
+  ], async () => {
+    // 箱根湯本駅そのものと、駅から2kmの山の中を比べます。
+    const atStation = await computeRoute([SHINJUKU_ST, HAKONE_YUMOTO],
+      { mode: "TRANSIT" });
+    const upTheHill = await computeRoute(
+      [SHINJUKU_ST, { lat: 35.2505, lng: 139.1063, category: "登山" }],
+      { mode: "TRANSIT" });
+    assert.ok(upTheHill.legs[0].minutes > atStation.legs[0].minutes,
+      "駅から離れているのに、同じ時間になっています");
+  }));
+
+test("近くに駅が無ければ、距離からの目安に戻す", () =>
+  withStations([[43.0686, 141.3508, "札幌"]], async () => {
+    const r = await computeRoute([SHINJUKU_ST, HAKONE_YUMOTO], { mode: "TRANSIT" });
+    assert.equal(r.legs[0].stations, null);
+    assert.ok(r.legs[0].minutes > 0);
+  }));
+
+test("実測か目安かを、取り違えない", () =>
+  withStations([
+    [35.6896, 139.7006, "新宿"],
+    [35.2325, 139.1063, "箱根湯本"],
+  ], async () => {
+    const r = await computeRoute([SHINJUKU_ST, HAKONE_YUMOTO], { mode: "TRANSIT" });
+    // 真ん中（乗車）は目安なので、区間としては実測を名乗りません。
+    assert.equal(r.legs[0].routed, false);
+    assert.equal(r.routed, false);
+  }));
+
+test("中間地点は10か所まで（11か所以上は上位SKUになる）", () => {
+  assert.equal(MAX_POINTS, 12, "出発地＋中間地点10＋終点");
 });
 
 test("設定の既定値が、費用の設計と合っている", () => {

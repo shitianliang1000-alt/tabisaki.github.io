@@ -225,3 +225,92 @@ test("座標は日本の範囲に収まっている", () => {
     assert.ok(lng > 122 && lng < 154, `${name} の経度が範囲外: ${lng}`);
   }
 });
+
+// --- 同じ場所が二重に入っていないか ------------------------------------------
+//
+// 収録は複数の出典を継ぎ足して作っているので、同じ建物が別々の名前で
+// 入ることがありました（萬翠荘 と 愛媛県美術館分館郷土美術館）。
+// そのままだと、同じ場所が1つの旅程に2回出ます。
+
+function spotsOf() {
+  const out = [];
+  for (const n of ["00", "01", "02", "03", "04", "05", "p27"]) {
+    const url = new URL(`../kb/spots-${n}.json`, import.meta.url);
+    out.push(...JSON.parse(readFileSync(url, "utf8")).spots);
+  }
+  return out;
+}
+
+/** tools/dedupe_spots.py と同じ見かた。括弧の中どうしは比べません。 */
+function nameParts(name) {
+  const clean = (t) => t
+    .normalize("NFKC")
+    .replace(/[\s　・､,、\-−―/／]/g, "")
+    .replace(/(市|町|村|区|県|都|府|道|国)立/g, "$1");
+  const m = /[（(](.+?)[)）]/.exec(name);
+  return {
+    full: clean(name),
+    base: clean(name.replace(/[（(].*?[)）]/g, "")),
+    paren: m ? clean(m[1]) : null,
+  };
+}
+
+function samePlace(a, b) {
+  const x = nameParts(a.name);
+  const y = nameParts(b.name);
+  if (x.full === y.full) return true;
+  // 括弧の中が、相手の名前そのもの（別名として書かれている）
+  if (x.paren && x.paren === y.full) return true;
+  if (y.paren && y.paren === x.full) return true;
+  // 片方だけ括弧つき。両方にあるときは比べません
+  // （「(海水浴場)」「(駐車場)」のような分類の札が多いため）
+  if (x.paren && !y.paren && x.base === y.full) return true;
+  if (y.paren && !x.paren && y.base === x.full) return true;
+  return false;
+}
+
+test("同じ場所が、別の名前で二重に入っていない", () => {
+  const all = spotsOf();
+  const cell = new Map();
+  for (const s of all) {
+    const key = `${Math.round(s.lat / 0.02)},${Math.round(s.lng / 0.02)}`;
+    (cell.get(key) ?? cell.set(key, []).get(key)).push(s);
+  }
+  const dupes = [];
+  const seen = new Set();
+  for (const s of all) {
+    const gx = Math.round(s.lat / 0.02);
+    const gy = Math.round(s.lng / 0.02);
+    // 隣の升も見ます。升の境目をまたぐ組を見落とさないため。
+    const near = [];
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) near.push(...(cell.get(`${gx + dx},${gy + dy}`) ?? []));
+    }
+    for (const b of near) {
+      const a = s;
+      if (a.id >= b.id || seen.has(`${a.id}|${b.id}`)) continue;
+      seen.add(`${a.id}|${b.id}`);
+      {
+        if (!samePlace(a, b)) continue;
+        const dy = (a.lat - b.lat) * 111;
+        const dx = (a.lng - b.lng) * 111 * Math.cos(a.lat * Math.PI / 180);
+        if (Math.hypot(dx, dy) <= 2) {
+          dupes.push(`${a.name}[${a.id}] / ${b.name}[${b.id}]`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(dupes, [], `同じ場所が二重に入っています:\n${dupes.join("\n")}`);
+});
+
+test("id はひとつだけ", () => {
+  const ids = spotsOf().map((s) => s.id);
+  assert.equal(new Set(ids).size, ids.length, "id が重複しています");
+});
+
+test("収録件数の表示と、中身が一致している", () => {
+  const index = JSON.parse(
+    readFileSync(new URL("../kb/index.json", import.meta.url), "utf8"));
+  assert.equal(index.counts.spots, spotsOf().length,
+    "index.json の件数が中身とずれています");
+});

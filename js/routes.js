@@ -1,12 +1,34 @@
 // Google Maps Routes API。
 //
-// 費用の設計方針（ご指摘を反映）:
+// ■ 日本では、公共交通の経路が返りません（JAPAN_TRANSIT）
+//
+//   これは設定の問題でも、時間帯の問題でもありません。Google の経路APIは
+//   日本国内の鉄道・バスの経路を返しません。東京→横浜のような、まず
+//   間違いなく電車がある区間でも ZERO_RESULTS が返ります（同じ症状は
+//   北千里→大阪でも報告されています）。日本の交通事業者のデータが
+//   経路APIから引ける形で提供されていないためです。
+//
+//   したがって travelMode:"TRANSIT" は **投げません**。投げれば必ず
+//   失敗し、それでも課金対象のリクエストは1回消費されます。
+//
+//   代わりに、駅・バス停の位置（js/stops.js）を使って組み立てます。
+//
+//     出発地 →(徒歩・Routes APIで実測)→ 最寄り駅
+//     最寄り駅 →(距離からの目安)→ 目的地の最寄り駅
+//     最寄り駅 →(徒歩・Routes APIで実測)→ 目的地
+//
+//   徒歩は日本でも返るので、端の1kmずつは実測になります。真ん中の
+//   駅間だけが目安です。全部を直線距離で見積もっていたときより、
+//   「駅から遠い目的地」の扱いがはっきりします。
+//
+// ■ 費用の設計方針
 //
 //   ・区間ごとに個別に問い合わせない。1回の computeRoutes に中間地点
 //     （intermediates）をまとめて渡し、legs[] で各区間の所要時間を受け取る。
 //     6スポットの旅なら 7区間 → リクエスト1回。
-//   ・optimizeWaypointOrder は既定で使わない。順序最適化は上位SKUに
-//     なりうるため、順序はこちら側のスケジューラで決める。
+//   ・中間地点は10か所まで。11か所以上は上位SKU（Pro）の扱いになります。
+//   ・optimizeWaypointOrder は使わない（上位SKU）。順序はこちらで決める。
+//   ・交通量を見る routingPreference は使わない（上位SKU）。
 //   ・Route Matrix は使わない（要素数ぶん課金されうるため）。
 //   ・キーが無い / 失敗した場合は距離からの推定に落ちる。その場合は
 //     routed:false を返し、画面に「推定」と出す。
@@ -74,6 +96,13 @@ export const TRANSIT_HORIZON_DAYS = 45;
  * 始発前・終電後は、いちばん近い運行時間帯に寄せて聞き直します。
  * 所要時間の目安としてはそれで足ります（寄せたことは画面に出します）。
  */
+/**
+ * 1リクエストに入れられる地点の数（出発地＋中間地点＋終点）。
+ * 中間地点が11か所以上になると上位SKU（Pro）の扱いになるため、
+ * 中間地点10か所ぶんの12で切ります。
+ */
+export const MAX_POINTS = 12;
+
 const SERVICE_FROM = 7;
 const SERVICE_TO = 21;
 
@@ -403,151 +432,127 @@ const cacheKey = (points, mode, departAt) =>
 export function clearRouteCache() { routeCache.clear(); }
 
 /**
- * 経由地のある公共交通の経路を、区間ごとに分けて取ります。
+ * 公共交通の区間を、駅の位置から組み立てます。
  *
- * 公共交通は経由地をまとめられないので、正確に取るなら区間ごとに
- * 1リクエスト要ります。全区間ぶん投げると費用が跳ねるので、次のように
- * 配分します。
+ * Googleの経路APIは日本の公共交通を返さないので（JAPAN_TRANSIT）、
+ * 1区間を3つに分けて考えます。
  *
- *   ・徒歩でつながる区間 … まとめて1回（WALK は経由地を受け付けます）
- *   ・残りは長い区間から … 予算の範囲で1区間ずつ公共交通で
- *   ・予算を使い切った先 … 距離からの推定（そのことを結果に出します）
+ *   出発地 →(徒歩)→ 最寄り駅 →(乗車)→ 目的地の最寄り駅 →(徒歩)→ 目的地
  *
- * 長い区間を優先するのは、そこが旅程の成否を分けるからです。
- * 徒歩5分が7分になっても旅程は壊れませんが、1時間に1本のバス区間を
- * 取り違えると、その日の予定がまるごと崩れます。
+ * 徒歩の部分は日本でも経路APIが返すので、**実測できます**。
+ * 乗車の部分だけが距離からの目安です。全部を直線距離で見積もっていた
+ * ときと比べて、「駅から遠い目的地」が正しく重くなります。
+ *
+ * 徒歩の実測は、旅程1回あたりの上限（TUNING.maxTransitRequests）まで。
+ * 歩きが長い区間から順に使います。目安との差がいちばん大きいのは
+ * そこだからです（駅前の300mを実測しても、答えはほとんど変わりません）。
  */
-/**
- * どの区間を、どのモードで、何回に分けて取りにいくかを決めます。
- *
- * 決めることと、実際に投げることを分けてあります。キーが無くても
- * 「車で代用していないか」「上限を守っているか」を確かめられるようにするためです。
- *
- * @param {Array<{lat,lng}>} points
- * @param {object} opts
- * @param {number} opts.walkableKm 徒歩でつなぐ上限
- * @param {number} opts.budget     公共交通に使える問い合わせ回数
- * @returns {{requests:Array<{mode:string, from:number, to:number}>,
- *            estimated:number[]}}
- *   from/to は区間の添字（points ではなく legs の添字）。
- */
-export function planLegRequests(points, { walkableKm = 1.4, budget = 10 } = {}) {
+async function computeViaStations(points, opts) {
   const n = points.length - 1;
-  const dist = [];
-  for (let i = 0; i < n; i++) dist.push(haversineKm(points[i], points[i + 1]));
-
-  const covered = new Array(n).fill(false);
-  const requests = [];
-
-  // 徒歩でつながるひと続き。3区間以上あるときだけ、まとめて1回で取ります。
-  // 1〜2区間のために1リクエスト使うのは割に合いません。歩く速さはほぼ一定で、
-  // 10分の徒歩が数分ずれても旅程は壊れませんが、その1回を公共交通に回せば
-  // バス1本の取り違えを防げます。
-  for (const run of runsOf(dist, (km) => km <= walkableKm)) {
-    if (run.to - run.from + 1 < 3) continue;
-    requests.push({ mode: "WALK", from: run.from, to: run.to });
-    for (let i = run.from; i <= run.to; i++) covered[i] = true;
+  // 海をまたぐ距離は、駅どうしの移動ではありません。線路が続いていない
+  // ところを「最寄り駅から最寄り駅へ」と書くと、いかにも乗れるように
+  // 読めてしまいます。空路として、距離からの目安に任せます。
+  const longest = longestLegKm(points);
+  if (longest > 700) {
+    return { ...(await estimatedLegs(points)), mode: "TRANSIT",
+             error: `区間が長すぎます（最長 ${Math.round(longest)}km）。`
+               + "空路のため経路検索は行いません" };
   }
-
-  // 残りを長い順に、予算の範囲で公共交通として取ります。
-  // 長い区間を優先するのは、そこが旅程の成否を分けるからです。
-  const rest = [];
+  const plans = [];
   for (let i = 0; i < n; i++) {
-    if (!covered[i] && dist[i] > walkableKm) rest.push(i);
-  }
-  rest.sort((a, b) => dist[b] - dist[a]);
-
-  let spent = 0;
-  for (const i of rest) {
-    if (spent >= budget) break;
-    requests.push({ mode: "TRANSIT", from: i, to: i });
-    covered[i] = true;
-    spent++;
+    plans.push(await planStationLeg(points[i], points[i + 1]));
   }
 
-  const estimated = [];
-  for (let i = 0; i < n; i++) if (!covered[i]) estimated.push(i);
-  return { requests, estimated };
-}
+  // 歩きの長い区間から実測します。
+  const budget = Math.max(0,
+    (TUNING.maxTransitRequests ?? 8) - transitBudget.spent);
+  const order = plans
+    .map((p, i) => ({ i, km: p.walkKm }))
+    .filter((x) => x.km > 0.4)      // 駅前の数百mは測る意味がありません
+    .sort((a, b) => b.km - a.km)
+    .slice(0, budget);
 
-/**
- * 経由地のある公共交通の経路を、区間ごとに分けて取ります。
- *
- * 公共交通は経由地をまとめられないので、正確に取るなら区間ごとに
- * 1リクエスト要ります。全区間ぶん投げると費用が跳ねるため、
- * planLegRequests の配分に従って取り、残りは距離からの推定にします。
- */
-async function computeTransitChain(points, opts) {
-  const n = points.length - 1;
-  const legs = new Array(n).fill(null);
-  const errors = [];
-  let requests = 0;
-
-  const budgetLeft = Math.max(0,
-    (TUNING.maxTransitRequests ?? 10) - transitBudget.spent);
-  const plan = planLegRequests(points, {
-    walkableKm: TUNING.walkableKm ?? 1.4, budget: budgetLeft,
-  });
-
-  for (const req of plan.requests) {
-    const slice = points.slice(req.from, req.to + 2);
-    const r = await computeRouteUncached(slice, {
-      ...opts, mode: req.mode,
-      departAt: req.mode === "TRANSIT" ? opts.departAt : undefined,
-    });
-    requests++;
-    if (req.mode === "TRANSIT") transitBudget.spent++;
-    if (r.error) errors.push(r.error);
-    for (let i = 0; i < r.legs.length; i++) legs[req.from + i] = r.legs[i];
+  let measured = 0;
+  for (const { i } of order) {
+    const p = plans[i];
+    if (!p.fromStop && !p.toStop) continue;
+    const walked = await measureWalks(p, opts);
+    if (walked) { plans[i] = walked; measured++; transitBudget.spent++; }
   }
 
-  let estimated = 0;
-  for (let i = 0; i < n; i++) {
-    if (legs[i]?.routed) continue;
-    estimated++;
-    legs[i] = {
-      minutes: await estimateLegRough(points[i], points[i + 1]),
-      meters: Math.round(haversineKm(points[i], points[i + 1]) * 1000),
-      line: null, routed: false,
-    };
-  }
+  const legs = plans.map((p, i) => ({
+    minutes: p.minutes,
+    meters: Math.round(haversineKm(points[i], points[i + 1]) * 1000),
+    line: null,
+    // 真ん中（乗車）が目安なので、区間としては実測扱いにしません。
+    routed: false,
+    stations: p.fromStop && p.toStop
+      ? { from: p.fromStop.name, to: p.toStop.name, walkMeasured: p.walkMeasured }
+      : null,
+  }));
 
-  const note = estimated
-    ? `${n}区間のうち${n - estimated}区間を経路検索で確認し、`
-      + `残り${estimated}区間は距離からの推定です`
+  const viaStations = plans.filter((p) => p.fromStop && p.toStop).length;
+  const note = viaStations
+    ? `${n}区間のうち${viaStations}区間を、最寄りの駅・バス停どうしの`
+      + "移動として見ています"
+      + (measured ? `（うち${measured}区間は駅までの徒歩を実測）` : "")
     : null;
-  return {
-    legs, routed: legs.some((l) => l.routed), mode: "TRANSIT",
-    modeNote: note, requests,
-    error: errors.length ? errors[0] : undefined,
-  };
+  return { legs, routed: false, mode: "TRANSIT", modeNote: note,
+           requests: measured };
 }
 
-/** 条件を満たす区間の、連続したかたまり。 */
-function runsOf(values, pred) {
-  const runs = [];
-  let from = -1;
-  values.forEach((v, i) => {
-    if (pred(v)) {
-      if (from < 0) from = i;
-    } else if (from >= 0) {
-      runs.push({ from, to: i - 1 });
-      from = -1;
-    }
-  });
-  if (from >= 0) runs.push({ from, to: values.length - 1 });
-  return runs;
+/** 1区間ぶんの組み立て（まだ経路APIは呼びません）。 */
+async function planStationLeg(a, b) {
+  const directKm = haversineKm(a, b);
+  // 歩ける距離の駅を探します。10km先の駅まで歩く旅程は組めません。
+  const reach = Math.max(1.5, Math.min(5, directKm / 3));
+  const [fromStop, toStop] = await Promise.all([
+    nearestStop(a, reach), nearestStop(b, reach),
+  ]);
+  const usable = fromStop && toStop
+    && !(fromStop.lat === toStop.lat && fromStop.lng === toStop.lng);
+  if (!usable) {
+    return { minutes: await estimateLegRough(a, b), walkKm: 0,
+             fromStop: null, toStop: null, walkMeasured: false };
+  }
+  const walkA = estimateMinutes(a, fromStop, { slow: isSlowTerrain(a) });
+  const walkB = estimateMinutes(toStop, b, { slow: isSlowTerrain(b) });
+  const ride = estimateMinutes(fromStop, toStop);
+  const viaStations = walkA + ride + walkB;
+  const direct = await estimateLegRough(a, b);
+  // 駅を経由するほうが大きく遠回りなら、その駅は的外れです。
+  if (viaStations > direct * 2.2) {
+    return { minutes: direct, walkKm: 0, fromStop: null, toStop: null,
+             walkMeasured: false };
+  }
+  return { minutes: viaStations, walkKm: fromStop.km + toStop.km,
+           a, b, fromStop, toStop, walkA, walkB, ride, walkMeasured: false };
+}
+
+/** 駅までの徒歩を、経路APIで実測して置き換えます。 */
+async function measureWalks(plan, opts) {
+  const { a, b, fromStop, toStop, ride } = plan;
+  const [ra, rb] = await Promise.all([
+    computeRouteUncached([a, fromStop], { ...opts, mode: "WALK" }),
+    computeRouteUncached([toStop, b], { ...opts, mode: "WALK" }),
+  ]);
+  const walkA = ra.legs[0]?.routed ? ra.legs[0].minutes : plan.walkA;
+  const walkB = rb.legs[0]?.routed ? rb.legs[0].minutes : plan.walkB;
+  if (!ra.legs[0]?.routed && !rb.legs[0]?.routed) return null;
+  return { ...plan, walkA, walkB, minutes: walkA + ride + walkB,
+           walkMeasured: true };
 }
 
 export async function computeRoute(points, opts = {}) {
   const mode = opts.mode ?? pickMode(points);
-  // 公共交通で経由地があるときは、区間ごとに分けて取ります。
-  // 車の所要時間で代用すると、旅程の判定そのものが狂います。
-  if (mode === "TRANSIT" && points.length > 2) {
-    const key = cacheKey(points, "TRANSIT-chain", opts.departAt);
+  // 公共交通は、Googleの経路APIには投げません（JAPAN_TRANSIT）。
+  // 日本国内では必ず「経路が見つかりません」が返り、それでも課金対象の
+  // リクエストは消費されます。駅の位置から組み立てます。
+  if (mode === "TRANSIT") {
+    const key = cacheKey(points, "TRANSIT-stations", opts.departAt);
     const hit = routeCache.get(key);
     if (hit) return hit;
-    const result = await computeTransitChain(points, { ...opts, mode });
+    const result = await computeViaStations(points, opts);
     routeCache.set(key, result);
     return result;
   }
@@ -562,9 +567,13 @@ export async function computeRoute(points, opts = {}) {
 async function computeRouteUncached(points, opts = {}) {
   const mode = opts.mode;
   if (points.length < 2) return { legs: [], routed: false, mode };
-  // Routes API の中間地点は 25 件程度が上限。超える経路は分割せず推定にします
-  // （分割すると結局リクエストが増えて、費用を抑える目的から外れるため）。
-  if (points.length > 25) {
+  // 中間地点は10か所まで。
+  //
+  // Routes API 自体は25か所ほど受け付けますが、**11か所以上は上位SKU（Pro）
+  // の扱いになります**。基本料金（Essentials）に収めたいので、ここで切ります。
+  // 超える経路は分割せず推定にします（分割すると結局リクエストが増えて、
+  // 費用を抑える目的から外れるため）。
+  if (points.length > MAX_POINTS) {
     return { ...(await estimatedLegs(points)), mode, error: "地点数が多すぎます" };
   }
   // 空路になる距離は、そもそも経路が引けません（海をまたぐ区間も同じ）。
@@ -618,23 +627,6 @@ async function computeRouteUncached(points, opts = {}) {
     breaker.fails = 0;   // 1回でも通れば数え直し
     let data = await res.json();
     let route = data?.routes?.[0];
-
-    // 便の無い時間帯だったのなら、時間帯を寄せてもう一度だけ聞きます。
-    // ここで諦めると、旅程ぜんぶが推定に落ちます。
-    if (!route?.legs?.length && effective === "TRANSIT" && departedAt
-        && !opts.__retried) {
-      const shifted = clampToService(departedAt);
-      if (shifted.getTime() !== departedAt.getTime()) {
-        const again = await computeRouteUncached(points,
-          { ...opts, departAt: shifted, __retried: true });
-        if (again?.legs?.some((l) => l.routed)) {
-          return { ...again,
-            modeNote: [again.modeNote,
-              `${fmtHm(departedAt)} 発の便が見つからなかったため、`
-              + `${fmtHm(shifted)} 発で見ています`].filter(Boolean).join("／") };
-        }
-      }
-    }
 
     if (!route?.legs?.length) {
       // 何が起きたのかを、そのまま残します。
@@ -790,37 +782,27 @@ export async function diagnoseMapsKey(signal) {
   breaker.open = false;
   breaker.fails = 0;
   breaker.reason = "";
-  const tokyo = { lat: 35.681236, lng: 139.767125 };
-  const yokohama = { lat: 35.465786, lng: 139.622313 };
-  // 出発時刻を明示します。送らないと「押した瞬間」で調べられるので、
-  // 深夜に押しただけで結果が変わってしまいます。
-  const departAt = neutralDepartureTime();
-  routeCache.delete(cacheKey([tokyo, yokohama], "TRANSIT", departAt));
-  const r = await computeRoute([tokyo, yokohama],
-    { mode: "TRANSIT", departAt, signal });
+  // **徒歩で確かめます。公共交通では確かめられません。**
+  //
+  // 以前は東京→横浜を TRANSIT で試していました。ところが Google の
+  // 経路APIは、日本国内の公共交通の経路を返しません（JAPAN_TRANSIT の
+  // コメント参照）。つまり、キーが正しくても必ず「経路が見つかりません」に
+  // なります。キーの確認としては、何を確かめているのか分からない試験でした。
+  //
+  // 徒歩なら日本でも返ります。東京駅→日本橋の1kmで、キーと通信と
+  // 課金設定がそろっているかだけを見ます。
+  const tokyoStation = { lat: 35.681236, lng: 139.767125 };
+  const nihonbashi = { lat: 35.683889, lng: 139.774444 };
+  routeCache.delete(cacheKey([tokyoStation, nihonbashi], "WALK", undefined));
+  const r = await computeRoute([tokyoStation, nihonbashi],
+    { mode: "WALK", signal });
   if (r.routed) {
     return { ok: true, code: "ok",
-      message: `Routes API に接続できました（東京→横浜 約${r.legs[0].minutes}分）。` };
+      message: `Routes API に接続できました（東京駅→日本橋 徒歩約${r.legs[0].minutes}分）。`
+        + "\n※ 日本国内では、Googleの経路APIは電車・バスの経路を返しません。"
+        + "乗換の時間は、駅の位置からの目安で組み立てます。" };
   }
   const err = r.error ?? "";
-
-  // 「経路が見つかりません」は、Routes API に届いて 200 が返った上での
-  // ZERO_RESULTS です。通信そのものは成功しているので、「ネットワークか
-  // 拡張機能に遮断されている」と言うのは誤りです。東京→横浜は本来
-  // ほぼ確実に公共交通が見つかる区間なので、ここで返ってきた場合は
-  // キーや通信ではなく、Google 側の一時的な事情を疑うほうが近道です。
-  if (/^経路が見つかりません/.test(err) || /ZERO_RESULTS/.test(err)) {
-    return {
-      ok: false,
-      code: "ZERO_RESULTS",
-      message: "Routes APIには接続できましたが、東京→横浜という本来まず"
-        + "経路が見つかるはずの区間で、公共交通の経路が返ってきませんでした。"
-        + "キーや通信の問題ではなく、時間帯の巡り合わせや"
-        + "Google側の一時的な事情の可能性があります。"
-        + "少し時間を置いてもう一度「確認」を押してみてください。"
-        + `\n詳細: ${err}`,
-    };
-  }
 
   const m = /Routes API (\d+)/.exec(err);
   const status = m ? Number(m[1]) : 0;
