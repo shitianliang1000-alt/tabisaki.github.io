@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F4F1EB" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16140F" media="(prefers-color-scheme: dark)">
 <title>旅さき｜行きたいことから旅程をつくるAI旅行プランナー</title>
 <meta name="description" content="「温泉と海をゆっくり楽しみたい」など、行きたいことを伝えるだけで、行き先・まわる順・移動時間まで考えた旅程を作ります。営業時間と移動時間を実際に照らし合わせるので、そのまま行ける旅程になります。">
 
@@ -105,8 +106,9 @@
          「日本のどこからでも組めます」は機能の説明で、結果が
          想像できません。一言入れたら何が返るのかを書きます。 -->
     <div class="pitch">
-      <h2>行きたい、から旅程をつくる。</h2>
-      <p>「温泉と海をゆっくり楽しみたい」の一言から、<br>
+      <img class="pitch-mark" src="icon.svg" alt="" width="36" height="36">
+      <h2>行きたい、から<br>旅程をつくる。</h2>
+      <p>「温泉と海をゆっくり楽しみたい」の一言から、
          行き先・まわる順・移動時間まで組み立てます。</p>
     </div>
 
@@ -290,8 +292,13 @@
 
     <div id="placeholder" class="placeholder">
       <div id="home-map" class="home-map"></div>
-      <p class="home-hint" id="home-hint">
-        左で選ぶと、ここに旅程と地図が出ます</p>
+      <!-- 何が返ってくるのかを、待っているあいだに見せます。
+           一行の案内だけだと、右半分が空白の理由が分かりません。 -->
+      <ol class="home-steps" id="home-hint" aria-label="つくりかた">
+        <li><i aria-hidden="true">1</i><span>行きたいことを、ひとこと書く</span></li>
+        <li><i aria-hidden="true">2</i><span>出発地と時刻を決める</span></li>
+        <li><i aria-hidden="true">3</i><span>行き先・順番・移動時間の入った旅程が、ここに出る</span></li>
+      </ol>
     </div>
 
     <div id="progress" class="planning" hidden role="status" aria-live="polite"></div>
@@ -344,9 +351,59 @@
   </ul>
 
   <!-- ここから先は、自分で動かしている人だけが要るものです。
-       一般の利用者に「Routes API」と書いても、何も伝わりません。 -->
+       一般の利用者に「Routes API」と書いても、何も伝わりません。
+
+       キーは、この端末の localStorage にだけ残します。どこにも送りません。
+       公開サイト（GitHub Pages など）では config.js を書き換えられないので、
+       使う人が自分のキーをここから入れられるようにしています。 -->
   <details class="dev-settings" id="dev-settings">
-    <summary><span>開発者向け</span></summary>
+    <summary><span>開発者向け（APIキーを入れる）</span></summary>
+
+    <p class="dev-lead">
+      キーは<b>この端末の中だけ</b>に保存されます。空にして保存すると
+      <code>js/config.js</code> の値に戻ります。</p>
+
+    <label class="md-field key-field">
+      <span class="md-field-label">AI（Gemini）のキー</span>
+      <input type="password" id="in-gemini" autocomplete="off"
+             spellcheck="false" placeholder="AIza…">
+      <span class="md-field-help">
+        <a href="https://aistudio.google.com/apikey" target="_blank"
+           rel="noopener">Google AI Studio</a> で発行できます。
+        希望文の読み取り・行き先の選定・収録に無い土地の調査に使います。</span>
+    </label>
+
+    <label class="md-field key-field">
+      <span class="md-field-label">経路（Routes API）のキー</span>
+      <input type="password" id="in-maps" autocomplete="off"
+             spellcheck="false" placeholder="AIza…">
+      <span class="md-field-help">
+        <a href="https://console.cloud.google.com/google/maps-apis/api-list"
+           target="_blank" rel="noopener">Google Cloud</a> で
+        <b>Routes API</b> を有効にしたキー。実際の乗換・所要時間に使います。
+        HTTPリファラー制限には、このページのURLを入れてください。</span>
+    </label>
+
+    <label class="md-field key-field">
+      <span class="md-field-label">プロキシの入口（任意）</span>
+      <input type="url" id="in-proxy" autocomplete="off" spellcheck="false"
+             inputmode="url" placeholder="https://…（キーをサーバー側に置く場合）">
+      <span class="md-field-help" id="proxy-help">
+        設定すると上の2つのキーは使われず、キーはサーバー側で付けます
+        （<code>server/README.md</code>）。</span>
+    </label>
+
+    <div class="key-actions">
+      <button type="button" class="md-btn md-btn--filled md-state" id="save-keys">
+        <span>保存する</span></button>
+      <button type="button" class="md-btn md-btn--text md-state" id="clear-keys">
+        <span>消す</span></button>
+      <label class="show-keys">
+        <input type="checkbox" id="show-keys"> <span>キーを表示</span>
+      </label>
+    </div>
+    <p id="keys-note" class="keys-note" hidden></p>
+
     <ul class="md-list">
       <li class="md-list-item">
         <span class="md-list-text">Gemini</span>
@@ -365,9 +422,10 @@
         <span class="md-list-support" id="dev-kb"></span>
       </li>
     </ul>
-    <div id="key-result"></div>
-    <p class="md-body-small" style="color:var(--hig-label-2)">
-      キーは <code>js/config.js</code> に書きます。公開するときは
+    <p id="routes-usage" class="routes-usage" hidden></p>
+    <p id="key-result" class="key-result" hidden></p>
+    <p class="md-body-small dev-foot">
+      「確認」は1リクエストだけ送ります。公開するときは
       <code>PROXY_URL</code> に自分のバックエンドを設定して、キーを
       ブラウザに置かないようにしてください（<code>server/README.md</code>）。</p>
   </details>

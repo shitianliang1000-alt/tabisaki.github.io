@@ -36,6 +36,30 @@ body {
   letter-spacing: -.05px;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 見出しは行の切れ目を揃え、本文はぶら下がりを避けます。
+   対応していないブラウザでは、これまでどおりです。 */
+h1, h2, h3 { text-wrap: balance; }
+p, li { text-wrap: pretty; }
+
+/* 見出しだけ、和文の字間を詰めます（プロポーショナル）。
+   本文に効かせると読みにくくなるので、大きい字に限ります。 */
+.pitch h2, .step-title, .itin-head h2, .md-headline-small {
+  font-feature-settings: "palt" 1;
+}
+
+/* 細いスクロールバー。左右2枚の面がそれぞれ流れるので、
+   太い灰色の棒が2本立つと画面が分断されて見えます。 */
+.pane, .md-dialog, .md-sheet {
+  scrollbar-width: thin;
+  scrollbar-color: var(--hig-gray3) transparent;
+}
+.pane::-webkit-scrollbar, .md-dialog::-webkit-scrollbar { width: 8px; }
+.pane::-webkit-scrollbar-thumb, .md-dialog::-webkit-scrollbar-thumb {
+  background: var(--hig-gray3); border-radius: 4px;
+  border: 2px solid transparent; background-clip: padding-box;
 }
 
 :focus-visible {
@@ -214,15 +238,44 @@ body {
 .ex-chip:hover { background: var(--hig-fill-2); }
 
 /* 何をしてくれるサイトなのかを、最初の3行で。
-   「日本のどこからでも組めます」は機能の説明で、結果が想像できません。 */
-.pitch { margin: 4px 0 26px; }
+   「日本のどこからでも組めます」は機能の説明で、結果が想像できません。
+
+   文字だけを地に置くと、下の入力欄と同じ重さに見えて、
+   「ここは看板」だと伝わりませんでした。藍と青緑を薄く敷いた
+   1枚のカードにして、しるしを添えます。 */
+.pitch {
+  position: relative; overflow: hidden;
+  margin: 0 0 24px;
+  padding: 20px 20px 18px;
+  border-radius: var(--hig-r-lg);
+  background:
+    radial-gradient(120% 90% at 100% 0%,
+      color-mix(in srgb, var(--tabi-teal) 22%, transparent), transparent 60%),
+    radial-gradient(90% 80% at 0% 100%,
+      color-mix(in srgb, var(--tabi-indigo) 16%, transparent), transparent 60%),
+    var(--hig-card-2);
+  box-shadow: inset 0 0 0 .5px var(--hig-separator);
+}
+/* 遠景の山なみ。og.svg と同じ形です。旅の気配だけ置きます。 */
+.pitch::after {
+  content: ""; position: absolute; inset: auto 0 0 0; height: 46%;
+  pointer-events: none; opacity: .12;
+  background: var(--tabi-indigo);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 300' preserveAspectRatio='none'%3E%3Cpath d='M0 200 L170 60 L300 160 L470 0 L640 170 L800 80 L980 210 L1200 110 L1200 300 L0 300 Z'/%3E%3C/svg%3E") bottom / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 300' preserveAspectRatio='none'%3E%3Cpath d='M0 200 L170 60 L300 160 L470 0 L640 170 L800 80 L980 210 L1200 110 L1200 300 L0 300 Z'/%3E%3C/svg%3E") bottom / 100% 100% no-repeat;
+}
+.pitch > * { position: relative; z-index: 1; }
+.pitch-mark {
+  display: block; width: 36px; height: 36px; margin-bottom: 10px;
+  filter: drop-shadow(0 2px 4px rgba(15, 76, 129, .25));
+}
 .pitch h2 {
   margin: 0 0 8px;
-  font-size: 27px; font-weight: 700; letter-spacing: -.7px; line-height: 1.25;
+  font-size: 27px; font-weight: 700; letter-spacing: -.7px; line-height: 1.22;
   color: var(--hig-label);
 }
 .pitch p {
-  margin: 0;
+  margin: 0; max-width: 34em;
   font-size: 14px; line-height: 1.75; color: var(--hig-label-2);
 }
 
@@ -538,6 +591,31 @@ body {
 .home-hint {
   margin: 12px 8px 4px; text-align: center;
   font-size: 12px; color: var(--md-sys-color-on-surface-variant);
+}
+/* 空の右半分に、何が出るのかを3行で。地図の下に横並びで置きます。 */
+.home-steps {
+  list-style: none; margin: 14px 4px 0; padding: 0;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+.home-steps li {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--hig-r-md);
+  background: var(--hig-card);
+  box-shadow: var(--hig-shadow-1);
+  font-size: 13px; line-height: 1.55; color: var(--hig-label-2);
+}
+.home-steps li:last-child { color: var(--hig-label); font-weight: 600; }
+.home-steps li > i {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 700 12px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #fff; background: var(--tabi-indigo);
+}
+.home-steps li:last-child > i { background: var(--tabi-teal); }
+@media (max-width: 1100px) {
+  .home-steps { grid-template-columns: 1fr; gap: 8px; }
+  .home-steps li { padding: 10px 12px; }
 }
 
 /* ------------------------------------------------------------ 生成中 --- */
@@ -857,6 +935,64 @@ body {
   font-size: 12px; line-height: 1.65; color: var(--hig-label-2);
 }
 .here-note.warn { color: var(--hig-orange); font-weight: 600; }
+
+/* 設定はキーの欄が増えたので、少し広く、中で流れるようにします。 */
+#settings-dialog {
+  width: min(94vw, 520px);
+  max-height: min(90vh, 90dvh);
+  overflow-y: auto;
+  padding-bottom: 10px;
+}
+#settings-dialog .md-dialog-actions {
+  position: sticky; bottom: -10px;
+  margin-bottom: -10px; padding-bottom: 10px;
+  background: var(--hig-elevated);
+}
+/* 「利用できます」「未設定」を色でも示します。文字だけでも読めますが、
+   一覧をひと目で追うには色の助けがあるほうが速い。 */
+.md-list-support.ok { color: var(--hig-green); }
+.md-list-support.ng { color: var(--hig-label-3); }
+@media (prefers-color-scheme: light) {
+  .md-list-support.ok { color: #1E8E3E; }
+}
+.key-result, .keys-note, .routes-usage {
+  margin: 0 0 10px; padding: 10px 14px;
+  border-radius: var(--hig-r-sm);
+  background: var(--hig-fill);
+  font-size: 13px; line-height: 1.65; color: var(--hig-label);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.key-result.ok, .keys-note.ok {
+  background: color-mix(in srgb, var(--hig-green) 14%, var(--hig-fill));
+}
+.key-result.ng, .keys-note.ng, .routes-usage.ng {
+  background: var(--hig-red-tint); color: var(--hig-red-deep);
+}
+.routes-usage { font-size: 12px; color: var(--hig-label-2); }
+.dev-lead {
+  margin: 4px 0 14px; font-size: 13px; line-height: 1.65;
+  color: var(--hig-label-2);
+}
+.dev-lead b { color: var(--hig-label); }
+.key-field { margin-bottom: 14px; }
+.key-field > input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px; letter-spacing: 0;
+}
+.key-field .md-field-help a { color: var(--tabi-indigo); }
+.key-field .md-field-help.ng { color: var(--hig-red-deep); }
+.key-actions {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin: 2px 0 12px;
+}
+.key-actions .show-keys {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--hig-label-2); cursor: pointer;
+}
+.dev-foot { margin: 4px 0 0; color: var(--hig-label-2); line-height: 1.65; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+       font-size: .92em; padding: 1px 5px; border-radius: 4px;
+       background: var(--hig-fill); }
 
 /* 開発者向けの設定。一般の利用者には畳んで見せます。 */
 .dev-settings { margin: 4px 0 8px; }

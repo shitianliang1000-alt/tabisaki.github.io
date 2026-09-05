@@ -16,7 +16,7 @@
 // 端末の容量を黙って使うことになります。旅程の文字が読めれば、
 // 当日にすることは分かります。
 
-const VERSION = "tabisaki-v1";
+const VERSION = "tabisaki-v2";
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
 
