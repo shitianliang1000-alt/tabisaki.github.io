@@ -99,14 +99,9 @@ async function boot() {
         ? `公開知識ベース（${KB_INDEX_URL}）` : "同梱データ（KB_INDEX_URL 未設定）";
     }
     renderAttribution(state.kb);
-    const c = state.kb.manifest.counts;
-    $("#ph-data").textContent =
-      `確認済みの収録は全国${c.regions}エリア・${c.spots}スポット。`
-      + (hasApiKey()
-        ? "ここに無い土地は、AIが検索して調べます（国内のみ）。"
-        : "AIキーが未設定のため、いまは収録されている範囲からのみ提案します"
-          + "（js/config.js にキーを入れると、収録に無い土地も"
-          + "調べられるようになります）。");
+    // 収録件数やキーの有無は、旅行者が読んでも何もできない話です。
+    // 出典表示（renderAttribution）だけ残します。
+    $("#ph-data").textContent = "";
   } catch (e) {
     setBadge(`データを読み込めません: ${e.message}`, true);
     $("#ph-data").textContent =
