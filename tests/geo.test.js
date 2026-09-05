@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { estimateMinutes, haversineKm } from "../js/feasibility.js";
+import { estimateMinutes, haversineKm, isSlowTerrain } from "../js/feasibility.js";
 import {
   airportDistanceKm, dateShiftDays, islandOf, isJapan, lookupCountry, onEarth,
   overseasNotes, timezoneShiftHours, travelLabel, travelMinutes,
@@ -57,6 +57,24 @@ test("近距離の見積もりは、これまでと変わらない", () => {
   const near = { lat: 35.6820, lng: 139.7680 };
   assert.equal(estimateMinutes(TOKYO, near), estimateMinutes(TOKYO, near));
   assert.ok(estimateMinutes(TOKYO, near) < 15);
+});
+
+test("登山道は、街なかの徒歩より遅い速さで見積もる", () => {
+    // 五合目→山頂のような、車も公共交通も通らない距離7kmの区間。
+  const base = { lat: 35.36, lng: 138.73 };
+  const summit = { lat: 35.36, lng: 138.80 };  // 直線距離 約6.4km
+  const normal = estimateMinutes(base, summit);
+  const slow = estimateMinutes(base, summit, { slow: true });
+  // 平地の式（22km/hの車寄り）なら20分程度で出てしまうが、
+  // 登山の目安（2.2km/h）ならその5倍以上かかる。
+  assert.ok(slow > normal * 4, `normal=${normal} slow=${slow}`);
+});
+
+test("isSlowTerrain は、山まわりのカテゴリだけ拾う", () => {
+  assert.ok(isSlowTerrain({ category: "登山" }));
+  assert.ok(isSlowTerrain({ category: "高原" }));
+  assert.ok(!isSlowTerrain({ category: "公園" }));
+  assert.ok(!isSlowTerrain(undefined));
 });
 
 test("国際線は、国内線より手続きのぶん長く見る", () => {

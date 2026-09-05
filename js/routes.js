@@ -15,7 +15,8 @@ import { TUNING, USE_ROUTES_API } from "./config.js";
 import { endpointFor, keyHeaders, usingProxy } from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
 import { QuotaBlockedError, meteredFetch } from "./quota.js";
-import { estimateMinutes, haversineKm } from "./feasibility.js";
+import { estimateMinutes, haversineKm, isSlowTerrain } from "./feasibility.js";
+import { nearestStop } from "./stops.js";
 import { summarizeTransitLeg, transitFieldMask } from "./transit.js";
 
 /**
@@ -229,12 +230,51 @@ function readableError(text) {
   return text;
 }
 
+/**
+ * 1区間ぶんの「なんとなくの目安」。
+ *
+ * 両端の近くに停留所（駅・バス停、js/stops.js）が見つかれば、
+ * 「起点→最寄り停留所は徒歩」「停留所どうしは目安の速さ」
+ * 「最寄り停留所→終点は徒歩」の3つに分けて見積もります。
+ * 見つからなければ、これまでどおり直線距離1本の目安にします。
+ *
+ * 富士山五合目のような区間（速い公共交通はバス停まで、そこから先は
+ * 登山道）を、ぜんぶ同じ速さで計算すると大きく外れるための工夫です。
+ * 山まわりのカテゴリ（isSlowTerrain）に触れる徒歩区間だけ、
+ * 街なかより遅い速さで見ます。停留所どうしの区間は、バスや鉄道が
+ * 走っている前提なのでこれまでの推定式のままです。
+ */
+async function estimateLegRough(a, b) {
+  const direct = estimateMinutes(a, b, {
+    slow: isSlowTerrain(a) || isSlowTerrain(b),
+  });
+  const directKm = haversineKm(a, b);
+  // 短い区間では、停留所を挟む意味がありません（探す手間のほうが大きい）。
+  if (directKm <= 1.5) return direct;
+
+  const [stopA, stopB] = await Promise.all([
+    nearestStop(a, Math.min(5, directKm / 2)),
+    nearestStop(b, Math.min(5, directKm / 2)),
+  ]);
+  if (!stopA || !stopB) return direct;
+  if (stopA.lat === stopB.lat && stopA.lng === stopB.lng) return direct;
+
+  const walkA = estimateMinutes(a, stopA, { slow: isSlowTerrain(a) });
+  const walkB = estimateMinutes(stopB, b, { slow: isSlowTerrain(b) });
+  const between = estimateMinutes(stopA, stopB);
+  const viaStops = walkA + between + walkB;
+
+  // 停留所ぶん大きく遠まわりになるなら、その停留所は的外れだったと見て
+  // 直線の目安に戻します。
+  return viaStops <= direct * 2.2 ? viaStops : direct;
+}
+
 /** 推定にフォールバックしたときの結果。 */
-function estimatedLegs(points) {
+async function estimatedLegs(points) {
   const legs = [];
   for (let i = 0; i + 1 < points.length; i++) {
     legs.push({
-      minutes: estimateMinutes(points[i], points[i + 1]),
+      minutes: await estimateLegRough(points[i], points[i + 1]),
       meters: Math.round(haversineKm(points[i], points[i + 1]) * 1000),
       line: null,
       routed: false,
@@ -446,7 +486,7 @@ async function computeTransitChain(points, opts) {
     if (legs[i]?.routed) continue;
     estimated++;
     legs[i] = {
-      minutes: estimateMinutes(points[i], points[i + 1]),
+      minutes: await estimateLegRough(points[i], points[i + 1]),
       meters: Math.round(haversineKm(points[i], points[i + 1]) * 1000),
       line: null, routed: false,
     };
@@ -505,29 +545,29 @@ async function computeRouteUncached(points, opts = {}) {
   // Routes API の中間地点は 25 件程度が上限。超える経路は分割せず推定にします
   // （分割すると結局リクエストが増えて、費用を抑える目的から外れるため）。
   if (points.length > 25) {
-    return { ...estimatedLegs(points), mode, error: "地点数が多すぎます" };
+    return { ...(await estimatedLegs(points)), mode, error: "地点数が多すぎます" };
   }
   // 空路になる距離は、そもそも経路が引けません（海をまたぐ区間も同じ）。
   // 投げれば ZERO_RESULTS か 4xx が返るだけなので、呼ばずに推定にします。
   // キーの有無より先に見ます。キーがあっても呼ぶべきでない呼び出しだからです。
   const longest = longestLegKm(points);
   if (longest > 700) {
-    return { ...estimatedLegs(points), mode,
+    return { ...(await estimatedLegs(points)), mode,
              error: `区間が長すぎます（最長 ${Math.round(longest)}km）。`
                + "空路のため経路検索は行いません" };
   }
   if (!hasMapsAccess()) {
-    return { ...estimatedLegs(points), mode,
+    return { ...(await estimatedLegs(points)), mode,
              error: "経路APIのキーが未設定です（⚙ 設定 → 開発者向け から入力できます）" };
   }
   if (!USE_ROUTES_API) {
     usage.skipped++;
-    return { ...estimatedLegs(points), mode,
+    return { ...(await estimatedLegs(points)), mode,
              error: "config.js の USE_ROUTES_API が false です" };
   }
   // 続けて失敗している間は呼びません。原因が直るまで課金だけが増えるためです。
   if (breaker.open) {
-    return { ...estimatedLegs(points), mode,
+    return { ...(await estimatedLegs(points)), mode,
              error: `Routes API の呼び出しを停止しています（${breaker.reason}）` };
   }
 
@@ -553,7 +593,7 @@ async function computeRouteUncached(points, opts = {}) {
       const text = await res.text().catch(() => "");
       const detail = `Routes API ${res.status}: ${readableError(text).slice(0, 200)}`;
       noteFailure(res.status, detail);
-      return { ...estimatedLegs(points), mode, modeNote, error: detail };
+      return { ...(await estimatedLegs(points)), mode, modeNote, error: detail };
     }
     breaker.fails = 0;   // 1回でも通れば数え直し
     let data = await res.json();
@@ -586,7 +626,7 @@ async function computeRouteUncached(points, opts = {}) {
           + "時刻表が未公開の先の日付で起きます）"
         : "その区間に道路経路が見つかりませんでした（海をまたぐ区間など）";
       usage.lastError = `ZERO_RESULTS: ${why}`;
-      return { ...estimatedLegs(points), mode, modeNote,
+      return { ...(await estimatedLegs(points)), mode, modeNote,
                error: `経路が見つかりません — ${why}` };
     }
 
@@ -642,9 +682,9 @@ async function computeRouteUncached(points, opts = {}) {
       // 呼んでいないので、呼び出し回数には数えません。
       usage.calls--;
       usage.skipped++;
-      return { ...estimatedLegs(points), mode, modeNote, error: e.message };
+      return { ...(await estimatedLegs(points)), mode, modeNote, error: e.message };
     }
-    return { ...estimatedLegs(points), mode, modeNote,
+    return { ...(await estimatedLegs(points)), mode, modeNote,
              error: String(e?.message ?? e) };
   }
 }

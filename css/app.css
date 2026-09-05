@@ -1200,19 +1200,16 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .tl .body.tap:hover { box-shadow: var(--md-sys-elevation-1); }
 
-.card-art { position: relative; height: 140px; background-size: cover;
-            background-position: center; }
-.card-art .card-photo {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; opacity: 0;
-  transition: opacity var(--md-sys-motion-long) var(--md-sys-motion-standard);
-}
-.card-art .card-photo.on { opacity: 1; }
-.card-art .art-ic {
-  position: absolute; right: 14px; bottom: 12px; font-size: 26px;
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .3));
-}
 .card-info { padding: 14px 16px 16px; }
+
+/* スポットのカードは、写真の代わりに分類の色をごく薄く敷くだけにします
+   （--card-hue は js/ui.js が art.js の色相を入れます）。 */
+.tl.spot .body.card-tinted {
+  background: hsl(var(--card-hue) 55% 95%);
+}
+@media (prefers-color-scheme: dark) {
+  .tl.spot .body.card-tinted { background: hsl(var(--card-hue) 26% 20%); }
+}
 
 /* ティア。色の粒に、必ず言葉を添えます。 */
 .tier {
@@ -1230,10 +1227,6 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .tier.major::before  { background: var(--md-sys-color-primary); }
 .tier.known::before  { background: var(--md-sys-color-tertiary); }
 .tier.hidden::before { background: var(--md-sys-color-secondary); }
-.card-art .tier {
-  position: absolute; top: 12px; left: 14px;
-  box-shadow: var(--md-sys-elevation-1);
-}
 
 /* 混雑の見込み。色だけで伝えないよう、必ず言葉を出します。 */
 .crowd-chip {
@@ -1643,7 +1636,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 @media print {
   body { overflow: visible; background: #fff; color: #000; font-size: 11pt; }
   .pane-form, .map, .map-expand, .settings-fab, .md-fab-extended,
-  .day-tabs, .item-links, .chev, .card-art, .panel.talk, .panel.adjust,
+  .day-tabs, .item-links, .chev, .panel.talk, .panel.adjust,
   .variants, .actions { display: none !important; }
   .layout { display: block; }
   .pane, .pane-result { overflow: visible !important; height: auto !important; }
