@@ -17,7 +17,7 @@ import {
 } from "./ai.js";
 import { areaNote, areaScope, detectAreas, unknownPlaceTerms } from "./areas.js";
 import { discoverArea, resolveDestination } from "./discover.js";
-import { estimateMinutes } from "./feasibility.js";
+import { estimateMinutes, haversineKm } from "./feasibility.js";
 import {
   mergeIntoKb, rankRegions, reachableRegions, searchSpots, searchSpotsByKeyword,
 } from "./kb.js";
@@ -212,11 +212,21 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     }
   }
 
+  const nights = nightsOf(trip);
+  const days = nights + 1;
+
   if (scope.regionIds) {
     // 語句に一致したものだけを残すと、「四国」という語を説明文に含む
     // 数件だけが候補になり、四国7エリアのうち3エリアしか検討されません
     // でした。指定された範囲は丸ごと候補にしたうえで、語句に一致した
     // ものを上に置きます。
+    //
+    // そのうえで、**指定エリアだけでは日数が埋まらないなら、隣を足します。**
+    // 箱根の収録は11件です。「箱根で」と書いて3泊4日にすると、
+    // 4日で11か所（1日2〜3か所）にしかならず、あとは空きます。
+    // 実際に行く人も、その場合は小田原や熱海まで足を延ばします。
+    // 足りているときは触りません（指定を無視して広げたりはしません）。
+    widenScopeForDays(scope, kb, days);
     const inArea = matches.filter((m) => scope.regionIds.has(m.spot.regionId));
     const have = new Set(inArea.map((m) => m.spot.id));
     const rest = kb.spots
@@ -224,9 +234,6 @@ export async function planTrip({ trip, kb, onProgress = () => {},
       .map((spot) => ({ spot, score: 0 }));
     matches = [...inArea, ...rest];
   }
-
-  const nights = nightsOf(trip);
-  const days = nights + 1;
   // 1日に動ける時間から、その日の件数を決めます。
   //
   // ペース（ゆったり／標準／詰込）だけで決めていたときは、
@@ -770,6 +777,56 @@ export class PlanError extends Error {
 }
 
 /** 出典の重複を落とします（同じ記事が何度も返ることがあります）。 */
+/** その日数を埋めるのに要る、おおよその立ち寄り件数。 */
+export function spotsNeededFor(days) {
+  return Math.max(3, days * 4);
+}
+
+/**
+ * 指定エリアだけでは日数を埋められないとき、近いエリアを足します。
+ *
+ * 箱根の収録は11件です。「箱根で」と書いて3泊4日にすると、4日で11か所
+ * （1日2〜3か所）にしかなりません。実際に行く人も、その場合は小田原や
+ * 熱海まで足を延ばします。指定を無視するのではなく、**足りないぶんだけ**
+ * 隣を足します。足りているときは何もしません。
+ *
+ * 近さは、指定エリアの中心からの直線距離で見ます。遠いエリアを足すと
+ * 「箱根と言ったのに京都が入る」ことになるので、上限を置きます。
+ *
+ * @param {{regionIds:Set<string>}} scope その場で書き換えます
+ * @param {number} days
+ * @returns {string[]} 足したエリア名
+ */
+export function widenScopeForDays(scope, kb, days, maxKm = 60) {
+  if (!scope.regionIds?.size) return [];
+  const need = spotsNeededFor(days);
+  const have = [...scope.regionIds]
+    .reduce((n, id) => n + (kb.spotsByRegion.get(id)?.length ?? 0), 0);
+  if (have >= need) return [];
+
+  const anchors = [...scope.regionIds]
+    .map((id) => kb.regionsById.get(id)).filter(Boolean);
+  if (!anchors.length) return [];
+
+  const near = [];
+  for (const r of kb.regions) {
+    if (scope.regionIds.has(r.id)) continue;
+    const km = Math.min(...anchors.map((a) => haversineKm(a, r)));
+    if (km <= maxKm) near.push({ region: r, km });
+  }
+  near.sort((a, b) => a.km - b.km);
+
+  const added = [];
+  let total = have;
+  for (const { region } of near) {
+    if (total >= need) break;
+    scope.regionIds.add(region.id);
+    total += kb.spotsByRegion.get(region.id)?.length ?? 0;
+    added.push(region.name);
+  }
+  return added;
+}
+
 function dedupeSources(list) {
   const seen = new Set();
   const out = [];
