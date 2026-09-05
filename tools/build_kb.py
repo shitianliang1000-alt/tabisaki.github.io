@@ -3,8 +3,13 @@
 
 取り込む元
   1. 国土数値情報 観光資源（P12, 国土交通省）  … 全国 18,025 件
-  2. 観光資源台帳の KML（利用者提供）           … 全国 2,638 件
-  3. これまでの収録データ（手作業で確認済み）   … 232 件
+  2. これまでの収録データ（手作業で確認済み）   … 232 件
+
+観光資源台帳（日本観光振興協会）の KML も取り込んでいましたが、
+**再配布してよいかがはっきりしない**ため外しました。収録は公開
+リポジトリに入るので、条件の曖昧なものは置きません
+（外した手順は tools/drop_daicho.py）。読み込みの関数（read_kml）は
+残していますが、build からは呼びません。
 
 このアプリは「エリア（拠点）→ その日に回るスポット」という組み立て方を
 するので、点の集まりをそのまま入れても旅程になりません。市区町村でまとめ、
@@ -14,7 +19,7 @@
 2万件を1つの JS モジュールに入れると数MBになり、読み込みが重くなるため
 （この分割読み込みは kb.js に元からある仕組みです）。
 
-  python3 tools/build_kb.py <P12を展開したディレクトリ> <doc.kml> [出力先]
+  python3 tools/build_kb.py <P12を展開したディレクトリ> [出力先]
 """
 import io, json, math, os, re, sys, unicodedata
 from collections import defaultdict
@@ -139,7 +144,11 @@ def prefecture_of(code):
 
 
 def read_kml(path):
-    """観光資源台帳の KML。住所・資源タイプ・URL を持っています。"""
+    """観光資源台帳の KML。**build からは呼びません。**
+
+    再配布の条件がはっきりしないため、収録から外しました
+    （tools/drop_daicho.py）。読み方の記録として関数だけ残しています。
+    """
     text = io.open(path, encoding="utf-8").read()
     out = []
     for m in re.finditer(r"<Placemark>(.*?)</Placemark>", text, re.S):
@@ -437,28 +446,26 @@ def centroid(points):
             sum(p[1] for p in points) / len(points))
 
 
-def build(p12_dir, kml_path, out_dir):
+def build(p12_dir, out_dir):
     curated = read_curated()
     p12 = read_p12(p12_dir)
-    kml = read_kml(kml_path)
-    sys.stderr.write("読み込み: 国土数値情報 %d件 / 台帳 %d件 / 収録済み %d件\n"
-                     % (len(p12), len(kml), len(curated["spots"])))
+    sys.stderr.write("読み込み: 国土数値情報 %d件 / 収録済み %d件\n"
+                     % (len(p12), len(curated["spots"])))
 
     # 元データにも壊れた座標が混じります（経度が 133.3 ではなく 33.3 など）。
     # 推測で直すと、もっともらしい嘘になります。落として件数を伝えます。
-    before = len(kml) + len(p12)
-    kml = [r for r in kml if in_japan(r)]
+    before = len(p12)
     p12 = [r for r in p12 if in_japan(r)]
-    dropped = before - len(kml) - len(p12)
+    dropped = before - len(p12)
     if dropped:
         sys.stderr.write("座標が日本の範囲外の %d件を除外\n" % dropped)
 
-    filled = fill_missing_prefectures(kml, p12)
+    filled = fill_missing_prefectures([], p12)
     sys.stderr.write("住所に県名が無い %d件を、座標から補完\n" % filled)
 
     # 収録済みの名前は、外部データ側から落とします（確認済みを優先）
     curated_names = {s["name"] for s in curated["spots"]}
-    records, merged = dedupe(kml + p12,
+    records, merged = dedupe(p12,
                              block_keys={dedupe_key(n) for n in curated_names})
     sys.stderr.write("重複をまとめて %d件（%d件を統合）\n" % (len(records), merged))
 
@@ -576,8 +583,8 @@ def write_shards(out_dir, regions, spots):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2:
         sys.stderr.write(__doc__)
         raise SystemExit(2)
-    out = sys.argv[3] if len(sys.argv) > 3 else os.path.join(WEB, "kb")
-    build(sys.argv[1], sys.argv[2], out)
+    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(WEB, "kb")
+    build(sys.argv[1], out)
