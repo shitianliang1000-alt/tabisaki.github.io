@@ -181,3 +181,47 @@ test("公開知識ベースを読めないときは、同梱データに落ち�
     globalThis.fetch = real;
   }
 });
+
+// --- 停留所データ ----------------------------------------------------------
+//
+// もとは国土数値情報の2008年度版（鉄道）と2012年3月時点（バス停）です。
+// 17年ぶんの変化は tools/station_updates.py の差分であてています。
+// 網羅ではないので、「入れたはずのものが入っているか」だけを固定します。
+
+import { readFileSync } from "node:fs";
+
+const railStops = JSON.parse(
+  readFileSync(new URL("../kb/stops-rail.json", import.meta.url), "utf8"));
+
+test("駅データに、延伸で増えた新幹線の駅が入っている", () => {
+  const names = new Set(railStops.stops.map((s) => s[2]));
+  for (const n of ["新函館北斗", "上越妙高", "七戸十和田", "黒部宇奈月温泉",
+                   "新高岡", "越前たけふ", "嬉野温泉", "新大村", "新鳥栖"]) {
+    assert.ok(names.has(n), `${n} が入っていません`);
+  }
+});
+
+test("廃止された路線の駅は、出発地の候補に出てこない", () => {
+  const names = new Set(railStops.stops.map((s) => s[2]));
+  // 三江線・日高本線・夕張支線・札沼線・岩泉線・江差線
+  for (const n of ["石見川本", "様似", "夕張", "新十津川", "岩泉", "江差",
+                   "増毛", "幾寅"]) {
+    assert.ok(!names.has(n), `${n} が残っています（廃止された駅です）`);
+  }
+});
+
+test("同じ名前の別の駅まで消していない", () => {
+  const names = new Set(railStops.stops.map((s) => s[2]));
+  // 「長谷」は三江線にもありましたが、兵庫と神奈川のものは残ります。
+  for (const n of ["長谷", "金山", "大和田", "中里", "神明", "落合",
+                   "三次", "江津", "富良野", "新得", "木古内"]) {
+    assert.ok(names.has(n), `${n} まで消えています`);
+  }
+});
+
+test("座標は日本の範囲に収まっている", () => {
+  for (const [lat, lng, name] of railStops.stops) {
+    assert.ok(lat > 24 && lat < 46, `${name} の緯度が範囲外: ${lat}`);
+    assert.ok(lng > 122 && lng < 154, `${name} の経度が範囲外: ${lng}`);
+  }
+});
