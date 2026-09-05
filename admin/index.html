@@ -1,0 +1,35 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>旅さき — 管理</title>
+
+<!-- 旅行者向けの画面から、技術の言葉を全部こちらへ移しました。
+     「Gemini」「Routes API」「知識ベース」は、運用する人の言葉です。
+
+     ここは公開しないでください。**認証はありません。**
+     置くとしても、Basic 認証や社内ネットワークの内側にしてください。
+     読み取りしかしませんが、どのデータをどこから取っているかは分かります。 -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self';
+  style-src 'self' 'unsafe-inline';
+  connect-src 'self' https://generativelanguage.googleapis.com
+              https://routes.googleapis.com https://api.open-meteo.com;
+  base-uri 'none'; object-src 'none'; form-action 'none'">
+
+<link rel="stylesheet" href="../css/hig-tokens.css">
+<link rel="stylesheet" href="../css/hig.css">
+<link rel="stylesheet" href="admin.css">
+
+<header class="bar">
+  <span class="mark" aria-hidden="true">✦</span>
+  <h1>旅さき — 管理</h1>
+  <span class="spacer"></span>
+  <a class="back" href="../index.html">旅程の画面へ</a>
+</header>
+
+<main id="app">
+  <p class="loading" id="loading">読み込んでいます…</p>
+</main>
+
+<script type="module" src="admin.js"></script>

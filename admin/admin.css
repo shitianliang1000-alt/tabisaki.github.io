@@ -1,0 +1,101 @@
+/* 旅さき — 管理画面
+   旅行者向けの画面とは、目的が違います。あちらは「旅に出たくなる」
+   ため、こちらは「いま何がどうなっているか」を早く知るためのものです。
+   飾りは置きません。 */
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--hig-grouped-bg);
+  color: var(--hig-label);
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans",
+    "Yu Gothic Medium", "Noto Sans JP", "Segoe UI", sans-serif;
+  font-size: 14px; line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--tabi-indigo); }
+
+.bar {
+  display: flex; align-items: center; gap: 10px;
+  height: 52px; padding: 0 20px;
+  background: var(--hig-material);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: .5px solid var(--hig-separator);
+  position: sticky; top: 0; z-index: 5;
+}
+.bar h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.1px; }
+.bar .mark { color: var(--tabi-teal); }
+.bar .spacer { flex: 1; }
+.bar .back { font-size: 14px; font-weight: 600; text-decoration: none; }
+
+main { max-width: 900px; margin: 0 auto; padding: 24px 20px 60px; }
+.loading { color: var(--hig-label-2); }
+
+h2 {
+  margin: 28px 0 10px;
+  font-size: 19px; font-weight: 700; letter-spacing: -.3px;
+}
+h2:first-child { margin-top: 0; }
+
+.card {
+  background: var(--hig-card);
+  border-radius: var(--hig-r-md);
+  box-shadow: inset 0 0 0 .5px var(--hig-separator);
+  padding: 4px 0;
+  margin-bottom: 14px;
+}
+.row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 11px 16px; min-height: 44px;
+}
+.row + .row { box-shadow: inset 0 .5px 0 var(--hig-separator); }
+.row .k { flex: none; font-weight: 600; min-width: 190px; }
+.row .v { flex: 1; min-width: 0; color: var(--hig-label-2); overflow-wrap: anywhere; }
+.row .v.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+               font-size: 13px; }
+
+.pill {
+  display: inline-block; padding: 1px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 700;
+}
+.ok  { background: color-mix(in srgb, var(--hig-green) 18%, transparent);
+       color: var(--hig-green); }
+.warn{ background: color-mix(in srgb, var(--tabi-amber) 18%, transparent);
+       color: var(--tabi-amber); }
+.ng  { background: color-mix(in srgb, var(--hig-red) 18%, transparent);
+       color: var(--hig-red); }
+
+/* 件数の棒。数字だけより、偏りが目で分かります。 */
+.bars { padding: 8px 16px 14px; }
+.bar-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+.bar-row .n { flex: none; width: 150px; font-size: 13px; }
+.bar-row .t { flex: 1; height: 10px; border-radius: 5px;
+              background: var(--hig-fill); overflow: hidden; }
+.bar-row .t > i { display: block; height: 100%; border-radius: 5px;
+                  background: var(--tabi-teal); }
+.bar-row .c { flex: none; width: 72px; text-align: right;
+              font-size: 13px; color: var(--hig-label-2);
+              font-variant-numeric: tabular-nums; }
+
+.note {
+  margin: 10px 0 0; padding: 12px 14px;
+  border-radius: var(--hig-r-sm);
+  background: var(--hig-fill);
+  font-size: 13px; line-height: 1.75;
+}
+.note.danger {
+  background: color-mix(in srgb, var(--hig-red) 12%, transparent);
+}
+button.act {
+  border: none; border-radius: var(--hig-r-sm);
+  background: var(--tabi-indigo); color: #fff;
+  font: inherit; font-weight: 600; padding: 9px 16px; cursor: pointer;
+}
+button.act:disabled { opacity: .4; cursor: default; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 16px; }
+th { color: var(--hig-label-2); font-weight: 600; }
+tr + tr td { box-shadow: inset 0 .5px 0 var(--hig-separator); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
