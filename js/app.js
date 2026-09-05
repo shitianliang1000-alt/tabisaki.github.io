@@ -17,6 +17,7 @@ import { loadKnowledgeBase, mergeIntoKb } from "./kb.js";
 import { clearRouteCache, diagnoseMapsKey, resetRoutesBreaker, routesUsage }
   from "./routes.js";
 import { PLACES, findPlace, nearestPlaceInfo } from "./places.js";
+import { findStop, preloadStops, searchStops } from "./stops.js";
 import { END_MODES, formatHourField, makeTrip, parseHourField, validateTrip }
   from "./trip.js";
 import { TripMap, pointsFromItinerary } from "./map.js";
@@ -256,12 +257,56 @@ function setBadge(text, isError = false) {
   b.classList.toggle("err", isError);
 }
 
+/**
+ * 出発地・到着地の候補。
+ *
+ * 主要駅78件は最初から並べておき、打ち始めたら全国の停留所
+ * （駅9,612件・バス停65,606件、kb/stops-*.json）から絞って足します。
+ *
+ * 7万件を datalist にまとめて入れることはできません。件数ぶんの
+ * DOM を作るので、ブラウザが数秒固まります。打たれた文字で絞って
+ * 20件だけ差し替えます（ファイルの形ではなく、件数が問題です）。
+ */
 function fillPlaces() {
   const list = $("#place-list");
   for (const p of PLACES) {
     list.append(el("option", { value: p.name }, `${p.area}`));
   }
   $("#depart-place").value = "東京駅";
+
+  for (const id of ["#depart-place", "#end-place"]) {
+    $(id)?.addEventListener("input", (e) => suggestPlaces(e.currentTarget.value));
+    // 停留所のデータは2.7MBあり、最初の1回は読み込みに数秒かかります。
+    // 打ち始めてから取りにいくと、その数秒ぶん候補が出ません。
+    // 欄に触れた時点で先に取り始めます（触れなければ取りません）。
+    $(id)?.addEventListener("focus", preloadStops, { once: true });
+  }
+}
+
+/** いま打たれている文字に合う停留所を、候補欄に差し込みます。 */
+let suggestSeq = 0;
+async function suggestPlaces(text) {
+  const q = String(text ?? "").trim();
+  const list = $("#place-list");
+  if (!list) return;
+  const seq = ++suggestSeq;
+  // 1文字だと候補が多すぎて選べません。主要駅だけ出しておきます。
+  const found = q.length >= 2 ? await searchStops(q, 20) : [];
+  if (seq !== suggestSeq) return;   // もっと新しい入力が来ていたら捨てます
+
+  list.textContent = "";
+  const seen = new Set();
+  for (const p of PLACES) {
+    if (q && !p.name.includes(q)) continue;
+    seen.add(p.name);
+    list.append(el("option", { value: p.name }, p.area));
+  }
+  for (const s of found) {
+    if (seen.has(s.name)) continue;
+    seen.add(s.name);
+    list.append(el("option", { value: s.name },
+      s.kind === "rail" ? "駅" : "バス停"));
+  }
 }
 
 function setDefaultDates() {
@@ -980,13 +1025,27 @@ function updateWindowHelp() {
   help.textContent = `${span}・${back}に${hhmm}までに${verb}`;
 }
 
-function readTrip() {
+/**
+ * 打たれた名前から場所を決めます。
+ *
+ * まず主要駅78件、当たらなければ全国の停留所（駅・バス停）から探します。
+ * 「収録の78駅にしか出発地を置けない」ままだと、最寄りが載っていない
+ * 人はこのアプリを使い始めることすらできません。
+ */
+async function resolvePlace(text) {
+  const hit = findPlace(text);
+  if (hit) return hit;
+  const stop = await findStop(text);
+  return stop ? { name: stop.name, lat: stop.lat, lng: stop.lng } : null;
+}
+
+async function readTrip() {
   const genres = [...document.querySelectorAll('.md-chip[aria-pressed="true"]')]
     .map((c) => c.dataset.genre);
   const other = state.endMode === "other";
-  const end = other ? findPlace($("#end-place").value) : null;
+  const end = other ? await resolvePlace($("#end-place").value) : null;
   return makeTrip({
-    origin: findPlace($("#depart-place").value),
+    origin: await resolvePlace($("#depart-place").value),
     destination: end,
     returnTo: null,
     endMode: other ? END_MODES.END_AT_DESTINATION : END_MODES.RETURN_TO_ORIGIN,
@@ -1315,7 +1374,7 @@ function applySuggestion(s) {
  *   省略すると、左の入力欄から読みます。
  */
 async function run(override) {
-  const trip = override ?? readTrip();
+  const trip = override ?? await readTrip();
   showError("");
 
   if (!trip.origin) {
