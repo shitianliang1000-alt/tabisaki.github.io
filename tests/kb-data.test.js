@@ -1,0 +1,183 @@
+// 取り込んだ外部データ（kb/）そのもののテスト。
+//
+// 2つの元データ
+//   ・国土数値情報 観光資源（国土交通省）
+//   ・観光資源台帳の KML
+// を、旅程に使える形にまとめたものです。件数が多いぶん、壊れ方も
+// 静かなので（同じ名前が2回並ぶ、有名な場所が丸ごと落ちる、など）
+// 出来上がったファイルに対して直接ものを言います。
+
+import assert from "node:assert/strict";
+import test from "node:test";
+import fs from "node:fs";
+import path from "node:path";
+
+import { loadKnowledgeBase } from "../js/kb.js";
+import { genresForCategory, profileOf } from "../js/feasibility.js";
+
+const KB_DIR = path.join(import.meta.dirname, "..", "kb");
+const has = fs.existsSync(path.join(KB_DIR, "index.json"));
+const read = (f) => JSON.parse(fs.readFileSync(path.join(KB_DIR, f), "utf8"));
+
+const index = has ? read("index.json") : null;
+const regions = has ? read("regions.json").regions : [];
+const spots = has
+  ? index.shards.flatMap((s) => read(s.file).spots)
+  : [];
+
+test("知識ベースが生成されている", { skip: !has && "kb/ が未生成" }, () => {
+  assert.ok(regions.length > 1000, `エリア ${regions.length}`);
+  assert.ok(spots.length > 10000, `スポット ${spots.length}`);
+  assert.equal(index.counts.regions, regions.length);
+  assert.equal(index.counts.spots, spots.length);
+});
+
+test("出典が記録されている（表示が条件のデータを含むため）",
+     { skip: !has && "kb/ が未生成" }, () => {
+  assert.ok(index.sources?.length >= 2);
+  assert.ok(index.sources.some((s) => /国土数値情報/.test(s.name)));
+  assert.ok(index.sources.some((s) => s.url));
+});
+
+// 名前が同じでも、離れていれば別の場所です。
+//
+// 「白浜海水浴場」は和歌山にも静岡にもあります。「徴古館」も複数あります。
+// 全国で名前が一意であることを求めると、実在する別の場所を落とすことに
+// なります。困るのは「同じ旅程に同じ名前が2回並ぶ」ことなので、
+// **同じエリアの中**と、**近い距離**で見ます。
+
+function km(a, b) {
+  const R = 6371;
+  const p1 = a.lat * Math.PI / 180;
+  const p2 = b.lat * Math.PI / 180;
+  const dp = p2 - p1;
+  const dl = (b.lng - a.lng) * Math.PI / 180;
+  const h = Math.sin(dp / 2) ** 2
+    + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+test("同じエリアに、同じ名前の場所が二重に入っていない",
+     { skip: !has && "kb/ が未生成" }, () => {
+  const seen = new Map();
+  const dups = [];
+  for (const s of spots) {
+    const key = `${s.regionId}\u0000${s.name}`;
+    if (seen.has(key)) dups.push(s.name);
+    else seen.set(key, s);
+  }
+  assert.deepEqual(dups, [],
+    `同じ旅程に2回出ます: ${dups.slice(0, 5)}`);
+});
+
+test("同じ名前で近い場所が、別々に入っていない",
+     { skip: !has && "kb/ が未生成" }, () => {
+  const byName = new Map();
+  for (const s of spots) {
+    const list = byName.get(s.name);
+    if (list) list.push(s); else byName.set(s.name, [s]);
+  }
+  const close = [];
+  for (const [name, list] of byName) {
+    if (list.length < 2) continue;
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        if (km(list[i], list[j]) < 5) close.push(name);
+      }
+    }
+  }
+  assert.deepEqual(close, [],
+    `同じ場所が2件に分かれています: ${close.slice(0, 5)}`);
+});
+
+test("名指しで探される場所が落ちていない", { skip: !has && "kb/ が未生成" }, () => {
+  const names = new Set(spots.map((s) => s.name));
+  const probes = ["宗谷岬", "知床五湖", "白金 青い池", "縄文杉",
+                  "兼六園", "厳島神社", "首里城公園", "松山城"];
+  const missing = probes.filter((p) => !names.has(p));
+  assert.deepEqual(missing, [], `落ちています: ${missing}`);
+});
+
+test("座標が日本の範囲に収まっている", { skip: !has && "kb/ が未生成" }, () => {
+  const bad = spots.filter((s) =>
+    !(s.lat >= 20 && s.lat <= 46 && s.lng >= 122 && s.lng <= 154));
+  assert.equal(bad.length, 0, `範囲外: ${bad.slice(0, 3).map((s) => s.name)}`);
+});
+
+test("すべてのスポットが、実在するエリアに属している",
+     { skip: !has && "kb/ が未生成" }, () => {
+  const ids = new Set(regions.map((r) => r.id));
+  const orphan = spots.filter((s) => !ids.has(s.regionId));
+  assert.equal(orphan.length, 0);
+});
+
+test("エリアの拠点が、そのエリアの範囲内にある",
+     { skip: !has && "kb/ が未生成" }, () => {
+  // 宿を取る地点になります。中心から遠いと、まったく別の町を指します。
+  const far = regions.filter((r) => {
+    const dLat = Math.abs(r.stationLat - r.lat);
+    const dLng = Math.abs(r.stationLng - r.lng);
+    return dLat > 0.6 || dLng > 0.6;
+  });
+  assert.equal(far.length, 0, `拠点が離れすぎ: ${far.slice(0, 3).map((r) => r.name)}`);
+});
+
+test("外部データの営業時間は「目安」として扱われる",
+     { skip: !has && "kb/ が未生成" }, () => {
+  const sample = spots.find((s) => s.src);
+  assert.ok(sample, "外部データの印が付いていません");
+  const prof = profileOf({ ...sample, verified: false });
+  assert.equal(prof.estimated, true,
+    "確認していない営業時間が、確定値として扱われています");
+});
+
+test("分類からジャンルを補える（ファイルには持たせていない）", () => {
+  assert.deepEqual(genresForCategory("温泉"), ["onsen"]);
+  assert.deepEqual(genresForCategory("城"), ["history"]);
+  assert.deepEqual(genresForCategory("知らない分類"), ["city"]);
+});
+
+test("読み込み時に、省いた項目が補われる", async () => {
+  // fetch を差し替えて、公開知識ベースの読み込み経路を通します
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const name = String(url).split("/").pop();
+    const body = name === "index.json"
+      ? { regionsFile: "regions.json", shards: [{ file: "spots-00.json" }],
+          counts: { regions: 1, spots: 1 },
+          sources: [{ name: "テスト", url: "https://example.test" }] }
+      : name === "regions.json"
+        ? { regions: [{ id: "r1", name: "テスト町", prefecture: "北海道",
+                        lat: 43, lng: 141, stationLat: 43, stationLng: 141 }] }
+        : { spots: [{ id: "r1-1", regionId: "r1", name: "テスト城",
+                      category: "城", lat: 43.01, lng: 141.01,
+                      fame_tier: "known", src: "kokudo" }] };
+    return { ok: true, status: 200, json: async () => body };
+  };
+  try {
+    const kb = await loadKnowledgeBase();
+    const spot = kb.spots[0];
+    assert.equal(spot.region, "テスト町");
+    assert.equal(spot.prefecture, "北海道");
+    assert.deepEqual(spot.genres, ["history"]);
+    assert.equal(spot.wikipedia, "テスト城");
+    assert.equal(spot.fame_score, 55);
+    assert.equal(spot.verified, false);
+    assert.equal(kb.attribution[0].name, "テスト");
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("公開知識ベースを読めないときは、同梱データに落ちて理由を言う", async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("接続できません"); };
+  try {
+    const kb = await loadKnowledgeBase();
+    assert.equal(kb.source, "sample");
+    assert.match(kb.loadError, /読み込めませんでした/);
+    assert.ok(kb.spots.length > 0, "真っ白になっています");
+  } finally {
+    globalThis.fetch = real;
+  }
+});
