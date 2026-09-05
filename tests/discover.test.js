@@ -94,15 +94,15 @@ test("「東京都」と名乗ってパリの座標を返したら弾く", () =>
   assert.match(r.rejected[0].reason, /東京都から\d+km/);
 });
 
-test("地球上に無い座標は、名前が何であれ弾く", () => {
+test("座標として成立しないものは、名前が何であれ弾く", () => {
   const r = validateDiscovered({
     areas: [{
-      id: "nowhere", name: "どこか", country: "フランス",
+      id: "nowhere", name: "どこか", prefecture: "東京都",
       lat: 200, lng: 999,
       spots: [{ name: "何か", category: "城", lat: 200, lng: 999,
                 dwell: 60, open: 9, close: 17, fee: 0 }],
     }],
-  }, { term: "フランス" });
+  }, { term: "東京" });
   assert.equal(r.regions.length, 0);
   assert.match(r.rejected[0].reason, /地球の範囲外/);
 });
@@ -194,45 +194,12 @@ const PARIS = {
   }],
 };
 
-test("海外の土地も、日本と同じ手順で候補データになる", () => {
+test("国外の土地は取り込まない（このアプリは国内の旅だけを扱います）", () => {
+  // 調べた先が日本でなければ、収録せずに理由を残します。
+  // 黙って混ぜると、行けない旅程ができあがります。
   const r = validateDiscovered(PARIS, { term: "パリ", country: "フランス" });
-  assert.equal(r.regions.length, 1);
-  assert.equal(r.regions[0].country, "フランス");
-  assert.equal(r.spots.length, 3);
-  assert.ok(r.spots.every((s) => s.source === "ai" && s.verified === false));
-});
-
-test("指定した国の外にある土地は採用しない", () => {
-  const wrong = structuredClone(PARIS);
-  wrong.areas[0].country = "イタリア";       // 座標はパリのまま
-  const r = validateDiscovered(wrong, { term: "イタリア", country: "イタリア" });
   assert.equal(r.regions.length, 0);
-  assert.match(r.rejected[0].reason, /イタリアから\d+km/);
-});
-
-test("頼んだ国と違う国が返ってきたら弾く", () => {
-  const r = validateDiscovered(PARIS, { term: "台湾", country: "台湾" });
-  assert.equal(r.regions.length, 0);
-  assert.match(r.rejected[0].reason, /範囲外の国/);
-});
-
-test("照合の基準を持たない国は、通すが「照合していない」と残す", () => {
-  const r = validateDiscovered({
-    areas: [{
-      id: "bhutan", name: "パロ", country: "ブータン",
-      lat: 27.43, lng: 89.42,
-      spots: [
-        { name: "タクツァン僧院", category: "寺院", lat: 27.49, lng: 89.36,
-          dwell: 240, open: 8, close: 17, fee: 2500, fame: "major",
-          description: "断崖に建つ僧院。" },
-        { name: "パロ・ゾン", category: "史跡", lat: 27.43, lng: 89.42,
-          dwell: 60, open: 9, close: 17, fee: 1500, fame: "known",
-          description: "谷を見下ろす城塞。" },
-      ],
-    }],
-  }, { term: "ブータン", country: "ブータン" });
-  assert.equal(r.regions.length, 1);
-  assert.deepEqual(r.unverifiedPlace, ["パロ"]);
+  assert.match(r.rejected[0].reason, /国外/);
 });
 
 // --- 最終入場・定休日まで調べる ---------------------------------------------

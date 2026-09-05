@@ -17,7 +17,6 @@ import {
 } from "./ai.js";
 import { areaNote, areaScope, detectAreas, unknownPlaceTerms } from "./areas.js";
 import { discoverArea, resolveDestination } from "./discover.js";
-import { isJapan, overseasNotes } from "./geo.js";
 import { estimateMinutes } from "./feasibility.js";
 import {
   mergeIntoKb, rankRegions, reachableRegions, searchSpots, searchSpotsByKeyword,
@@ -185,7 +184,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     const before = scope.regionIds;
     scope = areaScope(detectAreas(trip.note, kb));
     if (!scope.regionIds) {
-      // 海外など、日本の地名として解釈できない場合は、調べたエリアに絞る
+      // 収録の地名として解釈できない場合は、調べたエリアに絞る
       const ids = new Set(kb.regions.filter((r) => r.source === "ai")
         .map((r) => r.id));
       if (ids.size) scope = { regionIds: ids, matched: [], missing: [] };
@@ -427,17 +426,6 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   itin.discovered = discovered;
   itin.sources = dedupeSources(sources);
 
-  // 国をまたぐ旅は、旅程エンジンでは扱えないことが増えます。
-  // 計算できないからといって黙るのではなく、何が要るのかを書きます。
-  const firstStay = checked.stays?.[0]?.region;
-  const abroad = firstStay && !isJapan({ lat: firstStay.lat, lng: firstStay.lng,
-                                        country: firstStay.country });
-  const overseas = abroad
-    ? overseasNotes(trip.origin, { lat: firstStay.lat, lng: firstStay.lng,
-                                   country: firstStay.country })
-    : [];
-  itin.overseas = abroad ? { country: firstStay.country } : null;
-
   // 絶対条件が守れなかったときは、いちばん先に伝えます。
   const mustNotes = (checked.conflicts ?? []).map((c) =>
     `「必ず行く」に指定された${c.name}を旅程に入れられませんでした。${c.detail}`);
@@ -530,7 +518,6 @@ export async function planTrip({ trip, kb, onProgress = () => {},
 
   itin.warnings = [
     ...mustNotes,
-    ...overseas,
     ...discoveryNotes,
     ...areaNotes,
     ...farNotes,
