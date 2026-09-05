@@ -23,6 +23,7 @@ import { planTrip } from "./pipeline.js";
 import { haversineKm } from "./feasibility.js";
 import { configureQuota, describeUsage, quota } from "./quota.js";
 import { artFor, moodArt } from "./art.js";
+import { mixTargets } from "./mix.js";
 import { photoFor } from "./photos.js";
 import { applyEdit, describeEdit, parseEdit } from "./edit.js";
 import { applyReplan } from "./replan.js";
@@ -684,14 +685,6 @@ const MOODS = [
   "美術館と建築をめぐりたい",
 ];
 
-/** 自由入力の見本。カードでは表せない「名指し」を見せます。 */
-const FREE_EXAMPLES = [
-  "北海道で鉄道に乗りながら、有名な自然を見たい",
-  "富士山に登りたい",
-  "パリで美術館をめぐりたい",
-  "オーロラが見たい",
-];
-
 const MOOD_LABEL = {
   "温泉でゆっくり癒されたい": "温泉でゆっくり",
   "歴史ある街を歩いて、美味しいものを食べたい": "歴史ある街歩き",
@@ -728,20 +721,6 @@ function fillMoodRail() {
         other.setAttribute("aria-pressed", String(other === btn));
       }
     }));
-  }
-  // 自由入力の見本。カードでは表せない「名指し」を並べます。
-  const box = document.getElementById("free-examples");
-  if (box) {
-    for (const text of FREE_EXAMPLES) {
-      const b = el("button", { type: "button", class: "ex-chip" }, text);
-      b.addEventListener("click", () => {
-        $("#note").value = text;
-        $("#note").dispatchEvent(new Event("input"));
-        $("#note").focus();
-        saveConditions();
-      });
-      box.append(b);
-    }
   }
 
   // 自由入力を触ったら、カードの印は外します。
@@ -781,16 +760,20 @@ function renderStardust(value) {
   // 星の粒だけでは、どちらへ寄っているのかが分かりませんでした
   // （増えているのは分かるが、それが「定番」なのか「穴場」なのか）。
   // 10か所行くとしたら何対何になるのか、数で先に言います。
-  const hidden = Math.round(value / 10);
-  const classic = 10 - hidden;
+  //
+  // **実際に選ぶ関数から引きます。** ここで別の式を持つと、画面には
+  // 「穴場10」と出ているのに定番のほうが多く返る、ということが起きます
+  // （実際そうなっていて、スライダーの向きが逆に見えていました）。
+  const t = mixTargets(10, value / 100);
   const set = (id, text) => { const e = $(id); if (e) e.textContent = text; };
-  set("#mix-classic-n", String(classic));
-  set("#mix-hidden-n", String(hidden));
-  // 帯の左は「定番」です。value は穴場寄りの度合いなので、
-  // そのまま幅にすると、定番2割のときに藍が8割になります
-  // （数字と絵が逆を向いていました）。
+  set("#mix-classic-n", String(t.major));
+  set("#mix-hidden-n", String(t.hidden));
+  set("#mix-known-n", String(t.known));
+  // 帯の左は「定番」です。実際の割り当てに合わせて境目を置きます。
   const fill = $("#mix-fill");
-  if (fill) fill.style.width = `${100 - value}%`;
+  if (fill) fill.style.width = `${t.major * 10}%`;
+  const mid = $("#mix-known-fill");
+  if (mid) mid.style.width = `${t.known * 10}%`;
   const view = $("#mix-view");
   if (view) {
     view.classList.toggle("to-hidden", value > 55);
@@ -802,7 +785,7 @@ function renderStardust(value) {
     help.textContent = value <= 20 ? "誰でも知っている場所を中心に組みます"
       : value <= 45 ? "定番を軸に、穴場を少し混ぜます"
       : value <= 75 ? "定番と穴場を半分ずつ混ぜます"
-      : "知る人ぞ知る場所を多めにします";
+      : "あまり知られていない場所を中心に組みます";
   }
 }
 

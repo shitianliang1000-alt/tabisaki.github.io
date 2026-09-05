@@ -605,7 +605,14 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     // その日がまるごと崩れる区間）から先に使い切ります。
     const entries = [];
     if (stationPoints) {
-      stationRoute = await computeRoute(stationPoints, { mode: "TRANSIT" });
+      // 出発時刻を送らないと「いまこの瞬間」で調べられます。夜に作れば
+      // 終電後として扱われ、拠点の移動だけが推定に落ちていました。
+      // 拠点を移すのは午前中が普通なので、旅の初日の10時で見ます
+      // （何日目に移るかは区間ごとに違うので、ここは一本の目安です）。
+      const moveAt = new Date(trip.departAt);
+      moveAt.setHours(10, 0, 0, 0);
+      stationRoute = await computeRoute(stationPoints,
+        { mode: "TRANSIT", departAt: moveAt });
       entries.push([stationPoints, stationRoute.legs]);
     }
 

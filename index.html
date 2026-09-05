@@ -123,7 +123,6 @@
         <textarea id="note" rows="3"
           placeholder="例）温泉でゆっくりして、海も見たい"></textarea>
       </label>
-      <div class="ex-set" id="free-examples"></div>
 
       <p class="or-line"><span>思いつかないときは、ここから</span></p>
       <div class="mood-grid" id="mood-rail" role="group"
@@ -186,15 +185,21 @@
       <div class="tune-group">
         <span class="tune-label" id="bias-label">定番と穴場のまぜかた</span>
         <!-- どちらへ寄っているのかを、数と絵で同時に見せます。 -->
+        <!-- 10か所行くとしたら何対何になるか。ここの数は、実際に選ぶ
+             関数（mixTargets）から引いています。 -->
         <div class="mix" id="mix-view" aria-hidden="true">
           <div class="mix-side mix-classic">
-            <b id="mix-classic-n">6</b><span>定番</span>
+            <b id="mix-classic-n">5</b><span>定番</span>
           </div>
-          <div class="mix-bar"><i id="mix-fill"></i></div>
+          <div class="mix-bar">
+            <i id="mix-fill"></i><i id="mix-known-fill"></i>
+          </div>
           <div class="mix-side mix-hidden">
-            <b id="mix-hidden-n">4</b><span>穴場</span>
+            <b id="mix-hidden-n">2</b><span>穴場</span>
           </div>
         </div>
+        <p class="mix-known-note">
+          残り <b id="mix-known-n">3</b> か所は「知る人ぞ知る」場所です</p>
         <div class="stardust" id="stardust" aria-hidden="true"></div>
         <input type="range" class="md-slider" id="hidden-bias"
                min="0" max="100" value="40"

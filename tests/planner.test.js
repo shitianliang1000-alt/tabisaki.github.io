@@ -198,6 +198,20 @@ test("穴場の枠は、定番寄り設定でも確保される", () => {
   }
 });
 
+test("スライダーを穴場へ動かすほど、穴場が増えて定番が減る", () => {
+  // 「スライダーが逆では？」の正体は、振り切っても定番が2割残り、
+  // 穴場が4割で頭打ちだったことでした。端は端の結果になるべきです。
+  let prev = mixTargets(10, 0);
+  for (const b of [0.2, 0.4, 0.6, 0.8, 1]) {
+    const t = mixTargets(10, b);
+    assert.ok(t.hidden >= prev.hidden, `穴場が減っています b=${b}`);
+    assert.ok(t.major <= prev.major, `定番が増えています b=${b}`);
+    prev = t;
+  }
+  assert.ok(mixTargets(10, 0).major >= 7, "定番寄りで定番が少なすぎます");
+  assert.ok(mixTargets(10, 1).hidden >= 6, "穴場寄りで穴場が少なすぎます");
+});
+
 test("層の合計は必ず指定数に一致する", () => {
   for (let n = 0; n <= 20; n++) {
     for (const b of [0, 0.5, 1]) {

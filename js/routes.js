@@ -89,6 +89,26 @@ export function clampToService(date) {
   return d;
 }
 
+/**
+ * 出発時刻を指定しない問い合わせに使う、当たりさわりのない日時。
+ *
+ * 出発時刻を送らないと、Google 側は「いまこの瞬間」で調べます。すると
+ * 深夜に押しただけで東京→横浜すら「経路が見つかりません」になり、
+ * キーの問題と見分けがつかなくなります（設定の「確認」が実際そうでした）。
+ * しかも departureTime が無いと departedAt も null になるため、
+ * 「便のある時間帯へ寄せて聞き直す」再試行も動きません。
+ *
+ * 押した時刻に結果が左右されないよう、次の平日の10時に固定します。
+ */
+export function neutralDepartureTime(now = new Date()) {
+  const d = new Date(now);
+  d.setDate(d.getDate() + 1);
+  // 土日は本数が減る路線があるので、平日まで送ります。
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+  d.setHours(10, 0, 0, 0);
+  return d;
+}
+
 export function transitDepartureTime(date, now = new Date()) {
   const ahead = (date - now) / 86400000;
   if (ahead < 0) return new Date(now.getTime() + 60000);
@@ -772,8 +792,12 @@ export async function diagnoseMapsKey(signal) {
   breaker.reason = "";
   const tokyo = { lat: 35.681236, lng: 139.767125 };
   const yokohama = { lat: 35.465786, lng: 139.622313 };
-  routeCache.delete(cacheKey([tokyo, yokohama], "TRANSIT", undefined));
-  const r = await computeRoute([tokyo, yokohama], { mode: "TRANSIT", signal });
+  // 出発時刻を明示します。送らないと「押した瞬間」で調べられるので、
+  // 深夜に押しただけで結果が変わってしまいます。
+  const departAt = neutralDepartureTime();
+  routeCache.delete(cacheKey([tokyo, yokohama], "TRANSIT", departAt));
+  const r = await computeRoute([tokyo, yokohama],
+    { mode: "TRANSIT", departAt, signal });
   if (r.routed) {
     return { ok: true, code: "ok",
       message: `Routes API に接続できました（東京→横浜 約${r.legs[0].minutes}分）。` };
