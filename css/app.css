@@ -1,0 +1,1645 @@
+/* =====================================================================
+   旅さき — 画面の組み立て
+
+   配色は hig-tokens.css、部品は hig.css（どちらも Apple の作法）。
+   このファイルは、このアプリ固有の並べかただけを持ちます。
+
+   面の使い分け
+   ------------
+   Apple は「地をグレーにして、内容を白いカードで浮かせる」やりかたです。
+     surface                     … 画面の地（薄いグレー）
+     surface-container-low       … 白いカード（条件の欄・旅程の各項目）
+     surface-container-highest   … 塗り（入力欄・チップ）
+   段は影ではなく、白と、0.5px のヘアラインで出します。
+   ===================================================================== */
+
+* { box-sizing: border-box; }
+
+/* .placeholder などはクラス側で display を指定しているため、
+   ブラウザ既定の [hidden]{display:none} が負けます。 */
+[hidden] { display: none !important; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  /* San Francisco は配布できないので、端末にあるものを使います。
+     和文はヒラギノ→游ゴシック→Noto の順。Apple は字間を詰めます。 */
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro JP",
+    "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic Medium",
+    "Yu Gothic", "Noto Sans JP", "Noto Sans CJK JP", "Meiryo",
+    "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  letter-spacing: -.05px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 3px solid var(--hig-blue);
+  outline-offset: 2px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* --------------------------------------------------------- 上のバー --- */
+
+/* 後ろが透けるすりガラス。下の境目はヘアライン1本だけ。 */
+.app-bar {
+  position: relative; z-index: 3;
+  height: 52px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 8px 0 20px;
+  background: var(--hig-material);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: .5px solid var(--hig-separator);
+  color: var(--hig-label);
+}
+.app-bar h1 {
+  margin: 0;
+  font-size: 17px; font-weight: 600; letter-spacing: -.1px;
+}
+.app-bar .brand-mark { width: 22px; height: 22px; display: block; }
+.app-bar .spacer { flex: 1; }
+
+/* -------------------------------------------------------- レイアウト --- */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 440px) 1fr;
+  height: calc(100vh - 52px);
+  gap: 0;
+}
+.pane { min-width: 0; min-height: 0; overflow-y: auto; }
+
+/* 縦の flex にはしません。中身が縦にあふれると、flex は各要素を
+   縮めにいくため、横スクロールのレール（高さ92px）が潰れました。 */
+.pane-form {
+  background: var(--hig-card);
+  border-right: .5px solid var(--hig-separator);
+  /* 下に余白を足しません。
+     以前ここに 96px 入れていました。「貼り付いた帯のぶんを空ける」
+     つもりでしたが、position: sticky は **親の content box** の外へは
+     出られません。padding-bottom を足したぶんだけ帯が浮き上がり、
+     その下に次の項目が透けて見えていました。
+     sticky は流れの中に場所を持つので、そもそも予約は要りません。 */
+  padding: 24px 20px 0;
+}
+.pane-result {
+  background: var(--md-sys-color-surface);
+  padding: 0;
+}
+
+/* ------------------------------------------------------ 希望の入力 --- */
+
+
+/* ------------------------------------------------------- 入力の3段 --- */
+/* 「結局どこまで入れればいいの？」に、番号で答えます。
+   1と2だけ埋めれば作れる、と見た目で分かるようにします。 */
+
+.step { margin-bottom: 26px; }
+.step:first-of-type { margin-top: 4px; }
+.step-title {
+  display: flex; align-items: center; gap: 9px;
+  margin: 0 0 12px;
+  font-size: 17px; font-weight: 600; letter-spacing: -.2px;
+  color: var(--hig-label);
+}
+.step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: none; width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--hig-blue); color: #fff;
+  font-size: 12px; font-weight: 700; letter-spacing: 0;
+}
+
+/* 現在地は、押されたときだけ取りにいきます。
+   ただし、出発地の欄とは別の四角として浮かせません。
+   欄の下にぶら下がる、細い一行にします。 */
+.here-btn {
+  margin: -14px 0 2px;
+  min-height: 34px; padding: 6px 12px 6px 10px;
+  background: none;
+  color: var(--tabi-indigo);
+  font-size: 13px; font-weight: 600;
+  border-radius: var(--hig-r-sm);
+}
+.here-btn:hover { background: var(--hig-fill); opacity: 1; }
+.here-btn > span:first-child { font-size: 12px; opacity: .8; }
+
+/* 出発と帰着は対で読むものなので、横に並べます。 */
+.when-row { display: flex; gap: 10px; }
+.when-row .md-field { flex: 1; min-width: 0; margin-bottom: 8px; }
+.when-row .md-field > input { font-size: 15px; padding: 11px 10px; }
+#window-help {
+  margin: 0 2px; font-size: 13px; color: var(--hig-label-2);
+}
+#window-help.warn { color: var(--hig-red); font-weight: 600; }
+
+@media (max-width: 520px) {
+  .when-row { display: block; }
+  .when-row .md-field { margin-bottom: 14px; }
+}
+
+/* 旅の入口。文章を書かせる前に、選べるものを見せます。
+   白紙の入力欄に向かうより、「これがいい」と指すほうが早い。
+   写真の面が主役になるよう、大きく並べます。 */
+.mood-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  /* 10px では、隣どうしが1枚の帯に見えていました。
+     カードは「別々に選ぶもの」なので、離して置きます。 */
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.mood {
+  position: relative;
+  aspect-ratio: 3 / 2;
+  border: none; padding: 0; cursor: pointer;
+  border-radius: var(--hig-r-md);
+  overflow: hidden;
+  transition: transform var(--hig-fast) var(--hig-ease),
+              box-shadow var(--hig-fast) var(--hig-ease);
+}
+.mood:hover { transform: translateY(-2px); box-shadow: var(--hig-shadow-2); }
+.mood.is-selected {
+  box-shadow: 0 0 0 3px var(--tabi-indigo), var(--hig-shadow-2);
+}
+.mood .m-ic {
+  position: absolute; top: 10px; left: 12px;
+  font-size: 22px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .4));
+}
+/* 写真の上に文字を置くので、下から暗く落とします。 */
+.mood .m-tx {
+  position: absolute; inset: auto 0 0 0;
+  padding: 26px 12px 11px;
+  text-align: left;
+  font-size: 14px; font-weight: 600; letter-spacing: -.1px; line-height: 1.35;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .55);
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, .62) 78%);
+}
+
+/* 自分の言葉で書く（畳んでおきます）。 */
+.free { margin-bottom: 4px; }
+.free > summary {
+  list-style: none; cursor: pointer;
+  min-height: 44px; display: flex; align-items: center; gap: 6px;
+  font-size: 14px; font-weight: 600; color: var(--tabi-indigo);
+}
+.free > summary::-webkit-details-marker { display: none; }
+.free > summary::after {
+  content: "\203A"; margin-left: auto; font-size: 18px;
+  color: var(--hig-label-3); transform: rotate(90deg);
+}
+.free[open] > summary::after { transform: rotate(-90deg); }
+/* 「こういうことも書ける」の見本。カードでは表せない名指しを並べます。 */
+.ex-set { display: flex; flex-wrap: wrap; gap: 6px; margin: -8px 0 6px; }
+.ex-chip {
+  border: none; cursor: pointer;
+  padding: 6px 12px; border-radius: var(--hig-r-full);
+  background: var(--hig-fill); color: var(--hig-label);
+  font: inherit; font-size: 12px;
+}
+.ex-chip:hover { background: var(--hig-fill-2); }
+
+/* 何をしてくれるサイトなのかを、最初の3行で。
+   「日本のどこからでも組めます」は機能の説明で、結果が想像できません。 */
+.pitch { margin: 4px 0 26px; }
+.pitch h2 {
+  margin: 0 0 8px;
+  font-size: 27px; font-weight: 700; letter-spacing: -.7px; line-height: 1.25;
+  color: var(--hig-label);
+}
+.pitch p {
+  margin: 0;
+  font-size: 14px; line-height: 1.75; color: var(--hig-label-2);
+}
+
+/* 主ボタン。押す前に、一度だけ光が流れます。
+   「ここを押す」を、矢印や太字ではなく動きで伝えます。
+   動きを減らす設定の人には流しません（下の media query）。 */
+.make .md-fab-extended {
+  position: relative; overflow: hidden;
+  box-shadow: 0 2px 10px rgba(15, 76, 129, .28);
+}
+.make .md-fab-extended::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 35%,
+              rgba(255, 255, 255, .28) 50%, transparent 65%);
+  transform: translateX(-120%);
+  animation: sheen 4.5s ease-in-out 1.2s infinite;
+  pointer-events: none;
+}
+@keyframes sheen {
+  0%   { transform: translateX(-120%); }
+  22%  { transform: translateX(120%); }
+  100% { transform: translateX(120%); }
+}
+.make .md-fab-extended:disabled::after { animation: none; }
+.make .md-fab-extended .fab-ic {
+  display: inline-block;
+  animation: twinkle 3.2s ease-in-out infinite;
+}
+@keyframes twinkle {
+  0%, 100% { opacity: 1; transform: scale(1) rotate(0); }
+  50%      { opacity: .75; transform: scale(1.18) rotate(18deg); }
+}
+
+/* 段の番号。開いている段のものが、静かに脈打ちます。 */
+.step-num { position: relative; }
+.step:focus-within .step-num::after {
+  content: ""; position: absolute; inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--tabi-indigo);
+  animation: ring 1.6s ease-out infinite;
+}
+@keyframes ring {
+  from { opacity: .55; transform: scale(.85); }
+  to   { opacity: 0;   transform: scale(1.5); }
+}
+
+/* 押すと何が起きるのか。裏で何本も処理が走るので、一言添えます。 */
+.make-note {
+  margin: 8px 2px 0; text-align: center;
+  font-size: 12px; color: var(--hig-label-2);
+}
+
+/* 「または」の区切り。自由入力とカードのあいだ。 */
+.or-line {
+  display: flex; align-items: center; gap: 12px;
+  margin: 18px 0 12px;
+  font-size: 12px; color: var(--hig-label-3);
+}
+.or-line::before, .or-line::after {
+  content: ""; flex: 1; height: .5px; background: var(--hig-separator);
+}
+
+.note-field { margin-bottom: 10px; }
+
+/* --- 定番と穴場のまぜかた ------------------------------------------------ */
+/*
+   星の粒だけでは、どちらへ寄っているのかが分かりませんでした
+   （増えているのは分かるが、それが「定番」なのか「穴場」なのか）。
+   10か所行くとしたら何対何になるのか、数で先に言います。
+*/
+.mix {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 10px;
+}
+.mix-side {
+  display: flex; flex-direction: column; align-items: center;
+  flex: none; width: 52px;
+  transition: transform var(--hig-mid) var(--hig-ease),
+              opacity var(--hig-mid) var(--hig-ease);
+}
+.mix-side b {
+  font-size: 22px; font-weight: 700; line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.mix-side span { font-size: 11px; color: var(--hig-label-2); }
+.mix-classic b { color: var(--tabi-indigo); }
+.mix-hidden b { color: var(--tabi-teal); }
+
+/* 寄っているほうを、少し大きくします。動かした向きが目で分かります。 */
+.mix.to-classic .mix-classic, .mix.to-hidden .mix-hidden {
+  transform: scale(1.12);
+}
+.mix.to-classic .mix-hidden, .mix.to-hidden .mix-classic {
+  opacity: .5; transform: scale(.92);
+}
+
+/* 帯。左が定番（藍）、右が穴場（青緑）。境目が動きます。 */
+.mix-bar {
+  flex: 1; height: 12px; border-radius: 6px; overflow: hidden;
+  background: var(--tabi-teal);
+  position: relative;
+}
+.mix-bar > i {
+  display: block; height: 100%;
+  background: var(--tabi-indigo);
+  transition: width var(--hig-mid) var(--hig-ease);
+}
+
+/* --- 1日に動ける時間 ----------------------------------------------------- */
+/*
+   数字だけだと、9時間が長いのか短いのか判断できません。
+   1日（16時間の起きている時間）のうち、どれだけ使うのかを
+   円弧の面積で出します。
+*/
+.day-hours { margin-top: 18px; }
+.dial {
+  --share: .56;
+  position: relative;
+  width: 84px; height: 84px; margin: 4px auto 10px;
+  border-radius: 50%;
+  background: conic-gradient(var(--tabi-teal) calc(var(--share) * 360deg),
+                             var(--hig-fill) 0);
+  display: flex; align-items: center; justify-content: center;
+  transition: background var(--hig-mid) var(--hig-ease);
+}
+.dial::before {
+  content: ""; position: absolute; inset: 11px;
+  border-radius: 50%; background: var(--hig-card);
+}
+.dial b {
+  position: relative;
+  font-size: 17px; font-weight: 700; letter-spacing: -.3px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* くわしく決める */
+/* 「旅の終わりかたを変える」。
+   カードにすると、本編と同じ重さの箱がもう1つ増えて見えます。
+   ここは「必要な人だけが開くもの」なので、線1本にします。 */
+.tune {
+  border-top: .5px solid var(--hig-separator);
+  padding: 0;
+  margin: 22px 0 8px;
+}
+.tune > summary {
+  list-style: none; cursor: pointer;
+  min-height: var(--md-touch);
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 600; letter-spacing: -.05px;
+  color: var(--hig-label-2);
+}
+.tune > summary:hover { color: var(--tabi-indigo); }
+.tune > summary::-webkit-details-marker { display: none; }
+/* Apple は開閉を山形（chevron）で示します。 */
+.tune > summary::after {
+  content: "›"; margin-left: auto;
+  font-size: 20px; transform: rotate(90deg);
+  color: var(--md-sys-color-on-surface-variant);
+  transition: transform var(--md-sys-motion-short) var(--md-sys-motion-standard);
+}
+.tune[open] > summary::after { transform: rotate(-90deg); }
+.tune[open] { padding-bottom: 16px; }
+.tune[open] > summary { color: var(--hig-label); }
+.tune-group { margin-bottom: 20px; }
+.tune-group > .tune-label {
+  display: block; margin-bottom: 8px;
+  font-size: 13px; font-weight: 600; letter-spacing: -.02px;
+  color: var(--hig-label-2);
+}
+.chip-set { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 穴場の度合いを、星の粒で見せます。数字より、増えるのが見えるほうが早い。 */
+/* 穴場の度合いを、星の粒で。帯が「割合」を、粒が「量」を出します。
+   帯だけだと 6:4 も 60:40 も同じに見えるので、粒で density を足します。 */
+.stardust {
+  height: 34px; margin-bottom: 4px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--hig-fill);
+  position: relative; overflow: hidden;
+}
+.stardust i {
+  position: absolute; border-radius: 50%;
+  background: var(--tabi-teal);
+  animation: star-in var(--md-sys-motion-medium) var(--md-sys-motion-emphasized-decelerate) both;
+}
+@keyframes star-in {
+  from { opacity: 0; transform: scale(.2); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* スイッチの行 */
+.switch-row {
+  display: flex; align-items: flex-start; gap: 16px;
+  min-height: var(--md-touch); padding: 8px 0; cursor: pointer;
+}
+.switch-row .switch-text b {
+  display: block; font-size: 14px; font-weight: 500;
+}
+.switch-row .switch-text small {
+  display: block; font-size: 12px; line-height: 1.6;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* 必ず行く場所 */
+.pin-set { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pin-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 32px; padding: 0 8px 0 16px;
+  border-radius: var(--hig-r-full);
+  background: var(--hig-blue-tint);
+  color: var(--hig-blue-deep);
+  font-size: 14px; font-weight: 600;
+}
+.pin-chip button {
+  border: none; background: transparent; cursor: pointer;
+  color: inherit; font-size: 16px; line-height: 1;
+  width: 32px; height: 32px; border-radius: 50%;
+}
+
+/* ------------------------------------------- 前につくった旅 --- */
+/* 覚えているのは条件だけです（js/history.js）。押されたら組み直します。
+   カードではなく行にしています。ここは目的地ではなく通り道なので、
+   面積を取ると、下の「1 どんな旅にしたい？」が押し出されます。 */
+.recent { margin: 0 0 24px; }
+.recent-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 8px;
+}
+.recent-head h3 {
+  margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .02em;
+  color: var(--hig-label-2);
+}
+.recent-list { list-style: none; margin: 0; padding: 0; }
+.recent-list li + li { border-top: .5px solid var(--hig-separator); }
+.recent-item { display: flex; align-items: center; gap: 4px; }
+.recent-row {
+  display: flex; align-items: center; gap: 10px;
+  flex: 1; min-width: 0; padding: 10px 4px; border: 0; background: none;
+  text-align: left; cursor: pointer; color: inherit;
+  border-radius: 10px;
+}
+.recent-row:hover { background: var(--hig-fill); }
+.recent-row:focus-visible {
+  outline: 2px solid var(--tabi-teal); outline-offset: -2px;
+}
+.recent-row .r-body { min-width: 0; flex: 1; }
+.recent-row .r-title {
+  display: block; font-size: 15px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.recent-row .r-sub {
+  display: block; margin-top: 2px;
+  font-size: 12px; color: var(--hig-label-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.recent-row .r-when {
+  flex: none; font-size: 12px; color: var(--hig-label-2);
+  font-variant-numeric: tabular-nums;
+}
+.recent-del {
+  flex: none; width: 28px; height: 28px; padding: 0;
+  border: 0; border-radius: 50%; background: none; cursor: pointer;
+  color: var(--hig-label-2); font-size: 15px; line-height: 1;
+}
+.recent-del:hover { background: var(--hig-fill); color: var(--hig-label); }
+.recent-note { margin: 8px 0 0; font-size: 11px; color: var(--hig-label-2); }
+.linkish {
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font: inherit; font-size: 12px; color: var(--tabi-teal);
+}
+.linkish:hover { text-decoration: underline; }
+
+/* つくるボタンと、データの出どころ */
+/* 下に貼り付きます。スクロールがどこにあっても押せます。
+   後ろの文字が透けないよう、面として敷きます。 */
+.make {
+  position: sticky; bottom: 0; z-index: 5;
+  width: 100%;
+  margin: 8px -20px 0;
+  padding: 12px 20px;
+  width: calc(100% + 40px);
+  background: var(--hig-card);
+  /* 帯の上に、内容が透けないための境目。貼り付いているものが
+     ただの白い箱に見えると、下に何かあることが伝わりません。 */
+  box-shadow: 0 -1px 0 var(--hig-separator);
+}
+.make .md-fab-extended { width: 100%; }
+.credits {
+  margin-top: 20px; padding: 16px 0 24px;
+  border-top: .5px solid var(--hig-separator);
+}
+.credits p {
+  margin: 0 0 6px;
+  font-size: 12px; line-height: 1.7;
+  color: var(--hig-label-2);
+}
+.credits a { color: var(--md-sys-color-primary); }
+
+/* ------------------------------------------------ まだ旅程が無い画面 --- */
+
+.placeholder { height: 100%; display: flex; flex-direction: column; padding: 16px; }
+.home-map {
+  flex: 1; min-height: 240px; z-index: 0;
+  border-radius: var(--md-sys-shape-corner-large);
+  overflow: hidden;
+  background: var(--md-sys-color-surface-container);
+}
+.home-map.map-fallback {
+  display: flex; align-items: center; justify-content: center;
+  text-align: center; padding: 24px; line-height: 1.8;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.home-hint {
+  margin: 12px 8px 4px; text-align: center;
+  font-size: 12px; color: var(--md-sys-color-on-surface-variant);
+}
+
+/* ------------------------------------------------------------ 生成中 --- */
+
+.planning {
+  height: 100%;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.plan-card {
+  width: min(460px, 100%); padding: 32px 28px 28px;
+  border-radius: var(--hig-r-xl);
+  background: var(--hig-card);
+  box-shadow: var(--hig-shadow-1);
+}
+.plan-card .step-text {
+  margin: 0 0 4px; font-size: 22px; font-weight: 700; letter-spacing: -.3px;
+}
+.plan-card .step-detail {
+  margin: 0 0 20px; font-size: 14px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.step-list { list-style: none; margin: 20px 0 0; padding: 0; }
+.step-list li {
+  display: flex; align-items: center; gap: 12px;
+  padding: 6px 0; font-size: 14px;
+  color: var(--md-sys-color-on-surface-variant);
+  transition: color var(--md-sys-motion-medium) var(--md-sys-motion-standard);
+}
+.step-list .dot {
+  flex: none; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--md-sys-color-outline-variant);
+  transition: background-color var(--md-sys-motion-medium) var(--md-sys-motion-standard),
+              box-shadow var(--md-sys-motion-medium) var(--md-sys-motion-standard);
+}
+.step-list li.done { color: var(--md-sys-color-on-surface); }
+.step-list li.done .dot { background: var(--md-sys-color-tertiary); }
+.step-list li.active { color: var(--md-sys-color-on-surface); font-weight: 500; }
+.step-list li.active .dot {
+  background: var(--tabi-indigo);
+  box-shadow: 0 0 0 5px var(--hig-blue-tint);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 5px var(--hig-blue-tint); }
+  50%      { box-shadow: 0 0 0 9px color-mix(in srgb,
+                          var(--tabi-indigo) 18%, transparent); }
+}
+
+/* ------------------------------------------------------------ ピン --- */
+/*
+   地図のピンには、これまで何のスタイルもありませんでした。
+   Leaflet の divIcon は素のまま出るので、色を付けただけの四角が
+   重なって並び、番号が読めませんでした。
+
+   読めるようにするには、次が要ります。
+     ・地図の上でも沈まない、太い白ふち
+     ・重なっても手前が分かる、影
+     ・番号が中心に来る、決まった大きさ
+     ・**重なったときに、後ろのものが手前に来ない**
+       （番号の若いほうを上に出します。1が2に隠れていると、
+         どこから始まるのかが分かりません）
+*/
+
+.trip-pin { background: none; border: none; }
+.trip-pin > span {
+  display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
+  border-radius: 50% 50% 50% 3px;      /* 左下だけ尖らせて、位置を指す */
+  transform: rotate(-45deg);
+  box-shadow: 0 0 0 3px #fff, 0 3px 8px rgba(0, 0, 0, .45);
+  color: #fff;
+}
+.trip-pin > span > b {
+  transform: rotate(45deg);            /* 中の数字は起こす */
+  font-size: 15px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+}
+
+/* 出発と終点は、立ち寄りと形で見分けます（色だけだと、
+   色の見分けがつきにくい人に伝わりません）。 */
+.trip-pin.endpoint > span {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  transform: none;
+  box-shadow: 0 0 0 3px #fff, 0 2px 6px rgba(0, 0, 0, .4);
+}
+
+/* いま見ている場所。旅程のカードに触れたときに目立ちます。 */
+.trip-pin.hl > span {
+  box-shadow: 0 0 0 3.5px #fff, 0 0 0 9px rgba(11, 95, 191, .35),
+              0 4px 12px rgba(0, 0, 0, .45);
+}
+
+/* 暗い配色では、白ふちだと浮きすぎます。地の色に合わせます。 */
+@media (prefers-color-scheme: dark) {
+  .trip-pin > span {
+    box-shadow: 0 0 0 3px #1C1C1E, 0 3px 8px rgba(0, 0, 0, .6);
+  }
+  .trip-pin.endpoint > span {
+    box-shadow: 0 0 0 3px #1C1C1E, 0 2px 6px rgba(0, 0, 0, .55);
+  }
+}
+
+/* ------------------------------------------------------------ 旅程 --- */
+
+.result { display: flex; flex-direction: column; min-height: 100%; }
+.map {
+  position: relative; z-index: 0;
+  height: 320px; flex: none;
+  margin: 16px 20px 0;
+  border-radius: var(--md-sys-shape-corner-large);
+  overflow: hidden;
+  background: var(--md-sys-color-surface-container);
+  transition: height var(--md-sys-motion-medium) var(--md-sys-motion-emphasized);
+}
+.map-fallback {
+  display: flex; align-items: center; justify-content: center;
+  text-align: center; padding: 24px; line-height: 1.8;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.map-expand {
+  position: absolute; right: 12px; top: 12px; z-index: 500;
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: var(--md-sys-elevation-1);
+  color: var(--md-sys-color-on-surface);
+}
+.result.map-full .map { height: calc(100vh - 52px - 140px); }
+.result.map-full .itin { max-height: 240px; overflow-y: auto; }
+
+.itin { padding: 20px; }
+/* 「今日の旅」は旅程のすぐ上。下の余白は旅程側が持ちます。 */
+.itin:has(> #today) { padding-bottom: 0; }
+#today[hidden] { display: none !important; }
+
+.itin-head { margin-bottom: 16px; }
+.itin-head h2 {
+  margin: 0 0 4px; font-size: 28px; font-weight: 700; letter-spacing: -.5px;
+}
+.itin-head .sub {
+  margin: 0; font-size: 14px; color: var(--md-sys-color-on-surface-variant);
+}
+.stay-line {
+  margin: 8px 0 0; font-size: 14px; color: var(--md-sys-color-primary);
+}
+
+/* まとめ（日程・立ち寄り・費用） */
+/* 判断を、数字より先に。「82点」だけでは、良いのか悪いのかを
+   読み手が決められません。言い切ってから、根拠として数字を添えます。 */
+.verdict {
+  display: flex; flex-direction: column; gap: 2px;
+  margin: 0 0 12px; padding: 12px 14px;
+  border-radius: var(--hig-r-sm);
+  background: var(--hig-fill);
+}
+.verdict strong { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+.verdict span { font-size: 13px; color: var(--hig-label-2); }
+.verdict.lv-good strong { color: var(--hig-green); }
+.verdict.lv-mid strong  { color: var(--hig-orange); }
+.verdict.lv-bad strong  { color: var(--hig-red); }
+
+/* 詳しい分析は、消さずに畳みます。 */
+.more {
+  margin: 8px 0 24px;
+  border-radius: var(--hig-r-md);
+  background: var(--hig-card);
+  box-shadow: inset 0 0 0 .5px var(--hig-separator);
+}
+.more > summary {
+  list-style: none; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  min-height: var(--hig-touch); padding: 0 16px;
+  font-size: 15px; font-weight: 600; letter-spacing: -.05px;
+  color: var(--hig-blue);
+}
+.more > summary::-webkit-details-marker { display: none; }
+.more > summary .more-count {
+  margin-left: auto; color: var(--hig-label-2); font-weight: 400; font-size: 13px;
+}
+.more > summary::after {
+  content: "\203A"; font-size: 20px; color: var(--hig-label-3);
+  transform: rotate(90deg);
+  transition: transform var(--hig-fast) var(--hig-ease);
+}
+.more[open] > summary::after { transform: rotate(-90deg); }
+.more[open] { padding-bottom: 8px; }
+.more .panel { margin: 0 12px 12px; }
+
+.summary {
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-surface-container);
+  padding: 20px; margin-bottom: 16px;
+}
+.summary .why { margin: 0 0 16px; font-size: 14px; line-height: 1.8; }
+.stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 12px;
+  border-top: .5px solid var(--hig-separator);
+  padding-top: 16px;
+}
+.stats > div { text-align: center; }
+.stats strong {
+  display: block; font-size: 22px; font-weight: 400;
+  color: var(--md-sys-color-on-surface);
+}
+.stats span {
+  font-size: 12px; letter-spacing: .5px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* パネル（共通） */
+.panel {
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-surface-container);
+  padding: 20px; margin-bottom: 16px;
+}
+.panel h3 {
+  margin: 0 0 12px;
+  font-size: 16px; font-weight: 500; letter-spacing: .15px;
+}
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px;
+}
+.panel-head h3 { margin: 0; }
+.panel-list { list-style: none; margin: 0; padding: 0; }
+.panel-list li {
+  position: relative; padding-left: 20px; margin-bottom: 6px;
+  font-size: 14px; line-height: 1.75;
+}
+.panel-list li::before {
+  content: ""; position: absolute; left: 6px; top: .7em;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--md-sys-color-outline);
+}
+.fine {
+  margin: 12px 0 0; font-size: 12px; line-height: 1.7;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* ---------------------------------------------------- 3案の切り替え --- */
+/* 旅行に唯一の正解はありません。3案並べて、おすすめだけ言います。 */
+
+.variants { margin-bottom: 16px; }
+.variant-cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+.variant {
+  position: relative; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; gap: 4px;
+  border: .5px solid var(--hig-separator);
+  border-radius: var(--hig-r-md);
+  background: var(--hig-card);
+  color: var(--hig-label);
+  padding: 14px; font: inherit;
+  transition: border-color var(--hig-fast) var(--hig-ease),
+              background-color var(--hig-fast) var(--hig-ease);
+}
+.variant.is-selected {
+  border-color: var(--hig-blue);
+  box-shadow: inset 0 0 0 1px var(--hig-blue);
+  background: var(--hig-blue-tint);
+}
+.variant .v-head { display: flex; align-items: center; gap: 7px; }
+.variant .v-ic { font-size: 18px; }
+.variant .v-name {
+  font-size: 16px; font-weight: 600; letter-spacing: -.2px;
+}
+/* 何が違うのか。ここがカードの主役です。 */
+.variant .v-distinct {
+  display: block; margin: 2px 0;
+  font-size: 14px; font-weight: 600; letter-spacing: -.1px;
+  color: var(--hig-blue);
+}
+.variant.is-selected .v-distinct { color: var(--hig-blue-deep); }
+.variant .v-sum { display: block; font-size: 13px; color: var(--hig-label-2); }
+.variant .v-blurb {
+  display: block; font-size: 12px; line-height: 1.6;
+  color: var(--hig-label-2);
+}
+/* 点は根拠。いちばん小さく、いちばん最後に。 */
+.variant .v-score {
+  display: block; margin-top: 6px; padding-top: 6px;
+  border-top: .5px solid var(--hig-separator);
+  font-size: 12px; color: var(--hig-label-3);
+}
+.variant .v-badge {
+  margin-left: auto; padding: 2px 9px;
+  border-radius: var(--hig-r-full);
+  background: var(--hig-blue); color: #fff;
+  font-size: 11px; font-weight: 600; letter-spacing: 0;
+}
+.variant-why {
+  margin: 12px 0 0; font-size: 13px; line-height: 1.75;
+  color: var(--hig-label-2);
+}
+
+/* 「どうすればいいか」まで書く。状態だけを言われても動けません。 */
+.src-action {
+  margin: 8px 0 12px; padding: 10px 12px;
+  border-radius: var(--hig-r-sm);
+  background: var(--hig-fill);
+  font-size: 13px; line-height: 1.7; color: var(--hig-label);
+}
+
+/* 「確認済み」と「最新」は別。鮮度は分けて出します。 */
+.freshness {
+  margin: 10px 0 0; font-size: 12px; color: var(--hig-label-2);
+}
+.freshness.lv-stale { color: var(--hig-orange); font-weight: 600; }
+
+/* 現在地の注記。ボタンのすぐ下に、小さく。 */
+.here-note {
+  margin: -12px 2px 18px;
+  font-size: 12px; line-height: 1.65; color: var(--hig-label-2);
+}
+.here-note.warn { color: var(--hig-orange); font-weight: 600; }
+
+/* 開発者向けの設定。一般の利用者には畳んで見せます。 */
+.dev-settings { margin: 4px 0 8px; }
+.dev-settings > summary {
+  list-style: none; cursor: pointer;
+  min-height: 36px; display: flex; align-items: center;
+  font-size: 14px; font-weight: 600; color: var(--hig-label-2);
+}
+.dev-settings > summary::-webkit-details-marker { display: none; }
+.dev-settings > summary::after {
+  content: "\203A"; margin-left: 6px; font-size: 18px;
+  transform: rotate(90deg);
+}
+.dev-settings[open] > summary::after { transform: rotate(-90deg); }
+
+/* ------------------------------------------------ 適合度と選定理由 --- */
+
+.fit-total {
+  display: flex; align-items: baseline; gap: 4px;
+  color: var(--md-sys-color-primary);
+}
+.fit-total b { font-size: 32px; font-weight: 400; }
+.fit-total i {
+  font-style: normal; font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.axes { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; }
+.axes li {
+  display: grid; grid-template-columns: auto 8.5em 1fr auto;
+  gap: 4px 10px; align-items: center;
+  grid-template-areas: "ic label stars score" ".  note note note";
+  font-size: 13px;
+}
+.ax-ic { grid-area: ic; }
+.ax-label { grid-area: label; color: var(--md-sys-color-on-surface-variant); }
+.ax-stars {
+  grid-area: stars; letter-spacing: 2px;
+  color: var(--md-sys-color-primary); font-size: 14px;
+}
+.ax-stars .off { color: var(--md-sys-color-outline-variant); }
+.ax-score {
+  grid-area: score; text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.ax-note {
+  grid-area: note; font-size: 12px; line-height: 1.65;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* --------------------------------------------------- 情報の確からしさ --- */
+/* 出どころの違うものを、同じ顔で並べないための印です。 */
+
+.src {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 24px; padding: 0 10px;
+  border-radius: var(--md-sys-shape-corner-small);
+  font-size: 11px; font-weight: 500; letter-spacing: .4px;
+  white-space: nowrap;
+}
+.src--verified {
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+}
+.src--estimated {
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.src--ai {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+/* --------------------------------------------- 帰りの余裕と旅のペース --- */
+
+.slack {
+  display: flex; align-items: center; gap: 16px;
+  padding: 16px; border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container-low);
+  margin-bottom: 12px;
+}
+.slack .sl-num {
+  font-size: 26px; font-weight: 400; white-space: nowrap;
+}
+.slack .sl-body { flex: 1; min-width: 0; }
+.slack .sl-label {
+  display: inline-block; font-size: 12px; font-weight: 500;
+  letter-spacing: .5px; margin-bottom: 2px;
+}
+.slack .sl-text {
+  margin: 0; font-size: 13px; line-height: 1.7;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.slack--safe  .sl-num, .slack--safe  .sl-label { color: var(--md-sys-color-tertiary); }
+.slack--tight .sl-num, .slack--tight .sl-label { color: var(--md-sys-color-primary); }
+.slack--risky .sl-num, .slack--risky .sl-label { color: var(--md-sys-color-error); }
+
+.pace-bar {
+  display: flex; height: 20px; margin: 4px 0 12px;
+  border-radius: var(--md-sys-shape-corner-full); overflow: hidden;
+  background: var(--md-sys-color-surface-container-highest);
+}
+.pace-bar > i { display: block; height: 100%; }
+.pace-bar > i.sight { background: var(--md-sys-color-primary); }
+.pace-bar > i.move  { background: var(--md-sys-color-tertiary); }
+.pace-bar > i.meal  { background: var(--md-sys-color-secondary); }
+.pace-bar > i.free  { background: var(--md-sys-color-outline-variant); }
+.pace-legend {
+  display: flex; flex-wrap: wrap; gap: 8px 18px; list-style: none;
+  margin: 0; padding: 0; font-size: 13px;
+}
+.pace-legend li { display: flex; align-items: center; gap: 7px; }
+.pace-legend .dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.pace-legend .dot.sight { background: var(--md-sys-color-primary); }
+.pace-legend .dot.move  { background: var(--md-sys-color-tertiary); }
+.pace-legend .dot.meal  { background: var(--md-sys-color-secondary); }
+.pace-legend .dot.free  { background: var(--md-sys-color-outline-variant); }
+.pace-legend b { font-weight: 500; }
+.pace-legend span { color: var(--md-sys-color-on-surface-variant); }
+
+/* 疲労の目盛り */
+.fatigue {
+  display: grid; grid-template-columns: 7em 1fr 5.5em;
+  gap: 12px; align-items: center; margin: 12px 0;
+  font-size: 13px;
+}
+.fg-label { color: var(--md-sys-color-on-surface-variant); }
+.fg-word { text-align: right; font-weight: 500; }
+.fatigue.lv-easy .fg-word { color: var(--md-sys-color-tertiary); }
+.fatigue.lv-mid  .fg-word { color: var(--md-sys-color-secondary); }
+.fatigue.lv-warn .fg-word { color: var(--md-sys-color-primary); }
+.fatigue.lv-hard .fg-word { color: var(--md-sys-color-error); }
+.fatigue.lv-easy .md-progress > i { background: var(--md-sys-color-tertiary); }
+.fatigue.lv-warn .md-progress > i { background: var(--md-sys-color-primary); }
+.fatigue.lv-hard .md-progress > i { background: var(--md-sys-color-error); }
+.fg-warn {
+  margin: 0 0 12px; padding: 14px 16px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+  font-size: 13px; line-height: 1.75;
+}
+
+/* 採点の内訳 */
+.score-total { display: flex; align-items: baseline; gap: 4px; }
+.score-total b { font-size: 32px; font-weight: 400; color: var(--md-sys-color-primary); }
+.score-total i {
+  font-style: normal; font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.score-summary { margin: 0 0 16px; font-size: 14px; line-height: 1.8; }
+.score-parts { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.score-parts li {
+  display: grid; grid-template-columns: 8em 1fr 2.5em;
+  grid-template-areas: "label bar num" ". note note";
+  gap: 4px 12px; align-items: center; font-size: 13px;
+}
+.sp-label { grid-area: label; color: var(--md-sys-color-on-surface-variant); }
+.sp-bar { grid-area: bar; }
+.sp-num {
+  grid-area: num; text-align: right; font-variant-numeric: tabular-nums;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.sp-note {
+  grid-area: note; font-size: 12px; line-height: 1.65;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.score-parts li.weak .md-progress > i { background: var(--md-sys-color-error); }
+.score-parts li.weak .sp-note { color: var(--md-sys-color-error); }
+
+/* ------------------------------------------------------ タイムライン --- */
+
+.day-tabs {
+  position: sticky; top: -1px; z-index: 6;
+  display: flex; gap: 8px; overflow-x: auto;
+  margin: 0 -20px 4px; padding: 12px 20px;
+  background: var(--md-sys-color-surface);
+  scrollbar-width: none;
+}
+.day-tabs::-webkit-scrollbar { display: none; }
+.day-tab {
+  flex: none; display: grid; gap: 0; text-align: left;
+  min-height: var(--md-touch); padding: 6px 20px;
+  border: .5px solid var(--hig-separator-opaque);
+  border-radius: var(--md-sys-shape-corner-small);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font: inherit; cursor: pointer;
+}
+.day-tab b { font-size: 14px; font-weight: 500; }
+.day-tab span { font-size: 11px; }
+.day-tab.on {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border-color: transparent;
+}
+.day { margin-top: 8px; }
+.day-head {
+  display: flex; align-items: baseline; gap: 12px; margin: 20px 0 12px;
+}
+.day-head b { font-size: 22px; font-weight: 400; }
+.day-head span { font-size: 14px; color: var(--md-sys-color-on-surface-variant); }
+.day-head i {
+  margin-left: auto; font-style: normal; font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.tl { display: flex; gap: 14px; align-items: stretch; }
+.tl .time { width: 62px; flex: none; text-align: right; padding-top: 12px; }
+.tl .time b {
+  display: block; font-size: 14px; font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.tl .time span {
+  display: block; font-size: 11px; white-space: nowrap;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.tl .rail {
+  width: 12px; flex: none;
+  display: flex; flex-direction: column; align-items: center; padding-top: 16px;
+}
+.tl .rail i {
+  flex: none; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--md-sys-color-primary);
+  box-shadow: 0 0 0 4px var(--md-sys-color-primary-container);
+}
+.tl .rail::after {
+  content: ""; flex: 1; width: 2px; margin-top: 6px;
+  background: var(--md-sys-color-outline-variant);
+}
+.tl:last-child .rail::after { display: none; }
+.tl.transit .rail i, .tl.free .rail i {
+  width: 8px; height: 8px;
+  background: var(--md-sys-color-outline);
+  box-shadow: 0 0 0 3px var(--md-sys-color-surface-container-highest);
+}
+.tl.meal .rail i {
+  background: var(--md-sys-color-secondary);
+  box-shadow: 0 0 0 4px var(--md-sys-color-secondary-container);
+}
+.tl.lodging .rail i {
+  background: var(--md-sys-color-tertiary);
+  box-shadow: 0 0 0 4px var(--md-sys-color-tertiary-container);
+}
+
+/* カード。MD3 の filled card を土台にしています。 */
+.tl .body {
+  flex: 1; min-width: 0; position: relative; margin-bottom: 14px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container-low);
+  padding: 14px 16px;
+}
+.tl.spot .body { padding: 0; overflow: hidden; }
+.tl .body.tap {
+  cursor: pointer;
+  transition: box-shadow var(--md-sys-motion-short) var(--md-sys-motion-standard);
+}
+.tl .body.tap:hover { box-shadow: var(--md-sys-elevation-1); }
+
+.card-art { position: relative; height: 140px; background-size: cover;
+            background-position: center; }
+.card-art .card-photo {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; opacity: 0;
+  transition: opacity var(--md-sys-motion-long) var(--md-sys-motion-standard);
+}
+.card-art .card-photo.on { opacity: 1; }
+.card-art .art-ic {
+  position: absolute; right: 14px; bottom: 12px; font-size: 26px;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .3));
+}
+.card-info { padding: 14px 16px 16px; }
+
+/* ティア。色の粒に、必ず言葉を添えます。 */
+.tier {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-style: normal; min-height: 24px; padding: 0 10px;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  font-size: 11px; font-weight: 500; letter-spacing: .4px;
+}
+.tier::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--md-sys-color-secondary);
+}
+.tier.major::before  { background: var(--md-sys-color-primary); }
+.tier.known::before  { background: var(--md-sys-color-tertiary); }
+.tier.hidden::before { background: var(--md-sys-color-secondary); }
+.card-art .tier {
+  position: absolute; top: 12px; left: 14px;
+  box-shadow: var(--md-sys-elevation-1);
+}
+
+/* 混雑の見込み。色だけで伝えないよう、必ず言葉を出します。 */
+.crowd-chip {
+  display: inline-flex; align-items: center;
+  font-style: normal; min-height: 24px; padding: 0 10px;
+  border-radius: var(--md-sys-shape-corner-small);
+  font-size: 11px; font-weight: 500; letter-spacing: .4px;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.crowd-chip.lv-calm {
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+}
+.crowd-chip.lv-low {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.crowd-chip.lv-mid {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+.crowd-chip.lv-high {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+
+/* 混雑パネルの帯 */
+.meter {
+  height: 10px; border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-highest);
+  overflow: hidden; margin-bottom: 12px;
+}
+.meter > i { display: block; height: 100%; background: var(--md-sys-color-primary); }
+.crowd-badge {
+  min-height: 24px; padding: 0 12px; display: inline-flex; align-items: center;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-size: 12px; font-weight: 500;
+}
+
+/* 費用の内訳 */
+.cost-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.cost-rows li {
+  display: grid; grid-template-columns: 6em 1fr 6em;
+  gap: 12px; align-items: center; font-size: 13px;
+}
+.cr-label { color: var(--md-sys-color-on-surface-variant); }
+.cr-bar {
+  height: 10px; border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-highest); overflow: hidden;
+}
+.cr-bar > i { display: block; height: 100%; background: var(--md-sys-color-secondary); }
+.cr-yen { text-align: right; font-variant-numeric: tabular-nums; }
+.cost-total { font-size: 20px; }
+
+/* 希望に応えられたか */
+.coverage {
+  border-radius: var(--md-sys-shape-corner-large);
+  padding: 16px 20px; margin-bottom: 16px;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-size: 14px; line-height: 1.8;
+}
+.coverage strong { display: block; margin-bottom: 4px; }
+.coverage .alt { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.coverage .alt span {
+  min-height: 28px; padding: 0 12px; display: inline-flex; align-items: center;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+  font-size: 12px;
+}
+
+/* 検証メモ・注意・出典 */
+.verify-note {
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-surface-container-high);
+  padding: 16px 20px; margin-bottom: 16px;
+}
+.verify-note h3 { margin: 0 0 4px; font-size: 14px; font-weight: 500; }
+.verify-note p {
+  margin: 0; font-size: 13px; line-height: 1.8;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.panel.notes, .panel.hours-notes {
+  background: var(--md-sys-color-surface-container-high);
+}
+.src-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.src-list a { color: var(--md-sys-color-primary); font-size: 13px; }
+.critique li { list-style: none; display: flex; gap: 12px; padding: 6px 0;
+               font-size: 13px; line-height: 1.75; }
+.critique ul { margin: 0; padding: 0; }
+.c-label { flex: none; width: 7em; color: var(--md-sys-color-on-surface-variant); }
+.critique li.warn .c-text { color: var(--md-sys-color-error); }
+
+.tl.transit .body, .tl.free .body {
+  background: transparent; padding: 8px 4px; margin-bottom: 4px;
+}
+.tl .title {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 16px; font-weight: 500; letter-spacing: .15px;
+}
+.tl.transit .title, .tl.free .title {
+  font-size: 14px; font-weight: 400;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.tl .ic { font-size: 14px; }
+.tl .detail {
+  margin: 6px 0 0; font-size: 13px; line-height: 1.7;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.tl .reason {
+  margin: 10px 0 0; padding: 10px 14px;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-high);
+  font-size: 13px; line-height: 1.75;
+}
+.tl .hours, .tl .cost {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 8px 0 0; font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.tl .sun { margin: 8px 0 0; font-size: 13px; color: var(--md-sys-color-tertiary); }
+.tl .chev {
+  position: absolute; right: 16px; bottom: 16px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.tl.transit .chev, .tl.free .chev { display: none; }
+
+.item-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.item-links .link {
+  display: inline-flex; align-items: center;
+  min-height: 32px; padding: 0 16px;
+  border: .5px solid var(--hig-separator-opaque);
+  border-radius: var(--md-sys-shape-corner-small);
+  color: var(--md-sys-color-primary);
+  font-size: 13px; font-weight: 500; text-decoration: none;
+}
+.item-links .primary-link {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border-color: transparent;
+}
+
+/* 乗換の手順 */
+.transit-steps {
+  margin: 10px 0 0;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container);
+  overflow: hidden;
+}
+.transit-steps > summary {
+  list-style: none; cursor: pointer;
+  min-height: 44px; display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.transit-steps > summary::-webkit-details-marker { display: none; }
+.transit-steps > summary::before {
+  content: "▸"; font-size: 10px;
+  transition: transform var(--md-sys-motion-short) var(--md-sys-motion-standard);
+}
+.transit-steps[open] > summary::before { transform: rotate(90deg); }
+.ts-list {
+  list-style: none; margin: 0; padding: 4px 14px 12px;
+  border-top: .5px solid var(--hig-separator);
+}
+.ts { display: flex; gap: 10px; padding: 7px 0; font-size: 13px; line-height: 1.7; }
+.ts + .ts { border-top: .5px solid var(--hig-separator); }
+.ts-ic { flex: none; width: 18px; text-align: center; }
+.ts.ride .ts-tx { font-weight: 500; }
+.ts.wait .ts-tx { color: var(--md-sys-color-primary); }
+.ts.walk .ts-tx { color: var(--md-sys-color-on-surface-variant); }
+
+/* ------------------------------------------- 調整・言葉で直す・見直し --- */
+
+.adjust-row, .relax-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.relax-btn {
+  text-align: left; cursor: pointer; font: inherit;
+  border: .5px solid var(--hig-separator);
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+  padding: 14px 16px; flex: 1 1 220px;
+}
+.relax-btn b {
+  display: block; font-size: 14px; font-weight: 500;
+  color: var(--md-sys-color-primary); margin-bottom: 4px;
+}
+.relax-btn span {
+  display: block; font-size: 12px; line-height: 1.7;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.talk-row { display: flex; gap: 12px; align-items: flex-start; }
+/* min-width: 0 が無いと、入力欄が中身の幅より縮まず、
+   結果として押し出されて細くなります。 */
+.talk-row .md-field { flex: 1 1 auto; min-width: 0; margin-bottom: 0; }
+.talk-row .md-btn { flex: none; margin-top: 8px; min-height: 56px; }
+.panel.talk .md-field > .md-field-label,
+.panel.adjust .md-field > .md-field-label {
+  background: var(--md-sys-color-surface-container);
+}
+.talk-out {
+  margin: 14px 0 0; padding: 14px 16px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font-size: 14px; line-height: 1.8;
+}
+.talk-out.ng {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+
+.replan-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.rp {
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container-low);
+  border-left: 4px solid var(--md-sys-color-outline-variant);
+}
+.rp.rain   { border-left-color: var(--md-sys-color-tertiary); }
+.rp.sunset { border-left-color: var(--md-sys-color-primary); }
+.rp.crowd  { border-left-color: var(--md-sys-color-secondary); }
+.rp-pick {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 14px 16px; cursor: pointer; min-height: var(--md-touch);
+}
+.rp-pick input {
+  margin-top: 3px; width: 18px; height: 18px; flex: none;
+  accent-color: var(--md-sys-color-primary);
+}
+.rp-ic { flex: none; font-size: 15px; }
+.rp-tx { font-size: 13px; line-height: 1.75; }
+.rp-actions { margin-top: 14px; }
+.weather-days li { font-size: 13px; }
+
+/* ------------------------------------------------------- エラー表示 --- */
+/* 技術用語を表に出さないための箱。詳細は開いた人だけが見ます。 */
+
+.notice {
+  border-radius: var(--md-sys-shape-corner-large);
+  padding: 16px 20px; margin-bottom: 16px;
+  background: var(--md-sys-color-surface-container-high);
+}
+.notice--error {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+.notice h3 { margin: 0 0 6px; font-size: 16px; font-weight: 500; }
+.notice p { margin: 0; font-size: 14px; line-height: 1.8; }
+/* 次にできること。「そのまま作れます」を、本文と同じ濃さで埋もれさせない。 */
+.notice-next {
+  margin: 10px 0 0 !important; padding: 10px 12px;
+  border-radius: var(--hig-r-sm);
+  background: var(--hig-fill);
+  font-weight: 600;
+}
+.notice > details { margin-top: 12px; }
+.notice > details > summary {
+  cursor: pointer; list-style: none;
+  min-height: 36px; display: flex; align-items: center;
+  font-size: 12px; font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.notice--error > details > summary { color: inherit; opacity: .8; }
+.notice > details > summary::-webkit-details-marker { display: none; }
+.notice > details > summary::before { content: "▸ "; margin-right: 6px; }
+.notice > details[open] > summary::before { content: "▾ "; }
+.notice pre {
+  margin: 4px 0 0; padding: 12px;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 11px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ----------------------------------------------------- 詳細シートの中 --- */
+
+.md-sheet .sheet-body { padding: 0 24px 32px; }
+.md-sheet .sheet-art {
+  height: 200px; position: relative; overflow: hidden;
+  background-size: cover; background-position: center;
+  margin-bottom: 20px;
+}
+.md-sheet .sheet-art img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; opacity: 0;
+  transition: opacity var(--md-sys-motion-long) var(--md-sys-motion-standard);
+}
+.md-sheet .sheet-art img.on { opacity: 1; }
+.md-sheet .sheet-art .art-ic {
+  position: absolute; right: 20px; bottom: 14px; font-size: 34px;
+}
+.md-sheet .sheet-art .tier { position: absolute; left: 24px; bottom: 16px; }
+.md-sheet .close {
+  position: absolute; right: 12px; top: 12px; z-index: 3;
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: var(--md-sys-elevation-1);
+}
+.md-sheet h3 { margin: 0 0 4px; font-size: 24px; font-weight: 400; }
+.md-sheet .sub {
+  margin: 0 0 16px; font-size: 14px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.md-sheet .desc { margin: 0; font-size: 14px; line-height: 1.85; }
+.md-sheet .why-quote {
+  position: relative;
+  margin: 16px 0 0; padding: 16px 20px 16px 40px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font-size: 14px; line-height: 1.85;
+}
+.md-sheet .why-quote::before {
+  content: "\201C"; position: absolute; left: 14px; top: 8px;
+  font-size: 32px; line-height: 1; opacity: .55;
+}
+.md-sheet .card {
+  margin-top: 16px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container);
+  overflow: hidden;
+}
+.md-sheet .card .row {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 14px 16px; font-size: 14px;
+}
+.md-sheet .card .row + .row {
+  border-top: .5px solid var(--hig-separator);
+}
+.md-sheet .card .row span { color: var(--md-sys-color-on-surface-variant); }
+.md-sheet .links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.md-sheet .links a {
+  display: inline-flex; align-items: center;
+  min-height: 40px; padding: 0 24px;
+  border: .5px solid var(--hig-separator-opaque);
+  border-radius: var(--md-sys-shape-corner-full);
+  color: var(--md-sys-color-primary);
+  font-size: 14px; font-weight: 500; text-decoration: none;
+}
+.md-sheet .links a.primary {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  border-color: transparent;
+}
+.md-sheet .hint {
+  margin: 12px 0 0; font-size: 12px; line-height: 1.7;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.md-sheet .hint.warn-hint {
+  padding: 12px 14px; border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+
+/* -------------------------------------------------------- 画面の幅 --- */
+
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: minmax(320px, 380px) 1fr; }
+}
+
+@media (max-width: 860px) {
+  body { overflow: auto; }
+  .layout { grid-template-columns: 1fr; height: auto; }
+  .pane { overflow: visible; }
+  .pane-form {
+    border-right: none;
+    border-bottom: .5px solid var(--hig-separator);
+  }
+  /* 幅が狭いと全体がスクロールします。上のバーは貼り付けたままに
+     して、すりガラス越しに中身が流れて見えるようにします。 */
+  .app-bar {
+    position: sticky; top: 0;
+    padding: 0 4px 0 16px;
+    padding-top: env(safe-area-inset-top);
+    height: calc(52px + env(safe-area-inset-top));
+  }
+  /* 幅が狭いときは、ページ全体がスクロールします。
+     以前ここを position: static にしていました。並びのとおり下に流れる
+     ので重なりはしませんが、**スクロールして探さないと押せません**。
+     携帯では、条件を書き終えたところが画面のどこであっても押せるほうが
+     よいので、画面下に貼り付けます。
+     重なりは sticky ではなく fixed + body の余白で防ぎます。sticky は
+     親（.pane-form）の中でしか効かず、結果まで下がると消えてしまい、
+     しかも開いた折りたたみの上に重なることがありました。 */
+  .make {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    width: auto; margin: 0;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: var(--hig-card);
+    box-shadow: 0 -.5px 0 var(--hig-separator-opaque),
+                0 -8px 24px rgba(0, 0, 0, .06);
+  }
+  /* 帯の中の説明文は、上の見出しと同じことを言っています。
+     画面下の帯は低いほどよいので、携帯では出しません。 */
+  .make-note { display: none; }
+  /* 貼り付いた帯のぶん、ページの下を空けます。ここを空けずに帯だけ
+     浮かせると、いちばん下の要素（出典表示）が永久に読めません。 */
+  body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  .pane-form { padding-bottom: 24px; }
+  .map { height: 260px; margin: 12px 12px 0; }
+  .itin { padding: 16px 12px 40px; }
+  .tl .time { width: 54px; }
+  .result.map-full .map { height: 60vh; }
+  .result.map-full .itin { max-height: none; }
+}
+
+/* ------------------------------------------------------------ 印刷 --- */
+
+@media print {
+  body { overflow: visible; background: #fff; color: #000; font-size: 11pt; }
+  .app-bar, .pane-form, .map, .map-expand, .md-fab-extended,
+  .day-tabs, .item-links, .chev, .card-art, .panel.talk, .panel.adjust,
+  .variants, .actions { display: none !important; }
+  .layout { display: block; }
+  .pane, .pane-result { overflow: visible !important; height: auto !important; }
+  .itin { padding: 0; }
+  .day { break-inside: avoid; page-break-inside: avoid; }
+  .day[hidden] { display: block !important; }
+  .tl .body { background: transparent; border: 1px solid #ccc; }
+  .card-info { padding: 8px 10px; }
+  .panel { background: transparent; border: 1px solid #ccc; break-inside: avoid; }
+  a[href]::after { content: ""; }
+}
+
+/* ------------------------------------------------ 予約・場所の性格 --- */
+
+.tl .reserve {
+  display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
+  margin: 10px 0 0; padding: 10px 14px;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px; line-height: 1.7;
+}
+.tl .reserve.need {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+.tl .reserve .link { min-height: 28px; padding: 0 12px; font-size: 12px; }
+
+.quality { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.quality li {
+  display: grid; grid-template-columns: auto 4em 1fr;
+  gap: 8px; align-items: center; font-size: 12px;
+}
+.q-label { color: var(--md-sys-color-on-surface-variant); }
+.q-stars { letter-spacing: 2px; color: var(--md-sys-color-tertiary); font-size: 13px; }
+.q-stars .off { color: var(--md-sys-color-outline-variant); }
+
+.panel.story { background: var(--md-sys-color-secondary-container);
+               color: var(--md-sys-color-on-secondary-container); }
+.panel.story .panel-list li::before { background: currentColor; opacity: .5; }
+.panel.season { background: var(--md-sys-color-tertiary-container);
+                color: var(--md-sys-color-on-tertiary-container); }
+.panel.season .panel-list li::before { background: currentColor; opacity: .5; }
+
+/* ------------------------------------------------------ 旅行中モード --- */
+/* 当日に知りたいのは「次に何をすればいいか」だけです。大きく出します。 */
+
+.today {
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  padding: 24px; margin-bottom: 16px;
+}
+.today-when { margin: 0 0 4px; font-size: 12px; letter-spacing: .5px; opacity: .8; }
+.today-label { margin: 0; font-size: 12px; font-weight: 500; letter-spacing: .5px; opacity: .8; }
+.today-next { margin: 2px 0 6px; font-size: 28px; font-weight: 400; letter-spacing: 0; }
+.today-at { margin: 0; font-size: 16px; font-weight: 500; }
+.today-detail { margin: 8px 0 0; font-size: 13px; line-height: 1.75; opacity: .9; }
+/* 旅行中は、これがいちばん押されるボタンです。大きく、色をつけて。 */
+.today-nav {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin: 14px 0 4px; min-height: 50px; padding: 13px 18px;
+  border-radius: var(--hig-r-md);
+  background: var(--hig-blue); color: #fff;
+  font-size: 16px; font-weight: 600; letter-spacing: -.2px;
+  text-decoration: none;
+}
+.today-nav:hover { color: #fff; }
+
+.today-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.today .notice { margin: 16px 0 0; }
+.today .transit-steps { margin-top: 12px;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface); }
