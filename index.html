@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<title>旅さき｜行きたいことから旅程をつくるAI旅行プランナー</title>
+<meta name="description" content="「温泉と海をゆっくり楽しみたい」など、行きたいことを伝えるだけで、行き先・まわる順・移動時間まで考えた旅程を作ります。営業時間と移動時間を実際に照らし合わせるので、そのまま行ける旅程になります。">
+
+<!-- 共有したときの見た目。
+     これが無いと、LINE や X に貼ったときに真っ白なカードになります。
+     og:image は絶対URLでなければ多くのサービスが読みません。
+     公開するドメインに合わせて OG_BASE を書き換えてください。 -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="旅さき">
+<meta property="og:title" content="旅さき｜行きたいことから旅程をつくる">
+<meta property="og:description" content="「温泉と海をゆっくり楽しみたい」の一言から、行き先・まわる順・移動時間まで組み立てます。">
+<meta property="og:image" content="og.svg">
+<meta property="og:locale" content="ja_JP">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="旅さき｜行きたいことから旅程をつくる">
+<meta name="twitter:description" content="「温泉と海をゆっくり楽しみたい」の一言から、行き先・まわる順・移動時間まで組み立てます。">
+<meta name="twitter:image" content="og.svg">
+
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="旅さき">
+<meta name="apple-mobile-web-app-capable" content="yes">
+
+<!-- どこへ繋いでよいかを、あらかじめ宣言しておきます。
+     万一どこかに script が紛れ込んでも、ここに無い先へは出られません。
+
+     ここに並んでいるのが、このアプリの外部依存のすべてです。
+       unpkg          … 地図の部品（Leaflet）
+       tile.osm       … 地図のタイル
+       upload.wikimedia … スポットの写真
+       *.googleapis   … AI と経路（キーを直に持つ場合）
+       open-meteo     … 天気
+       ja.wikipedia   … 写真の在りかを聞く
+
+     PROXY_URL を使う場合は、その行き先を connect-src に足してください。
+     自分で立てたモデル（Gemma など）をブラウザから直に叩く場合も同じです
+     （例: connect-src に http://localhost:11434 を足す）。ただしそれは
+     手元で試すときだけにして、公開時は PROXY_URL 経由にしてください。
+     style に unsafe-inline が要るのは、Leaflet が要素の style を直接
+     書き換えるためです（script には要りません。inline script はありません）。
+
+     frame-ancestors と Referrer-Policy は meta では効きません。
+     公開時は HTTP ヘッダーでも付けてください（server/README.md）。 -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' https://unpkg.com;
+  style-src 'self' 'unsafe-inline' https://unpkg.com;
+  font-src 'self';
+  worker-src 'self';
+  manifest-src 'self';
+  img-src 'self' data: https://*.tile.openstreetmap.org https://upload.wikimedia.org;
+  connect-src 'self' https://generativelanguage.googleapis.com
+              https://routes.googleapis.com https://api.open-meteo.com
+              https://ja.wikipedia.org;
+  base-uri 'none';
+  object-src 'none';
+  form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<!-- 字は端末に入っているものだけを使います。Web フォントは読みません。
+     San Francisco は配布できず、和文は Apple ならヒラギノ、Windows なら
+     游ゴシック、Android なら Noto が最初から入っています。
+     わざわざ他所のサーバへ取りに行く相手は、ごく一部です。
+
+     そのごく一部のために払っていた代償のほうが大きいものでした。
+     **スクリプトは、先に書かれたスタイルシートの読み込みを待ちます。**
+     つまり fonts.googleapis.com が遅い日は、地図だけでなく、
+     条件の入力まで待たされていました。 -->
+
+<!-- 1. 配色（Apple のシステムカラー） 2. 部品 3. このアプリの並べかた -->
+<link rel="stylesheet" href="css/hig-tokens.css">
+<link rel="stylesheet" href="css/hig.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<a class="sr-only" href="#form-pane">条件の入力へ移動</a>
+
+<header class="app-bar">
+  <!-- ✦ の絵文字は環境ごとに形が変わるので、図にしました。 -->
+  <img class="brand-mark" src="icon.svg" alt="" width="22" height="22">
+  <h1>旅さき</h1>
+  <span class="spacer"></span>
+  <button type="button" class="md-icon-btn md-state" id="open-settings"
+          aria-label="設定" title="設定">
+    <span aria-hidden="true">⚙</span>
+  </button>
+</header>
+
+<main class="layout">
+
+  <!-- ===================== 左: 条件 ===================== -->
+  <section class="pane pane-form" id="form-pane">
+
+    <!-- 何をしてくれるサイトなのかを、最初の3行で言います。
+         「日本のどこからでも組めます」は機能の説明で、結果が
+         想像できません。一言入れたら何が返るのかを書きます。 -->
+    <div class="pitch">
+      <h2>行きたい、から旅程をつくる。</h2>
+      <p>「温泉と海をゆっくり楽しみたい」の一言から、<br>
+         行き先・まわる順・移動時間まで組み立てます。</p>
+    </div>
+
+    <!-- 前につくった旅程。
+         旅行サイトでいちばん戻ってくる導線がここです。中身（時刻の
+         入った旅程）ではなく **条件** を覚えておいて、押されたら
+         その場で組み直します。営業時間も混雑も日ごとに変わるので、
+         3か月前の旅程をそのまま出すと閉まっている店へ案内します。 -->
+    <section class="recent" id="recent" hidden aria-labelledby="recent-title">
+      <div class="recent-head">
+        <h3 id="recent-title">前につくった旅</h3>
+        <button type="button" class="linkish" id="recent-clear">すべて消す</button>
+      </div>
+      <ul class="recent-list" id="recent-list"></ul>
+      <p class="recent-note">この端末の中だけに残ります。どこにも送りません。</p>
+    </section>
+
+    <!-- ① どんな旅にしたいか。
+         自分の言葉を先に置きます。カードは「思いつかないとき」の
+         きっかけであって、こちらが用意した6通りに寄せるためのもの
+         ではありません。 -->
+    <section class="step" aria-labelledby="step1-title">
+      <h3 class="step-title" id="step1-title">
+        <span class="step-num" aria-hidden="true">1</span>どんな旅にしたい？
+      </h3>
+
+      <label class="md-field note-field">
+        <span class="sr-only">やりたいこと</span>
+        <textarea id="note" rows="3"
+          placeholder="例）温泉でゆっくりして、海も見たい"></textarea>
+      </label>
+      <div class="ex-set" id="free-examples"></div>
+
+      <p class="or-line"><span>思いつかないときは、ここから</span></p>
+      <div class="mood-grid" id="mood-rail" role="group"
+           aria-label="旅のきっかけから選ぶ"></div>
+    </section>
+
+    <!-- ② いつ・どこから -->
+    <section class="step" aria-labelledby="step2-title">
+      <h3 class="step-title" id="step2-title">
+        <span class="step-num" aria-hidden="true">2</span>いつ・どこから？
+      </h3>
+
+      <label class="md-field">
+        <span class="md-field-label">出発地</span>
+        <input list="place-list" id="depart-place" placeholder="駅名（例: 新宿駅）"
+               autocomplete="off">
+        <datalist id="place-list"></datalist>
+      </label>
+      <button type="button" class="md-btn md-btn--tonal md-state here-btn"
+              id="use-here">
+        <span aria-hidden="true">◎</span><span>現在地から探す</span>
+      </button>
+      <p class="here-note" id="here-note">
+        現在地は、いちばん近い駅を出発地に入れるためだけに使います。
+        どこにも送りません。</p>
+
+      <div class="when-row">
+        <label class="md-field">
+          <span class="md-field-label">出発</span>
+          <input type="datetime-local" id="depart-at">
+        </label>
+        <label class="md-field">
+          <span class="md-field-label">帰着（この時刻まで）</span>
+          <input type="datetime-local" id="arrive-by">
+        </label>
+      </div>
+      <p class="md-field-help" id="window-help"></p>
+
+      <!-- 1日に動ける時間。日をまたぐ旅で「毎日どれくらい歩けるか」は、
+           帰着時刻とは別のことです。滑らせて決めます。 -->
+      <div class="tune-group day-hours" id="day-hours-group">
+        <span class="tune-label" id="day-hours-label">1日に動ける時間</span>
+        <div class="dial" id="day-dial" aria-hidden="true"></div>
+        <input type="range" class="md-slider" id="day-hours"
+               min="4" max="14" step="1" value="9"
+               aria-labelledby="day-hours-label"
+               aria-describedby="day-hours-help">
+        <p class="md-field-help" id="day-hours-help"></p>
+      </div>
+    </section>
+
+    <!-- ③ 旅の好み。畳まずに出します。
+         「定番と穴場のまぜかた」も「混雑」も、旅の中身が変わる設定です。
+         「もう少しくわしく決める」の中に隠すようなものではありません。 -->
+    <section class="step" aria-labelledby="step3-title">
+      <h3 class="step-title" id="step3-title">
+        <span class="step-num" aria-hidden="true">3</span>旅の好み
+      </h3>
+
+      <div class="tune-group">
+        <span class="tune-label" id="bias-label">定番と穴場のまぜかた</span>
+        <!-- どちらへ寄っているのかを、数と絵で同時に見せます。 -->
+        <div class="mix" id="mix-view" aria-hidden="true">
+          <div class="mix-side mix-classic">
+            <b id="mix-classic-n">6</b><span>定番</span>
+          </div>
+          <div class="mix-bar"><i id="mix-fill"></i></div>
+          <div class="mix-side mix-hidden">
+            <b id="mix-hidden-n">4</b><span>穴場</span>
+          </div>
+        </div>
+        <div class="stardust" id="stardust" aria-hidden="true"></div>
+        <input type="range" class="md-slider" id="hidden-bias"
+               min="0" max="100" value="40"
+               aria-labelledby="bias-label" aria-describedby="hidden-bias-help">
+        <p class="md-field-help" id="hidden-bias-help">定番より</p>
+      </div>
+
+      <div class="tune-group">
+        <label class="switch-row" for="avoid-crowds">
+          <span class="md-switch">
+            <input type="checkbox" id="avoid-crowds" checked>
+            <span class="md-switch-track"></span>
+          </span>
+          <span class="switch-text">
+            <b>混雑を避けて組む</b>
+            <small>混みやすい場所を朝いちに回します。行き先は減りません。</small>
+          </span>
+        </label>
+      </div>
+
+      <div class="tune-group">
+        <span class="tune-label">興味（任意・複数可）</span>
+        <div class="chip-set">
+          <button type="button" class="md-chip md-state" data-genre="onsen" aria-pressed="false"><span>温泉</span></button>
+          <button type="button" class="md-chip md-state" data-genre="nature" aria-pressed="false"><span>自然</span></button>
+          <button type="button" class="md-chip md-state" data-genre="history" aria-pressed="false"><span>歴史・寺社</span></button>
+          <button type="button" class="md-chip md-state" data-genre="food" aria-pressed="false"><span>グルメ</span></button>
+          <button type="button" class="md-chip md-state" data-genre="art" aria-pressed="false"><span>アート</span></button>
+          <button type="button" class="md-chip md-state" data-genre="sea" aria-pressed="false"><span>海・湖</span></button>
+          <button type="button" class="md-chip md-state" data-genre="city" aria-pressed="false"><span>街歩き</span></button>
+          <button type="button" class="md-chip md-state" data-genre="view" aria-pressed="false"><span>絶景</span></button>
+        </div>
+      </div>
+    </section>
+
+    <details class="tune" id="tune">
+      <summary><span>旅の終わりかたを変える</span></summary>
+
+      <div class="tune-group">
+        <span class="tune-label">旅の終わり</span>
+        <div class="md-segmented" id="end-choice">
+          <button type="button" class="md-state is-selected" data-end="origin">
+            <span>出発地に戻る</span>
+          </button>
+          <button type="button" class="md-state" data-end="other">
+            <span>別の場所で終える</span>
+          </button>
+        </div>
+        <label class="md-field" id="end-place-field" hidden>
+          <span class="md-field-label">終える場所</span>
+          <input list="place-list" id="end-place" placeholder="駅名（例: 名古屋駅）"
+                 autocomplete="off">
+        </label>
+        <p class="md-field-help" id="end-help">
+          旅を終えたときに、出発した駅へ戻る前提で組みます。</p>
+      </div>
+    </details>
+
+    <div class="tune-group" id="pinned" hidden></div>
+    <div id="form-error" hidden></div>
+
+    <div class="make">
+      <button type="button" class="md-fab-extended md-state" id="make-plan">
+        <span class="fab-ic" aria-hidden="true">✦</span>
+        <span class="fab-tx">旅程をつくる</span>
+      </button>
+      <p class="make-note">行き先・まわる順・移動時間まで、まとめて組み立てます。</p>
+    </div>
+
+    <footer class="credits">
+      <p id="ph-data"></p>
+      <p id="attribution" hidden></p>
+    </footer>
+  </section>
+
+  <!-- ===================== 右: 結果 ===================== -->
+  <section class="pane pane-result">
+
+    <div id="placeholder" class="placeholder">
+      <div id="home-map" class="home-map"></div>
+      <p class="home-hint" id="home-hint">
+        左で選ぶと、ここに旅程と地図が出ます</p>
+    </div>
+
+    <div id="progress" class="planning" hidden role="status" aria-live="polite"></div>
+
+    <div id="result" class="result" hidden>
+      <div id="map" class="map">
+        <button type="button" class="md-icon-btn md-state map-expand" id="map-expand"
+                aria-label="地図を大きく見る" title="地図を大きく見る">
+          <span aria-hidden="true">⤢</span>
+        </button>
+      </div>
+      <div class="itin">
+        <!-- 旅の当日だけ出ます。次に何をすればいいかだけを大きく。 -->
+        <div id="today" hidden></div>
+      </div>
+      <div id="itinerary" class="itin"></div>
+    </div>
+
+  </section>
+
+</main>
+
+<dialog id="settings-dialog" class="md-dialog">
+  <h2 class="md-headline-small">設定</h2>
+
+  <!-- 使う人が知りたいこと。「Geminiとは」ではなく「AIは使えるのか」。 -->
+  <ul class="md-list">
+    <li class="md-list-item">
+      <span class="md-list-text">配色</span>
+      <span class="md-list-support">端末の設定に合わせます</span>
+    </li>
+    <li class="md-list-item">
+      <span class="md-list-text">AIによる提案</span>
+      <span class="md-list-support" id="key-gemini"></span>
+    </li>
+    <li class="md-list-item">
+      <span class="md-list-text">実際の経路・所要時間</span>
+      <span class="md-list-support" id="key-maps"></span>
+    </li>
+    <li class="md-list-item">
+      <span class="md-list-text">収録データ</span>
+      <span class="md-list-support" id="key-kb"></span>
+    </li>
+    <li class="md-list-item">
+      <span class="md-list-text">これまでの利用</span>
+      <span class="md-list-support" id="key-quota"></span>
+      <button type="button" class="md-btn md-btn--text md-state" id="reset-quota">
+        <span>数え直す</span></button>
+    </li>
+  </ul>
+
+  <!-- ここから先は、自分で動かしている人だけが要るものです。
+       一般の利用者に「Routes API」と書いても、何も伝わりません。 -->
+  <details class="dev-settings" id="dev-settings">
+    <summary><span>開発者向け</span></summary>
+    <ul class="md-list">
+      <li class="md-list-item">
+        <span class="md-list-text">Gemini</span>
+        <span class="md-list-support" id="dev-gemini"></span>
+        <button type="button" class="md-btn md-btn--text md-state" id="test-gemini">
+          <span>確認</span></button>
+      </li>
+      <li class="md-list-item">
+        <span class="md-list-text">Routes API</span>
+        <span class="md-list-support" id="dev-maps"></span>
+        <button type="button" class="md-btn md-btn--text md-state" id="test-maps">
+          <span>確認</span></button>
+      </li>
+      <li class="md-list-item">
+        <span class="md-list-text">知識ベース</span>
+        <span class="md-list-support" id="dev-kb"></span>
+      </li>
+    </ul>
+    <div id="key-result"></div>
+    <p class="md-body-small" style="color:var(--hig-label-2)">
+      キーは <code>js/config.js</code> に書きます。公開するときは
+      <code>PROXY_URL</code> に自分のバックエンドを設定して、キーを
+      ブラウザに置かないようにしてください（<code>server/README.md</code>）。</p>
+  </details>
+
+  <div class="md-dialog-actions">
+    <button type="button" class="md-btn md-btn--text md-state" id="settings-close">
+      <span>閉じる</span></button>
+  </div>
+</dialog>
+
+<!-- 旅行者は「API」を使っている意識がありません。
+     「APIの使用を続けますか」と出しても、何を聞かれているのか
+     伝わりません。同じ確認を、旅の言葉でします。 -->
+<dialog id="quota-dialog" class="md-dialog">
+  <h2 class="md-headline-small">この旅を、もう少し詳しく調べますか</h2>
+  <p class="md-body-medium" id="quota-detail" style="margin:0 0 12px"></p>
+  <p class="md-body-small" style="margin:0;padding:14px 16px;border-radius:var(--hig-r-sm);background:var(--hig-fill);color:var(--hig-label)">
+    ここから先は、実際の乗換時間を調べたり、収録に無い場所をAIが
+    探したりします。ここまでにしても旅程は作れます
+    （移動時間は距離からの目安、行き先は収録済みの中から選びます）。</p>
+  <div class="md-dialog-actions">
+    <button type="button" class="md-btn md-btn--text md-state" id="quota-stop">
+      <span>ここまでにする</span></button>
+    <button type="button" class="md-btn md-btn--filled md-state" id="quota-go">
+      <span>詳しく調べる</span></button>
+  </div>
+</dialog>
+
+<!-- async を付けます。
+     これが無いと、地図の部品が届くまでページ全体が止まります。
+     旅行者が使うのは移動中の回線です。地図が遅い日に、条件の入力まで
+     待たされる理由はありません（地図は旅程づくりに要りません）。
+     app.js は window.L を待たずに動き、届いた時点で地図を出します。 -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        crossorigin="" async></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

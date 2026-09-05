@@ -1,0 +1,12 @@
+# 旅さき
+#
+# 管理画面は認証がありません。索引にも載せません。
+# （そもそも公開する場所に置かないでください。ここは念のためです）
+
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /server/
+Disallow: /tools/
+
+Sitemap: /sitemap.xml
