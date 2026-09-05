@@ -65,6 +65,10 @@ export function buildItinerary(input) {
   const meals = input.meals ?? [];
   const moves = input.moves ?? [];
   const travelFn = input.travelFn ?? estimateMinutes;
+  // その日を終える時刻。選んでもらった時間帯があればそちらを使います
+  // （TUNING の値は、聞いていないときの既定です）。
+  const dayEndHour = Number.isFinite(trip.dayEndHour)
+    ? trip.dayEndHour : TUNING.dayEndHour;
   // 区間の中身（路線・乗換・待ち時間）を引く関数。分からなければ null。
   // 「たぶんこの路線」で埋めるくらいなら、何も出さないほうが安全です。
   const legDetail = input.legDetail ?? (() => null);
@@ -194,7 +198,7 @@ export function buildItinerary(input) {
     if (day < nights) {
       const anchor = dayEntries.length ? prevEnd
         : atHour(new Date(trip.departAt.getTime() + day * 86400000),
-                 TUNING.dayEndHour);
+                 dayEndHour);
       if (anchor < arriveStation) {
         items.push({
           id: nextId(), kind: "free",
@@ -227,7 +231,7 @@ export function buildItinerary(input) {
     // という表示になっていました。夜をまたぐ空きは自由時間ではなく、
     // 「まだ予定を埋められていない日」です。そちらは
     // verify.js の underfilled が別に伝えます。
-    const dayCap = atHour(prevEnd, TUNING.dayEndHour);
+    const dayCap = atHour(prevEnd, dayEndHour);
     const freeEnd = new Date(Math.min(
       startBack.getTime(),
       Math.max(dayCap.getTime(), prevEnd.getTime())));

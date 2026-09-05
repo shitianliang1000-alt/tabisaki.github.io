@@ -332,32 +332,16 @@ p, li { text-wrap: pretty; }
 }
 .mix-known-note b { font-weight: 600; color: var(--hig-label); }
 
-/* --- 1日に動ける時間 ----------------------------------------------------- */
+/* --- 1日のうち、動く時間帯 ------------------------------------------------ */
 /*
-   数字だけだと、9時間が長いのか短いのか判断できません。
-   1日（16時間の起きている時間）のうち、どれだけ使うのかを
-   円弧の面積で出します。
+   長さ（9時間）ではなく時刻で聞きます。旅程を組む側は端から時刻で
+   考えるので、聞いた時刻をそのまま枠として使えます。
 */
 .day-hours { margin-top: 18px; }
-.dial {
-  --share: .56;
-  position: relative;
-  width: 84px; height: 84px; margin: 4px auto 10px;
-  border-radius: 50%;
-  background: conic-gradient(var(--tabi-teal) calc(var(--share) * 360deg),
-                             var(--hig-fill) 0);
-  display: flex; align-items: center; justify-content: center;
-  transition: background var(--hig-mid) var(--hig-ease);
-}
-.dial::before {
-  content: ""; position: absolute; inset: 11px;
-  border-radius: 50%; background: var(--hig-card);
-}
-.dial b {
-  position: relative;
-  font-size: 17px; font-weight: 700; letter-spacing: -.3px;
-  font-variant-numeric: tabular-nums;
-}
+.day-window { display: flex; gap: 10px; margin-top: 8px; }
+.day-window .md-field { flex: 1; min-width: 0; margin-bottom: 6px; }
+.day-window .md-field > input { font-size: 15px; padding: 11px 10px; }
+#day-hours-help.warn { color: var(--hig-red); font-weight: 600; }
 
 /* くわしく決める */
 /* 「旅の終わりかたを変える」。

@@ -234,9 +234,12 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 「毎日6時間で切り上げたい」も「朝から晩まで歩ける」も同じ件数に
   // なっていました。滞在と移動で1か所あたり約1.6時間として割ります。
   const basePerDay = SPOTS_PER_DAY[trip.pace] ?? 4;
-  const perDay = Number.isFinite(trip.dayHours)
-    ? Math.max(2, Math.min(basePerDay + 2,
-        Math.round(trip.dayHours / 1.6)))
+  const dayHours = Number.isFinite(trip.dayStartHour)
+      && Number.isFinite(trip.dayEndHour)
+    ? trip.dayEndHour - trip.dayStartHour
+    : null;
+  const perDay = Number.isFinite(dayHours)
+    ? Math.max(2, Math.min(basePerDay + 2, Math.round(dayHours / 1.6)))
     : basePerDay;
   // 日帰りは残り時間で決まり、泊まりは日数で決まります。
   // 「1日あたり3〜4か所」を素直に日数倍しないと、10日間の旅程が
@@ -648,6 +651,10 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     startAt: new Date(trip.departAt.getTime() + outbound.minutes * 60000),
     end, endBy: trip.arriveBy, pace: trip.pace, travelFn,
     nights, baseByDay, dayFloorById, day0: trip.departAt,
+    // 選んでもらった時間帯を、そのまま2日目以降の枠にします。
+    // 渡さないと TUNING の 9:00〜18:30 に固定されたままです。
+    dayStartHour: trip.dayStartHour,
+    dayEndHour: trip.dayEndHour,
     pinnedIds: trip.must?.spotIds ?? [],
   };
   const trimmed = trimToFit(spots, ctx);

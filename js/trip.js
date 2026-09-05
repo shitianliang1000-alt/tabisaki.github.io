@@ -11,6 +11,30 @@
 
 /** @typedef {{name:string, lat:number, lng:number}} Place */
 
+/**
+ * 時刻の入力欄（"09:30"）と、内部で使う数（9.5）の変換。
+ *
+ * 1日の枠は端から時刻で扱います。長さ（9時間）だけでは「いつ動くのか」
+ * が決まらず、同じ9時間でも7時発と10時発では開いている施設が変わります。
+ */
+
+/** "09:30" → 9.5。読めなければ null。 */
+export function parseHourField(value) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(value ?? "").trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return h + min / 60;
+}
+
+/** 9.5 → "09:30"。 */
+export function formatHourField(hour) {
+  const h = Math.floor(hour);
+  const m = Math.round((hour - h) * 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 export const END_MODES = /** @type {const} */ ({
   RETURN_TO_ORIGIN: "return-to-origin",   // 出発地に戻る
   END_AT_DESTINATION: "end-at-destination", // 最終目的地で終了
@@ -59,10 +83,18 @@ export function makeTrip(init = {}) {
     interests: init.interests ?? [],
     budgetYen: init.budgetYen ?? 15000,
     hiddenBias: init.hiddenBias ?? 0.5,
-    // 1日に動ける時間（時間）。帰着時刻とは別のことです。
-    // 3泊4日で「毎日9時間歩ける」人と「6時間で切り上げたい」人では、
-    // 入る件数がまるで変わります。
-    dayHours: Number.isFinite(init.dayHours) ? init.dayHours : 9,
+    /**
+     * 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
+     *
+     * 以前は「1日に動ける時間」を長さ（9時間）だけで聞いていました。
+     * ただ、長さだけでは **いつ動くのか** が決まりません。同じ9時間でも
+     * 7時発と10時発では、開いている施設も、その日に回れる場所も変わります。
+     * 実際、旅程を組む側（verify.js）は端から時刻で考えていて、長さは
+     * 件数の計算にしか使われず、時間帯は 9:00〜18:30 に固定されていました。
+     * 聞き方を時刻に合わせ、そのまま旅程の枠として使います。
+     */
+    dayStartHour: Number.isFinite(init.dayStartHour) ? init.dayStartHour : 9,
+    dayEndHour: Number.isFinite(init.dayEndHour) ? init.dayEndHour : 18.5,
     pace: init.pace ?? "balanced",
     /**
      * ペースを利用者が選んだかどうか。

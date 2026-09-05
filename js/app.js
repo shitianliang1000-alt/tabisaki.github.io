@@ -17,7 +17,8 @@ import { loadKnowledgeBase, mergeIntoKb } from "./kb.js";
 import { clearRouteCache, diagnoseMapsKey, resetRoutesBreaker, routesUsage }
   from "./routes.js";
 import { PLACES, findPlace, nearestPlaceInfo } from "./places.js";
-import { END_MODES, makeTrip, validateTrip } from "./trip.js";
+import { END_MODES, formatHourField, makeTrip, parseHourField, validateTrip }
+  from "./trip.js";
 import { TripMap, pointsFromItinerary } from "./map.js";
 import { planTrip } from "./pipeline.js";
 import { haversineKm } from "./feasibility.js";
@@ -790,30 +791,31 @@ function renderStardust(value) {
 }
 
 /**
- * 1日に動ける時間。
+ * 1日のうち、観光にあてる時間帯。
  *
- * 帰着時刻とは別のことです。3泊4日で「毎日9時間歩ける」人と
- * 「6時間で切り上げたい」人では、入る件数がまるで変わります。
- * 時計の絵で、その長さを見せます。
+ * 長さではなく時刻で聞きます。旅程を組む側は端から時刻で考えるので、
+ * 聞いた時刻をそのまま枠として使えます。
  */
-function renderDayHours(hours) {
-  const dial = $("#day-dial");
-  if (dial) {
-    // 円弧で長さを見せます。数字だけだと、9時間が長いのか短いのか
-    // 判断できません。1日の中でどれだけ使うのかを面積で出します。
-    const share = Math.max(0, Math.min(1, hours / 16));
-    dial.style.setProperty("--share", String(share));
-    dial.textContent = "";
-    const label = el("b", {}, `${hours}時間`);
-    dial.append(label);
-  }
+function renderDayWindow() {
+  const start = parseHourField($("#day-start")?.value);
+  const end = parseHourField($("#day-end")?.value);
   const help = $("#day-hours-help");
-  if (help) {
-    help.textContent = hours <= 6 ? "朝はゆっくり、夕方には宿へ戻ります"
-      : hours <= 9 ? "ふつうに歩ける長さです"
-        : hours <= 12 ? "朝から夜まで、しっかり動きます"
-          : "かなり長い一日です。連日だと疲れが残ります";
+  if (!help) return;
+  if (start === null || end === null) { help.textContent = ""; return; }
+  const hours = end - start;
+  if (hours <= 0) {
+    help.textContent = "終わりの時刻は、始めの時刻より後にしてください。";
+    help.classList.add("warn");
+    return;
   }
+  help.classList.remove("warn");
+  const len = Number.isInteger(hours) ? `${hours}時間`
+    : `${Math.floor(hours)}時間30分`;
+  const mood = hours <= 6 ? "朝はゆっくり、夕方には宿へ戻ります"
+    : hours <= 9 ? "ふつうに歩ける長さです"
+      : hours <= 12 ? "朝から夜まで、しっかり動きます"
+        : "かなり長い一日です。連日だと疲れが残ります";
+  help.textContent = `1日あたり${len}・${mood}`;
 }
 
 // --- 画面の共通部品 ---------------------------------------------------------
@@ -854,12 +856,10 @@ function wireChrome() {
     bias.addEventListener("change", saveConditions);
   }
 
-  const dayHours = $("#day-hours");
-  if (dayHours) {
-    renderDayHours(Number(dayHours.value));
-    dayHours.addEventListener("input",
-      () => renderDayHours(Number(dayHours.value)));
-    dayHours.addEventListener("change", () => {
+  renderDayWindow();
+  for (const id of ["#day-start", "#day-end"]) {
+    $(id)?.addEventListener("input", renderDayWindow);
+    $(id)?.addEventListener("change", () => {
       saveConditions();
       updateWindowHelp();
     });
@@ -999,8 +999,9 @@ function readTrip() {
     budgetYen: 999999,
     // 定番と穴場のまぜかた。画面では星の粒として出しています。
     hiddenBias: (Number($("#hidden-bias")?.value ?? 40)) / 100,
-    // 1日に動ける時間。帰着時刻とは別のことです。
-    dayHours: Number($("#day-hours")?.value ?? 9),
+    // 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
+    dayStartHour: parseHourField($("#day-start")?.value) ?? 9,
+    dayEndHour: parseHourField($("#day-end")?.value) ?? 18.5,
     ...(state.pace ? { pace: state.pace } : {}),
     avoidCrowds: $("#avoid-crowds").checked,
     must: {
@@ -1026,7 +1027,8 @@ function formState() {
       .map((c) => c.dataset.genre),
     crowd: $("#avoid-crowds").checked,
     bias: Number($("#hidden-bias")?.value ?? 40),
-    hours: Number($("#day-hours")?.value ?? 9),
+    dayStart: $("#day-start")?.value ?? "09:00",
+    dayEnd: $("#day-end")?.value ?? "18:30",
     pinned: [...state.pinned.keys()],
   };
 }
@@ -1043,10 +1045,15 @@ function applyFormState(v) {
     $("#hidden-bias").value = String(v.bias);
     renderStardust(v.bias);
   }
-  if (Number.isFinite(v.hours) && $("#day-hours")) {
-    $("#day-hours").value = String(v.hours);
-    renderDayHours(v.hours);
+  // 以前の保存は「1日に動ける時間（長さ）」でした。朝9時から数えて
+  // 同じ長さになる時間帯に読み替えます（保存を捨てずに済ませます）。
+  if (v.dayStart) $("#day-start").value = v.dayStart;
+  if (v.dayEnd) $("#day-end").value = v.dayEnd;
+  if (!v.dayStart && Number.isFinite(v.hours)) {
+    $("#day-start").value = "09:00";
+    $("#day-end").value = formatHourField(Math.min(23.5, 9 + v.hours));
   }
+  renderDayWindow();
   if (v.end === "other") {
     document.querySelector('[data-end="other"]')?.click();
   }

@@ -161,15 +161,21 @@
       </div>
       <p class="md-field-help" id="window-help"></p>
 
-      <!-- 1日に動ける時間。日をまたぐ旅で「毎日どれくらい歩けるか」は、
-           帰着時刻とは別のことです。滑らせて決めます。 -->
+      <!-- 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
+           長さ（9時間）だけでは「いつ動くのか」が決まりません。同じ9時間
+           でも、7時発と10時発では開いている施設が変わります。 -->
       <div class="tune-group day-hours" id="day-hours-group">
-        <span class="tune-label" id="day-hours-label">1日に動ける時間</span>
-        <div class="dial" id="day-dial" aria-hidden="true"></div>
-        <input type="range" class="md-slider" id="day-hours"
-               min="4" max="14" step="1" value="9"
-               aria-labelledby="day-hours-label"
-               aria-describedby="day-hours-help">
+        <span class="tune-label" id="day-hours-label">1日のうち、動く時間帯</span>
+        <div class="day-window">
+          <label class="md-field">
+            <span class="md-field-label">朝は何時から</span>
+            <input type="time" id="day-start" value="09:00" step="1800">
+          </label>
+          <label class="md-field">
+            <span class="md-field-label">夜は何時まで</span>
+            <input type="time" id="day-end" value="18:30" step="1800">
+          </label>
+        </div>
         <p class="md-field-help" id="day-hours-help"></p>
       </div>
     </section>
