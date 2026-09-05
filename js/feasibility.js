@@ -174,12 +174,11 @@ export function estimateMinutes(a, b, opts = {}) {
   if (km <= 700) return Math.round((km / 120) * 60) + 35;  // 新幹線＋乗換
 
   // ここから先は飛行機のほうが早くなります。この分岐が無いと、
-  // 東京〜パリが「時速120kmで80時間」になり、海外旅行は例外なく
-  // 「時間内に行けません」で弾かれていました。
+  // 東京〜石垣が「時速120kmで20時間」になり、行けるはずの旅先が
+  // 候補から消えます。
   // 空港での手続きと市内との往復を、片道210分として乗せています。
   const ground = Math.round((km / 120) * 60) + 35;
-  const crossBorder = a?.country && b?.country && a.country !== b.country;
-  const air = Math.round((km / 800) * 60) + 210 + (crossBorder ? 90 : 0);
+  const air = Math.round((km / 800) * 60) + 210;
   return Math.min(ground, air);
 }
 

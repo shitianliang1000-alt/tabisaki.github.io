@@ -394,3 +394,40 @@ test("雰囲気の語を拾う", () => {
   const r = extractKeywords("人が少ない静かな場所でのんびりしたい");
   assert.ok(r.moods.length >= 2, JSON.stringify(r.moods));
 });
+
+// --- 1日のうち、動く時間帯 --------------------------------------------------
+//
+// 長さ（9時間）だけでは「いつ動くのか」が決まりません。同じ9時間でも
+// 7時発と10時発では、開いている施設もその日に回れる場所も変わります。
+
+import { formatHourField, parseHourField } from "../js/trip.js";
+
+test("時刻の欄を、内部で使う数に読み替える", () => {
+  assert.equal(parseHourField("09:00"), 9);
+  assert.equal(parseHourField("18:30"), 18.5);
+  assert.equal(parseHourField("7:15"), 7.25);
+  assert.equal(parseHourField(""), null);
+  assert.equal(parseHourField("25:00"), null);
+  assert.equal(parseHourField("09:70"), null);
+  assert.equal(parseHourField(undefined), null);
+});
+
+test("内部の数を、時刻の欄に戻せる", () => {
+  assert.equal(formatHourField(9), "09:00");
+  assert.equal(formatHourField(18.5), "18:30");
+  for (const v of ["06:00", "09:30", "22:45"]) {
+    assert.equal(formatHourField(parseHourField(v)), v);
+  }
+});
+
+test("時間帯を指定しなければ、これまでと同じ 9:00〜18:30", () => {
+  const t = makeTrip({});
+  assert.equal(t.dayStartHour, 9);
+  assert.equal(t.dayEndHour, 18.5);
+});
+
+test("指定した時間帯が、そのまま旅の条件になる", () => {
+  const t = makeTrip({ dayStartHour: 7, dayEndHour: 21 });
+  assert.equal(t.dayStartHour, 7);
+  assert.equal(t.dayEndHour, 21);
+});

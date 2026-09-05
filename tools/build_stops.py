@@ -28,8 +28,12 @@
   どちらも同じ形: {"year": 年, "stops": [[lat, lng, name], ...]}
 
 使い方
-  python3 tools/build_stops.py rail <N02-08.xml> [出力先]
-  python3 tools/build_stops.py bus  <P11のzipを集めたディレクトリ> [出力先]
+  python3 tools/build_stops.py rail  <N02-08.xml> [出力先]
+  python3 tools/build_stops.py bus   <P11のzipを集めたディレクトリ> [出力先]
+  python3 tools/build_stops.py patch <kb/stops-rail.json>
+
+  patch は、出来上がった駅データに tools/station_updates.py の差分だけを
+  あてます（元のXMLが手元に無くても、差分の追記を反映できます）。
 """
 import json
 import math
@@ -37,6 +41,8 @@ import os
 import re
 import sys
 import zipfile
+
+import station_updates
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.dirname(HERE)
@@ -109,6 +115,8 @@ def build_rail(xml_path, out_path):
             seen[key] = [round(pt[0], 5), round(pt[1], 5), name]
 
     stops = sorted(seen.values(), key=lambda s: (s[0], s[1]))
+    # 2008年度のままでは、新幹線の駅が無く、廃線の駅が残ります。
+    stops = station_updates.apply(stops)
     write_out(out_path, 2008, stops)
     print(f"駅 {len(stops)}件 → {out_path}")
 
@@ -212,6 +220,12 @@ if __name__ == "__main__":
     elif kind == "bus":
         out = sys.argv[3] if len(sys.argv) > 3 else os.path.join(WEB, "kb", "stops-bus.json")
         build_bus(src, out)
+    elif kind == "patch":
+        with open(src, encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["stops"] = station_updates.apply(doc["stops"])
+        write_out(src, doc.get("year", 2008), doc["stops"])
+        print(f"差分をあてました → {src}")
     else:
         print(__doc__)
         sys.exit(1)

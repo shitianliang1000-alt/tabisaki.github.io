@@ -236,3 +236,66 @@ test("天気を使わない指定ができる（軽量モード用）", async ()
   assert.deepEqual(itin.replan.suggestions, [],
     "使わない指定のときは、混雑や日没の提案も出しません");
 });
+
+// --- 日数ぶんの立ち寄りを用意する -------------------------------------------
+//
+// 「箱根で」と書いて3泊4日にすると、箱根の収録11件だけで4日を埋めることに
+// なり、1日2〜3か所で残りが空きます。実際に行く人も、その場合は隣の
+// エリアまで足を延ばします。足りているときは広げません（指定は指定です）。
+
+import { spotsNeededFor, widenScopeForDays } from "../js/pipeline.js";
+
+test("収録が足りない日数では、近いエリアを足す", async () => {
+  const kb = await loadKnowledgeBase();
+  const hakone = kb.regions.find((r) => r.name === "箱根");
+  assert.ok(hakone, "箱根が収録にありません");
+
+  const scope = { regionIds: new Set([hakone.id]) };
+  const before = kb.spotsByRegion.get(hakone.id).length;
+  const added = widenScopeForDays(scope, kb, 4);
+
+  assert.ok(before < spotsNeededFor(4), "前提が変わっています");
+  assert.ok(added.length > 0, "4日ぶんに足りないのに広げていません");
+  const after = [...scope.regionIds]
+    .reduce((n, id) => n + (kb.spotsByRegion.get(id)?.length ?? 0), 0);
+  assert.ok(after >= spotsNeededFor(4), `${after}件では4日を埋められません`);
+});
+
+test("足りているときは、指定エリアを広げない", async () => {
+  const kb = await loadKnowledgeBase();
+  const hakone = kb.regions.find((r) => r.name === "箱根");
+  const scope = { regionIds: new Set([hakone.id]) };
+  assert.deepEqual(widenScopeForDays(scope, kb, 1), []);
+  assert.equal(scope.regionIds.size, 1);
+});
+
+test("広げるのは近いエリアだけ（箱根と書いて京都が入らない）", async () => {
+  const kb = await loadKnowledgeBase();
+  const hakone = kb.regions.find((r) => r.name === "箱根");
+  const scope = { regionIds: new Set([hakone.id]) };
+  widenScopeForDays(scope, kb, 10);
+  for (const id of scope.regionIds) {
+    const r = kb.regionsById.get(id);
+    const km = Math.hypot((r.lat - hakone.lat) * 111,
+                          (r.lng - hakone.lng) * 91);
+    assert.ok(km <= 70, `${r.name} は箱根から約${Math.round(km)}km あります`);
+  }
+});
+
+test("日数が増えれば、立ち寄りも増える", async () => {
+  const kb = await loadKnowledgeBase();
+  const plan = async (nights) => {
+    const itin = await planTrip({ kb, trip: makeTrip({
+      origin: findPlace("新宿駅"), budgetYen: 999999,
+      note: "箱根で温泉と自然を楽しみたい",
+      departAt: new Date("2026-10-03T09:00"),
+      arriveBy: new Date(`2026-10-0${3 + nights}T19:00`),
+    }) });
+    return itin.days.flatMap((d) => d.items)
+      .filter((i) => i.kind === "spot").length;
+  };
+  const short = await plan(1);
+  const long = await plan(3);
+  assert.ok(long > short, `1泊${short}件・3泊${long}件で増えていません`);
+  assert.ok(long >= 12, `3泊4日で${long}件は少なすぎます`);
+});

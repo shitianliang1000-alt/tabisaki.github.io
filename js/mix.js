@@ -12,10 +12,16 @@ export const TIER_LABEL = { major: "定番", known: "知る人ぞ知る", hidden
 export function mixTargets(total, hiddenBias = 0.5) {
   if (total <= 0) return { major: 0, known: 0, hidden: 0 };
   const b = Math.min(1, Math.max(0, hiddenBias));
+  // 端まで動かしたら、端の結果になること。
+  //
+  // 以前は 0.6→0.2（定番）／0.1→0.4（穴場）の幅しかありませんでした。
+  // 「穴場中心」まで振り切っても定番が2割残り、穴場は4割止まりです。
+  // 画面には「穴場10」と出るのに定番のほうが多く返ることがあり、
+  // スライダーが効いていない（向きが逆だ）ように見えていました。
   const out = {
-    major: Math.round(total * (0.6 - 0.4 * b)),
-    known: Math.round(total * (0.3 + 0.1 * b)),
-    hidden: Math.round(total * (0.1 + 0.3 * b)),
+    major: Math.round(total * (0.75 - 0.70 * b)),
+    known: Math.round(total * (0.20 + 0.05 * b)),
+    hidden: Math.round(total * (0.05 + 0.65 * b)),
   };
 
   // 端数調整を先に行う。これを穴場の下限確保より後にすると、

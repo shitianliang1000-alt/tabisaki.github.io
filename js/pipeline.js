@@ -17,8 +17,7 @@ import {
 } from "./ai.js";
 import { areaNote, areaScope, detectAreas, unknownPlaceTerms } from "./areas.js";
 import { discoverArea, resolveDestination } from "./discover.js";
-import { isJapan, overseasNotes } from "./geo.js";
-import { estimateMinutes } from "./feasibility.js";
+import { estimateMinutes, haversineKm } from "./feasibility.js";
 import {
   mergeIntoKb, rankRegions, reachableRegions, searchSpots, searchSpotsByKeyword,
 } from "./kb.js";
@@ -185,7 +184,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     const before = scope.regionIds;
     scope = areaScope(detectAreas(trip.note, kb));
     if (!scope.regionIds) {
-      // 海外など、日本の地名として解釈できない場合は、調べたエリアに絞る
+      // 収録の地名として解釈できない場合は、調べたエリアに絞る
       const ids = new Set(kb.regions.filter((r) => r.source === "ai")
         .map((r) => r.id));
       if (ids.size) scope = { regionIds: ids, matched: [], missing: [] };
@@ -213,11 +212,21 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     }
   }
 
+  const nights = nightsOf(trip);
+  const days = nights + 1;
+
   if (scope.regionIds) {
     // 語句に一致したものだけを残すと、「四国」という語を説明文に含む
     // 数件だけが候補になり、四国7エリアのうち3エリアしか検討されません
     // でした。指定された範囲は丸ごと候補にしたうえで、語句に一致した
     // ものを上に置きます。
+    //
+    // そのうえで、**指定エリアだけでは日数が埋まらないなら、隣を足します。**
+    // 箱根の収録は11件です。「箱根で」と書いて3泊4日にすると、
+    // 4日で11か所（1日2〜3か所）にしかならず、あとは空きます。
+    // 実際に行く人も、その場合は小田原や熱海まで足を延ばします。
+    // 足りているときは触りません（指定を無視して広げたりはしません）。
+    widenScopeForDays(scope, kb, days);
     const inArea = matches.filter((m) => scope.regionIds.has(m.spot.regionId));
     const have = new Set(inArea.map((m) => m.spot.id));
     const rest = kb.spots
@@ -225,18 +234,18 @@ export async function planTrip({ trip, kb, onProgress = () => {},
       .map((spot) => ({ spot, score: 0 }));
     matches = [...inArea, ...rest];
   }
-
-  const nights = nightsOf(trip);
-  const days = nights + 1;
   // 1日に動ける時間から、その日の件数を決めます。
   //
   // ペース（ゆったり／標準／詰込）だけで決めていたときは、
   // 「毎日6時間で切り上げたい」も「朝から晩まで歩ける」も同じ件数に
   // なっていました。滞在と移動で1か所あたり約1.6時間として割ります。
   const basePerDay = SPOTS_PER_DAY[trip.pace] ?? 4;
-  const perDay = Number.isFinite(trip.dayHours)
-    ? Math.max(2, Math.min(basePerDay + 2,
-        Math.round(trip.dayHours / 1.6)))
+  const dayHours = Number.isFinite(trip.dayStartHour)
+      && Number.isFinite(trip.dayEndHour)
+    ? trip.dayEndHour - trip.dayStartHour
+    : null;
+  const perDay = Number.isFinite(dayHours)
+    ? Math.max(2, Math.min(basePerDay + 2, Math.round(dayHours / 1.6)))
     : basePerDay;
   // 日帰りは残り時間で決まり、泊まりは日数で決まります。
   // 「1日あたり3〜4か所」を素直に日数倍しないと、10日間の旅程が
@@ -424,17 +433,6 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   itin.discovered = discovered;
   itin.sources = dedupeSources(sources);
 
-  // 国をまたぐ旅は、旅程エンジンでは扱えないことが増えます。
-  // 計算できないからといって黙るのではなく、何が要るのかを書きます。
-  const firstStay = checked.stays?.[0]?.region;
-  const abroad = firstStay && !isJapan({ lat: firstStay.lat, lng: firstStay.lng,
-                                        country: firstStay.country });
-  const overseas = abroad
-    ? overseasNotes(trip.origin, { lat: firstStay.lat, lng: firstStay.lng,
-                                   country: firstStay.country })
-    : [];
-  itin.overseas = abroad ? { country: firstStay.country } : null;
-
   // 絶対条件が守れなかったときは、いちばん先に伝えます。
   const mustNotes = (checked.conflicts ?? []).map((c) =>
     `「必ず行く」に指定された${c.name}を旅程に入れられませんでした。${c.detail}`);
@@ -527,7 +525,6 @@ export async function planTrip({ trip, kb, onProgress = () => {},
 
   itin.warnings = [
     ...mustNotes,
-    ...overseas,
     ...discoveryNotes,
     ...areaNotes,
     ...farNotes,
@@ -605,7 +602,14 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     // その日がまるごと崩れる区間）から先に使い切ります。
     const entries = [];
     if (stationPoints) {
-      stationRoute = await computeRoute(stationPoints, { mode: "TRANSIT" });
+      // 出発時刻を送らないと「いまこの瞬間」で調べられます。夜に作れば
+      // 終電後として扱われ、拠点の移動だけが推定に落ちていました。
+      // 拠点を移すのは午前中が普通なので、旅の初日の10時で見ます
+      // （何日目に移るかは区間ごとに違うので、ここは一本の目安です）。
+      const moveAt = new Date(trip.departAt);
+      moveAt.setHours(10, 0, 0, 0);
+      stationRoute = await computeRoute(stationPoints,
+        { mode: "TRANSIT", departAt: moveAt });
       entries.push([stationPoints, stationRoute.legs]);
     }
 
@@ -641,6 +645,10 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     startAt: new Date(trip.departAt.getTime() + outbound.minutes * 60000),
     end, endBy: trip.arriveBy, pace: trip.pace, travelFn,
     nights, baseByDay, dayFloorById, day0: trip.departAt,
+    // 選んでもらった時間帯を、そのまま2日目以降の枠にします。
+    // 渡さないと TUNING の 9:00〜18:30 に固定されたままです。
+    dayStartHour: trip.dayStartHour,
+    dayEndHour: trip.dayEndHour,
     pinnedIds: trip.must?.spotIds ?? [],
   };
   const trimmed = trimToFit(spots, ctx);
@@ -769,6 +777,56 @@ export class PlanError extends Error {
 }
 
 /** 出典の重複を落とします（同じ記事が何度も返ることがあります）。 */
+/** その日数を埋めるのに要る、おおよその立ち寄り件数。 */
+export function spotsNeededFor(days) {
+  return Math.max(3, days * 4);
+}
+
+/**
+ * 指定エリアだけでは日数を埋められないとき、近いエリアを足します。
+ *
+ * 箱根の収録は11件です。「箱根で」と書いて3泊4日にすると、4日で11か所
+ * （1日2〜3か所）にしかなりません。実際に行く人も、その場合は小田原や
+ * 熱海まで足を延ばします。指定を無視するのではなく、**足りないぶんだけ**
+ * 隣を足します。足りているときは何もしません。
+ *
+ * 近さは、指定エリアの中心からの直線距離で見ます。遠いエリアを足すと
+ * 「箱根と言ったのに京都が入る」ことになるので、上限を置きます。
+ *
+ * @param {{regionIds:Set<string>}} scope その場で書き換えます
+ * @param {number} days
+ * @returns {string[]} 足したエリア名
+ */
+export function widenScopeForDays(scope, kb, days, maxKm = 60) {
+  if (!scope.regionIds?.size) return [];
+  const need = spotsNeededFor(days);
+  const have = [...scope.regionIds]
+    .reduce((n, id) => n + (kb.spotsByRegion.get(id)?.length ?? 0), 0);
+  if (have >= need) return [];
+
+  const anchors = [...scope.regionIds]
+    .map((id) => kb.regionsById.get(id)).filter(Boolean);
+  if (!anchors.length) return [];
+
+  const near = [];
+  for (const r of kb.regions) {
+    if (scope.regionIds.has(r.id)) continue;
+    const km = Math.min(...anchors.map((a) => haversineKm(a, r)));
+    if (km <= maxKm) near.push({ region: r, km });
+  }
+  near.sort((a, b) => a.km - b.km);
+
+  const added = [];
+  let total = have;
+  for (const { region } of near) {
+    if (total >= need) break;
+    scope.regionIds.add(region.id);
+    total += kb.spotsByRegion.get(region.id)?.length ?? 0;
+    added.push(region.name);
+  }
+  return added;
+}
+
 function dedupeSources(list) {
   const seen = new Set();
   const out = [];

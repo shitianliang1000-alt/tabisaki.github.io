@@ -123,7 +123,6 @@
         <textarea id="note" rows="3"
           placeholder="例）温泉でゆっくりして、海も見たい"></textarea>
       </label>
-      <div class="ex-set" id="free-examples"></div>
 
       <p class="or-line"><span>思いつかないときは、ここから</span></p>
       <div class="mood-grid" id="mood-rail" role="group"
@@ -162,15 +161,21 @@
       </div>
       <p class="md-field-help" id="window-help"></p>
 
-      <!-- 1日に動ける時間。日をまたぐ旅で「毎日どれくらい歩けるか」は、
-           帰着時刻とは別のことです。滑らせて決めます。 -->
+      <!-- 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
+           長さ（9時間）だけでは「いつ動くのか」が決まりません。同じ9時間
+           でも、7時発と10時発では開いている施設が変わります。 -->
       <div class="tune-group day-hours" id="day-hours-group">
-        <span class="tune-label" id="day-hours-label">1日に動ける時間</span>
-        <div class="dial" id="day-dial" aria-hidden="true"></div>
-        <input type="range" class="md-slider" id="day-hours"
-               min="4" max="14" step="1" value="9"
-               aria-labelledby="day-hours-label"
-               aria-describedby="day-hours-help">
+        <span class="tune-label" id="day-hours-label">1日のうち、動く時間帯</span>
+        <div class="day-window">
+          <label class="md-field">
+            <span class="md-field-label">朝は何時から</span>
+            <input type="time" id="day-start" value="09:00" step="1800">
+          </label>
+          <label class="md-field">
+            <span class="md-field-label">夜は何時まで</span>
+            <input type="time" id="day-end" value="18:30" step="1800">
+          </label>
+        </div>
         <p class="md-field-help" id="day-hours-help"></p>
       </div>
     </section>
@@ -186,15 +191,21 @@
       <div class="tune-group">
         <span class="tune-label" id="bias-label">定番と穴場のまぜかた</span>
         <!-- どちらへ寄っているのかを、数と絵で同時に見せます。 -->
+        <!-- 10か所行くとしたら何対何になるか。ここの数は、実際に選ぶ
+             関数（mixTargets）から引いています。 -->
         <div class="mix" id="mix-view" aria-hidden="true">
           <div class="mix-side mix-classic">
-            <b id="mix-classic-n">6</b><span>定番</span>
+            <b id="mix-classic-n">5</b><span>定番</span>
           </div>
-          <div class="mix-bar"><i id="mix-fill"></i></div>
+          <div class="mix-bar">
+            <i id="mix-fill"></i><i id="mix-known-fill"></i>
+          </div>
           <div class="mix-side mix-hidden">
-            <b id="mix-hidden-n">4</b><span>穴場</span>
+            <b id="mix-hidden-n">2</b><span>穴場</span>
           </div>
         </div>
+        <p class="mix-known-note">
+          残り <b id="mix-known-n">3</b> か所は「知る人ぞ知る」場所です</p>
         <div class="stardust" id="stardust" aria-hidden="true"></div>
         <input type="range" class="md-slider" id="hidden-bias"
                min="0" max="100" value="40"

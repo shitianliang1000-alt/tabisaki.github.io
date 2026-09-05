@@ -17,12 +17,15 @@ import { loadKnowledgeBase, mergeIntoKb } from "./kb.js";
 import { clearRouteCache, diagnoseMapsKey, resetRoutesBreaker, routesUsage }
   from "./routes.js";
 import { PLACES, findPlace, nearestPlaceInfo } from "./places.js";
-import { END_MODES, makeTrip, validateTrip } from "./trip.js";
+import { findStop, preloadStops, searchStops } from "./stops.js";
+import { END_MODES, formatHourField, makeTrip, parseHourField, validateTrip }
+  from "./trip.js";
 import { TripMap, pointsFromItinerary } from "./map.js";
 import { planTrip } from "./pipeline.js";
 import { haversineKm } from "./feasibility.js";
 import { configureQuota, describeUsage, quota } from "./quota.js";
 import { artFor, moodArt } from "./art.js";
+import { mixTargets } from "./mix.js";
 import { photoFor } from "./photos.js";
 import { applyEdit, describeEdit, parseEdit } from "./edit.js";
 import { applyReplan } from "./replan.js";
@@ -100,9 +103,9 @@ async function boot() {
     $("#ph-data").textContent =
       `確認済みの収録は全国${c.regions}エリア・${c.spots}スポット。`
       + (hasApiKey()
-        ? "ここに無い土地（海外も含む）は、AIが検索して調べます。"
+        ? "ここに無い土地は、AIが検索して調べます（国内のみ）。"
         : "AIキーが未設定のため、いまは収録されている範囲からのみ提案します"
-          + "（js/config.js にキーを入れると、海外や収録に無い土地も"
+          + "（js/config.js にキーを入れると、収録に無い土地も"
           + "調べられるようになります）。");
   } catch (e) {
     setBadge(`データを読み込めません: ${e.message}`, true);
@@ -254,12 +257,56 @@ function setBadge(text, isError = false) {
   b.classList.toggle("err", isError);
 }
 
+/**
+ * 出発地・到着地の候補。
+ *
+ * 主要駅78件は最初から並べておき、打ち始めたら全国の停留所
+ * （駅9,612件・バス停65,606件、kb/stops-*.json）から絞って足します。
+ *
+ * 7万件を datalist にまとめて入れることはできません。件数ぶんの
+ * DOM を作るので、ブラウザが数秒固まります。打たれた文字で絞って
+ * 20件だけ差し替えます（ファイルの形ではなく、件数が問題です）。
+ */
 function fillPlaces() {
   const list = $("#place-list");
   for (const p of PLACES) {
     list.append(el("option", { value: p.name }, `${p.area}`));
   }
   $("#depart-place").value = "東京駅";
+
+  for (const id of ["#depart-place", "#end-place"]) {
+    $(id)?.addEventListener("input", (e) => suggestPlaces(e.currentTarget.value));
+    // 停留所のデータは2.7MBあり、最初の1回は読み込みに数秒かかります。
+    // 打ち始めてから取りにいくと、その数秒ぶん候補が出ません。
+    // 欄に触れた時点で先に取り始めます（触れなければ取りません）。
+    $(id)?.addEventListener("focus", preloadStops, { once: true });
+  }
+}
+
+/** いま打たれている文字に合う停留所を、候補欄に差し込みます。 */
+let suggestSeq = 0;
+async function suggestPlaces(text) {
+  const q = String(text ?? "").trim();
+  const list = $("#place-list");
+  if (!list) return;
+  const seq = ++suggestSeq;
+  // 1文字だと候補が多すぎて選べません。主要駅だけ出しておきます。
+  const found = q.length >= 2 ? await searchStops(q, 20) : [];
+  if (seq !== suggestSeq) return;   // もっと新しい入力が来ていたら捨てます
+
+  list.textContent = "";
+  const seen = new Set();
+  for (const p of PLACES) {
+    if (q && !p.name.includes(q)) continue;
+    seen.add(p.name);
+    list.append(el("option", { value: p.name }, p.area));
+  }
+  for (const s of found) {
+    if (seen.has(s.name)) continue;
+    seen.add(s.name);
+    list.append(el("option", { value: s.name },
+      s.kind === "rail" ? "駅" : "バス停"));
+  }
 }
 
 function setDefaultDates() {
@@ -684,14 +731,6 @@ const MOODS = [
   "美術館と建築をめぐりたい",
 ];
 
-/** 自由入力の見本。カードでは表せない「名指し」を見せます。 */
-const FREE_EXAMPLES = [
-  "北海道で鉄道に乗りながら、有名な自然を見たい",
-  "富士山に登りたい",
-  "パリで美術館をめぐりたい",
-  "オーロラが見たい",
-];
-
 const MOOD_LABEL = {
   "温泉でゆっくり癒されたい": "温泉でゆっくり",
   "歴史ある街を歩いて、美味しいものを食べたい": "歴史ある街歩き",
@@ -728,20 +767,6 @@ function fillMoodRail() {
         other.setAttribute("aria-pressed", String(other === btn));
       }
     }));
-  }
-  // 自由入力の見本。カードでは表せない「名指し」を並べます。
-  const box = document.getElementById("free-examples");
-  if (box) {
-    for (const text of FREE_EXAMPLES) {
-      const b = el("button", { type: "button", class: "ex-chip" }, text);
-      b.addEventListener("click", () => {
-        $("#note").value = text;
-        $("#note").dispatchEvent(new Event("input"));
-        $("#note").focus();
-        saveConditions();
-      });
-      box.append(b);
-    }
   }
 
   // 自由入力を触ったら、カードの印は外します。
@@ -781,16 +806,20 @@ function renderStardust(value) {
   // 星の粒だけでは、どちらへ寄っているのかが分かりませんでした
   // （増えているのは分かるが、それが「定番」なのか「穴場」なのか）。
   // 10か所行くとしたら何対何になるのか、数で先に言います。
-  const hidden = Math.round(value / 10);
-  const classic = 10 - hidden;
+  //
+  // **実際に選ぶ関数から引きます。** ここで別の式を持つと、画面には
+  // 「穴場10」と出ているのに定番のほうが多く返る、ということが起きます
+  // （実際そうなっていて、スライダーの向きが逆に見えていました）。
+  const t = mixTargets(10, value / 100);
   const set = (id, text) => { const e = $(id); if (e) e.textContent = text; };
-  set("#mix-classic-n", String(classic));
-  set("#mix-hidden-n", String(hidden));
-  // 帯の左は「定番」です。value は穴場寄りの度合いなので、
-  // そのまま幅にすると、定番2割のときに藍が8割になります
-  // （数字と絵が逆を向いていました）。
+  set("#mix-classic-n", String(t.major));
+  set("#mix-hidden-n", String(t.hidden));
+  set("#mix-known-n", String(t.known));
+  // 帯の左は「定番」です。実際の割り当てに合わせて境目を置きます。
   const fill = $("#mix-fill");
-  if (fill) fill.style.width = `${100 - value}%`;
+  if (fill) fill.style.width = `${t.major * 10}%`;
+  const mid = $("#mix-known-fill");
+  if (mid) mid.style.width = `${t.known * 10}%`;
   const view = $("#mix-view");
   if (view) {
     view.classList.toggle("to-hidden", value > 55);
@@ -802,35 +831,36 @@ function renderStardust(value) {
     help.textContent = value <= 20 ? "誰でも知っている場所を中心に組みます"
       : value <= 45 ? "定番を軸に、穴場を少し混ぜます"
       : value <= 75 ? "定番と穴場を半分ずつ混ぜます"
-      : "知る人ぞ知る場所を多めにします";
+      : "あまり知られていない場所を中心に組みます";
   }
 }
 
 /**
- * 1日に動ける時間。
+ * 1日のうち、観光にあてる時間帯。
  *
- * 帰着時刻とは別のことです。3泊4日で「毎日9時間歩ける」人と
- * 「6時間で切り上げたい」人では、入る件数がまるで変わります。
- * 時計の絵で、その長さを見せます。
+ * 長さではなく時刻で聞きます。旅程を組む側は端から時刻で考えるので、
+ * 聞いた時刻をそのまま枠として使えます。
  */
-function renderDayHours(hours) {
-  const dial = $("#day-dial");
-  if (dial) {
-    // 円弧で長さを見せます。数字だけだと、9時間が長いのか短いのか
-    // 判断できません。1日の中でどれだけ使うのかを面積で出します。
-    const share = Math.max(0, Math.min(1, hours / 16));
-    dial.style.setProperty("--share", String(share));
-    dial.textContent = "";
-    const label = el("b", {}, `${hours}時間`);
-    dial.append(label);
-  }
+function renderDayWindow() {
+  const start = parseHourField($("#day-start")?.value);
+  const end = parseHourField($("#day-end")?.value);
   const help = $("#day-hours-help");
-  if (help) {
-    help.textContent = hours <= 6 ? "朝はゆっくり、夕方には宿へ戻ります"
-      : hours <= 9 ? "ふつうに歩ける長さです"
-        : hours <= 12 ? "朝から夜まで、しっかり動きます"
-          : "かなり長い一日です。連日だと疲れが残ります";
+  if (!help) return;
+  if (start === null || end === null) { help.textContent = ""; return; }
+  const hours = end - start;
+  if (hours <= 0) {
+    help.textContent = "終わりの時刻は、始めの時刻より後にしてください。";
+    help.classList.add("warn");
+    return;
   }
+  help.classList.remove("warn");
+  const len = Number.isInteger(hours) ? `${hours}時間`
+    : `${Math.floor(hours)}時間30分`;
+  const mood = hours <= 6 ? "朝はゆっくり、夕方には宿へ戻ります"
+    : hours <= 9 ? "ふつうに歩ける長さです"
+      : hours <= 12 ? "朝から夜まで、しっかり動きます"
+        : "かなり長い一日です。連日だと疲れが残ります";
+  help.textContent = `1日あたり${len}・${mood}`;
 }
 
 // --- 画面の共通部品 ---------------------------------------------------------
@@ -871,12 +901,10 @@ function wireChrome() {
     bias.addEventListener("change", saveConditions);
   }
 
-  const dayHours = $("#day-hours");
-  if (dayHours) {
-    renderDayHours(Number(dayHours.value));
-    dayHours.addEventListener("input",
-      () => renderDayHours(Number(dayHours.value)));
-    dayHours.addEventListener("change", () => {
+  renderDayWindow();
+  for (const id of ["#day-start", "#day-end"]) {
+    $(id)?.addEventListener("input", renderDayWindow);
+    $(id)?.addEventListener("change", () => {
       saveConditions();
       updateWindowHelp();
     });
@@ -997,13 +1025,27 @@ function updateWindowHelp() {
   help.textContent = `${span}・${back}に${hhmm}までに${verb}`;
 }
 
-function readTrip() {
+/**
+ * 打たれた名前から場所を決めます。
+ *
+ * まず主要駅78件、当たらなければ全国の停留所（駅・バス停）から探します。
+ * 「収録の78駅にしか出発地を置けない」ままだと、最寄りが載っていない
+ * 人はこのアプリを使い始めることすらできません。
+ */
+async function resolvePlace(text) {
+  const hit = findPlace(text);
+  if (hit) return hit;
+  const stop = await findStop(text);
+  return stop ? { name: stop.name, lat: stop.lat, lng: stop.lng } : null;
+}
+
+async function readTrip() {
   const genres = [...document.querySelectorAll('.md-chip[aria-pressed="true"]')]
     .map((c) => c.dataset.genre);
   const other = state.endMode === "other";
-  const end = other ? findPlace($("#end-place").value) : null;
+  const end = other ? await resolvePlace($("#end-place").value) : null;
   return makeTrip({
-    origin: findPlace($("#depart-place").value),
+    origin: await resolvePlace($("#depart-place").value),
     destination: end,
     returnTo: null,
     endMode: other ? END_MODES.END_AT_DESTINATION : END_MODES.RETURN_TO_ORIGIN,
@@ -1016,8 +1058,9 @@ function readTrip() {
     budgetYen: 999999,
     // 定番と穴場のまぜかた。画面では星の粒として出しています。
     hiddenBias: (Number($("#hidden-bias")?.value ?? 40)) / 100,
-    // 1日に動ける時間。帰着時刻とは別のことです。
-    dayHours: Number($("#day-hours")?.value ?? 9),
+    // 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
+    dayStartHour: parseHourField($("#day-start")?.value) ?? 9,
+    dayEndHour: parseHourField($("#day-end")?.value) ?? 18.5,
     ...(state.pace ? { pace: state.pace } : {}),
     avoidCrowds: $("#avoid-crowds").checked,
     must: {
@@ -1043,7 +1086,8 @@ function formState() {
       .map((c) => c.dataset.genre),
     crowd: $("#avoid-crowds").checked,
     bias: Number($("#hidden-bias")?.value ?? 40),
-    hours: Number($("#day-hours")?.value ?? 9),
+    dayStart: $("#day-start")?.value ?? "09:00",
+    dayEnd: $("#day-end")?.value ?? "18:30",
     pinned: [...state.pinned.keys()],
   };
 }
@@ -1060,10 +1104,15 @@ function applyFormState(v) {
     $("#hidden-bias").value = String(v.bias);
     renderStardust(v.bias);
   }
-  if (Number.isFinite(v.hours) && $("#day-hours")) {
-    $("#day-hours").value = String(v.hours);
-    renderDayHours(v.hours);
+  // 以前の保存は「1日に動ける時間（長さ）」でした。朝9時から数えて
+  // 同じ長さになる時間帯に読み替えます（保存を捨てずに済ませます）。
+  if (v.dayStart) $("#day-start").value = v.dayStart;
+  if (v.dayEnd) $("#day-end").value = v.dayEnd;
+  if (!v.dayStart && Number.isFinite(v.hours)) {
+    $("#day-start").value = "09:00";
+    $("#day-end").value = formatHourField(Math.min(23.5, 9 + v.hours));
   }
+  renderDayWindow();
   if (v.end === "other") {
     document.querySelector('[data-end="other"]')?.click();
   }
@@ -1325,7 +1374,7 @@ function applySuggestion(s) {
  *   省略すると、左の入力欄から読みます。
  */
 async function run(override) {
-  const trip = override ?? readTrip();
+  const trip = override ?? await readTrip();
   showError("");
 
   if (!trip.origin) {

@@ -48,14 +48,95 @@ async function fetchStops(name) {
   }
 }
 
-let gridPromise = null;
+let loadPromise = null;
 
-function loadGrid() {
-  gridPromise ??= Promise.all([
+/**
+ * 読み込みは1回だけ。位置で引く索引と、名前で引く索引の両方を作ります。
+ *
+ * 名前の索引は、出発地・到着地の入力補完に使います。datalist に
+ * 7万件を並べるとブラウザが固まるので、打たれた文字で絞ってから
+ * 20件だけ差し込みます。
+ */
+function load() {
+  loadPromise ??= Promise.all([
     fetchStops("stops-rail.json"),
     fetchStops("stops-bus.json"),
-  ]).then(([rail, bus]) => buildGrid([...rail, ...bus]));
-  return gridPromise;
+  ]).then(([rail, bus]) => {
+    // 駅を先に置きます。同じ名前ならバス停より駅を採ります
+    // （「新宿駅」と打った人が新宿駅前のバス停に案内されないように）。
+    const all = [
+      ...rail.map((s) => ({ lat: s[0], lng: s[1], name: s[2], kind: "rail" })),
+      ...bus.map((s) => ({ lat: s[0], lng: s[1], name: s[2], kind: "bus" })),
+    ];
+    const byName = new Map();
+    for (const s of all) {
+      const key = normalizeName(s.name);
+      if (!byName.has(key)) byName.set(key, s);
+    }
+    return { grid: buildGrid(all.map((s) => [s.lat, s.lng, s.name])), all, byName };
+  });
+  return loadPromise;
+}
+
+function loadGrid() {
+  return load().then((x) => x.grid);
+}
+
+/** 「新宿駅」「 新宿 」を同じ鍵にします。 */
+function normalizeName(name) {
+  return String(name ?? "").trim().replace(/[\s　]+/g, "").replace(/駅$/, "");
+}
+
+/**
+ * 先に読み込んでおきます。
+ *
+ * 停留所のデータは2.7MBあり、最初の1回は数秒かかります。使う直前に
+ * 取りにいくと、その数秒ぶん候補が出ません。触れた時点で始めます。
+ */
+export function preloadStops() {
+  load().catch(() => { /* 読めなくても、直線距離の目安に戻るだけです */ });
+}
+
+/**
+ * 名前の一致で停留所を1件引きます。駅を優先します。
+ * @returns {{lat,lng,name,kind}|null}
+ */
+export async function findStop(name) {
+  const q = normalizeName(name);
+  if (!q) return null;
+  const { byName } = await load();
+  return byName.get(q) ?? null;
+}
+
+/**
+ * 入力補完の候補。打たれた文字で始まるものを先に返します。
+ * @param {string} query
+ * @param {number} limit
+ */
+export async function searchStops(query, limit = 20) {
+  const q = normalizeName(query);
+  if (q.length < 1) return [];
+  const { all } = await load();
+  const starts = [];
+  const contains = [];
+  for (const s of all) {
+    const n = normalizeName(s.name);
+    if (n === q || n.startsWith(q)) starts.push(s);
+    else if (n.includes(q)) contains.push(s);
+    if (starts.length >= limit) break;
+  }
+  // 同じ名前の停留所は全国にいくつもあります（「本町」など）。
+  // 候補としては1つで足ります。
+  const seen = new Set();
+  const out = [];
+  for (const s of [...starts, ...contains]) {
+    const key = normalizeName(s.name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /**
@@ -87,5 +168,5 @@ export async function nearestStop(point, maxKm = 3) {
 
 /** テスト・診断用に、読み込み状態をリセットします。 */
 export function resetStopsCache() {
-  gridPromise = null;
+  loadPromise = null;
 }

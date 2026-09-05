@@ -97,7 +97,20 @@ test("失敗が続いたら呼ぶのをやめる", () => {
 
 // --- 先の日付では時刻表が引けない ------------------------------------------
 
-import { TRANSIT_HORIZON_DAYS, transitDepartureTime } from "../js/routes.js";
+import { TRANSIT_HORIZON_DAYS, neutralDepartureTime, transitDepartureTime }
+  from "../js/routes.js";
+
+test("時刻を指定しない問い合わせは、次の平日の昼で聞く", () => {
+  // 出発時刻を送らないと Google は「押した瞬間」で調べます。深夜に
+  // 「確認」を押しただけで東京→横浜が見つからなくなっていました。
+  for (const iso of ["2026-09-05T02:30", "2026-09-05T23:50",
+                     "2026-09-04T12:00", "2026-09-06T18:00"]) {
+    const d = neutralDepartureTime(new Date(iso));
+    assert.equal(d.getHours(), 10, `${iso} → ${d}`);
+    assert.ok(d.getDay() !== 0 && d.getDay() !== 6, `${iso} → 週末になっています`);
+    assert.ok(d > new Date(iso), `${iso} → 過去になっています`);
+  }
+});
 
 test("近い日付の出発時刻は、そのまま送る", () => {
   const now = new Date("2026-08-31T10:00");

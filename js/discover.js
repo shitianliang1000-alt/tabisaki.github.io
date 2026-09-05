@@ -24,7 +24,7 @@
 import { callModel, canGround, extractJson, hasApiKey, lastGrounding }
   from "./ai.js";
 import { MACRO_AREAS, PREFECTURES, PREF_CENTER, detectAreas } from "./areas.js";
-import { lookupCountry, onEarth } from "./geo.js";
+import { onEarth } from "./geo.js";
 import { haversineKm } from "./feasibility.js";
 
 /** 既知の分類。知らない分類は「観光名所」に寄せます（既定値が引けるように）。 */
@@ -65,7 +65,7 @@ const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 /**
  * 名乗った土地と座標が矛盾していないか。
  *
- * 日本国内は都道府県で、海外は国で照合します。表に無い国は照合できないので
+ * 都道府県で照合します。都道府県が分からないものは照合できないので
  * 「照合していない」と返し、そのことを利用者に伝えます（黙って通しません）。
  *
  * @returns {{ok:boolean, checked:boolean, reason?:string}}
@@ -82,15 +82,7 @@ function agreesWithPlaceName({ lat, lng, prefecture, country }) {
           reason: `${prefecture}から${Math.round(away)}km離れた座標` };
   }
 
-  const c = lookupCountry(country);
-  if (c) {
-    const away = haversineKm({ lat, lng }, { lat: c.lat, lng: c.lng });
-    return away <= c.radiusKm
-      ? { ok: true, checked: true }
-      : { ok: false, checked: true,
-          reason: `${c.name}から${Math.round(away)}km離れた座標` };
-  }
-  // 国の表に無い（＝照合の基準を持っていない）
+  // 都道府県が分からなければ、照合の基準を持ちません。
   return { ok: true, checked: false };
 }
 
@@ -138,22 +130,21 @@ export function validateDiscovered(raw, opts = {}) {
       || (PREFECTURES.includes(pref) ? "日本" : "");
     if (!name || name.length > 40) { drop(name || "(無名)", "エリア名が不正"); continue; }
 
-    const isJp = country === "日本" || PREFECTURES.includes(pref);
-    if (isJp && !PREFECTURES.includes(pref)) {
+    // このアプリは国内の旅だけを扱います。調べた先が日本でなければ、
+    // 収録せずに理由を残します（黙って混ぜると、行けない旅程になります）。
+    if (country && country !== "日本") {
+      drop(name, `国外のため対象外: ${country}`); continue;
+    }
+    if (!PREFECTURES.includes(pref)) {
       drop(name, `都道府県名が不正: ${pref}`); continue;
     }
-    if (isJp && allowed && !allowed.has(pref)) {
+    if (allowed && !allowed.has(pref)) {
       drop(name, `「${term}」の範囲外の都道府県: ${pref}`); continue;
-    }
-    if (!isJp && expectedCountry
-        && lookupCountry(country)?.name !== lookupCountry(expectedCountry)?.name
-        && country !== expectedCountry) {
-      drop(name, `「${term}」の範囲外の国: ${country}`); continue;
     }
 
     const lat = num(area?.lat);
     const lng = num(area?.lng);
-    const agree = agreesWithPlaceName({ lat, lng, prefecture: isJp ? pref : null,
+    const agree = agreesWithPlaceName({ lat, lng, prefecture: pref,
                                         country });
     if (!agree.ok) { drop(name, agree.reason); continue; }
     if (!agree.checked) unverifiedPlace.push(name);
@@ -359,8 +350,8 @@ const RESOLVE_SHAPE = `{
  * 希望文から「どこの話か」を割り出します。
  *
  * 地名の辞書を持って照合する方式は、載っていない地名のぶんだけ黙って
- * 別の場所にすり替わります。海外や、地名ですらない言い方
- * （「オーロラが見たい」「ウユニ塩湖みたいなところ」）にはなおさら効きません。
+ * 別の場所にすり替わります。地名ですらない言い方
+ * （「一面の星空が見たい」）にはなおさら効きません。
  * 割り出し自体をモデルにやらせ、返ってきた座標をこちらで検証します。
  *
  * @returns {{ok:boolean, places:Array, intent:string, sources:Array}}
