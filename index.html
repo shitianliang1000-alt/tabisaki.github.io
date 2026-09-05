@@ -86,31 +86,14 @@
 
 <a class="sr-only" href="#form-pane">条件の入力へ移動</a>
 
-<header class="app-bar">
-  <!-- ✦ の絵文字は環境ごとに形が変わるので、図にしました。 -->
-  <img class="brand-mark" src="icon.svg" alt="" width="22" height="22">
-  <h1>旅さき</h1>
-  <span class="spacer"></span>
-  <button type="button" class="md-icon-btn md-state" id="open-settings"
-          aria-label="設定" title="設定">
-    <span aria-hidden="true">⚙</span>
-  </button>
-</header>
+<!-- 見出しは非表示にして地図の上のボタンへ移しますが、文書としての
+     h1 は残します（読み上げ・検索エンジン向け）。 -->
+<h1 class="sr-only">旅さき｜行きたいことから旅程をつくる</h1>
 
 <main class="layout">
 
   <!-- ===================== 左: 条件 ===================== -->
   <section class="pane pane-form" id="form-pane">
-
-    <!-- 何をしてくれるサイトなのかを、最初の3行で言います。
-         「日本のどこからでも組めます」は機能の説明で、結果が
-         想像できません。一言入れたら何が返るのかを書きます。 -->
-    <div class="pitch">
-      <img class="pitch-mark" src="icon.svg" alt="" width="36" height="36">
-      <h2>行きたい、から<br>旅程をつくる。</h2>
-      <p>「温泉と海をゆっくり楽しみたい」の一言から、
-         行き先・まわる順・移動時間まで組み立てます。</p>
-    </div>
 
     <!-- 前につくった旅程。
          旅行サイトでいちばん戻ってくる導線がここです。中身（時刻の
@@ -289,6 +272,13 @@
 
   <!-- ===================== 右: 結果 ===================== -->
   <section class="pane pane-result">
+
+    <!-- 設定は、上のバーではなく地図の上に浮かせます。
+         結果が出る前も出たあとも、地図はこの位置に必ずあるためです。 -->
+    <button type="button" class="md-icon-btn md-state settings-fab" id="open-settings"
+            aria-label="設定" title="設定">
+      <span aria-hidden="true">⚙</span>
+    </button>
 
     <div id="placeholder" class="placeholder">
       <div id="home-map" class="home-map"></div>

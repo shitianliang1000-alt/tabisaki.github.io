@@ -140,9 +140,30 @@ export function haversineKm(a, b) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/** Routes API が使えないときの移動時間（分）。意図的に控えめに見積もります。 */
-export function estimateMinutes(a, b) {
+/**
+ * 登山道など、車も公共交通も通っていない区間として扱うカテゴリ。
+ * 街なかの徒歩と同じ速さで見積もると、五合目から山頂までの数kmが
+ * 「30分」のように出てしまう（実際は数時間かかる）ため、この区間だけ
+ * 別の、ずっと遅い速さで見積もります。
+ */
+const SLOW_TERRAIN_CATEGORIES = new Set(["登山", "山", "高原", "渓谷"]);
+
+export function isSlowTerrain(spot) {
+  return SLOW_TERRAIN_CATEGORIES.has(spot?.category);
+}
+
+/**
+ * Routes API が使えないときの移動時間（分）。意図的に控えめに見積もります。
+ *
+ * @param {object} [opts]
+ * @param {boolean} [opts.slow] 登山道などの徒歩ラストマイル区間。
+ *   街なかの4.2km/hではなく、山道の目安2.2km/hで見ます
+ *   （距離に応じた車・鉄道への切り替えもしません。区間ぜんぶが徒歩の
+ *   前提だからです）。
+ */
+export function estimateMinutes(a, b, opts = {}) {
   const km = haversineKm(a, b);
+  if (opts.slow) return Math.max(10, Math.round((km / 2.2) * 60) + 10);
   if (km <= 1.4) return Math.max(5, Math.round((km / 4.2) * 60) + 4);
   if (km <= 40) return Math.round((km / 22) * 60) + 10;
   // 40km を超えると鉄道が現実的な手段になります。直線距離あたりの実効速度は

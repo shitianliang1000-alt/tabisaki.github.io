@@ -46,7 +46,7 @@ p, li { text-wrap: pretty; }
 
 /* 見出しだけ、和文の字間を詰めます（プロポーショナル）。
    本文に効かせると読みにくくなるので、大きい字に限ります。 */
-.pitch h2, .step-title, .itin-head h2, .md-headline-small {
+.step-title, .itin-head h2, .md-headline-small {
   font-feature-settings: "palt" 1;
 }
 
@@ -74,33 +74,12 @@ p, li { text-wrap: pretty; }
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-/* --------------------------------------------------------- 上のバー --- */
-
-/* 後ろが透けるすりガラス。下の境目はヘアライン1本だけ。 */
-.app-bar {
-  position: relative; z-index: 3;
-  height: 52px;
-  display: flex; align-items: center; gap: 10px;
-  padding: 0 8px 0 20px;
-  background: var(--hig-material);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: .5px solid var(--hig-separator);
-  color: var(--hig-label);
-}
-.app-bar h1 {
-  margin: 0;
-  font-size: 17px; font-weight: 600; letter-spacing: -.1px;
-}
-.app-bar .brand-mark { width: 22px; height: 22px; display: block; }
-.app-bar .spacer { flex: 1; }
-
 /* -------------------------------------------------------- レイアウト --- */
 
 .layout {
   display: grid;
   grid-template-columns: minmax(360px, 440px) 1fr;
-  height: calc(100vh - 52px);
+  height: 100vh;
   gap: 0;
 }
 .pane { min-width: 0; min-height: 0; overflow-y: auto; }
@@ -119,8 +98,18 @@ p, li { text-wrap: pretty; }
   padding: 24px 20px 0;
 }
 .pane-result {
+  position: relative;
   background: var(--md-sys-color-surface);
   padding: 0;
+}
+
+/* 設定ボタン。地図がどの状態（案内前の地図／結果の地図）でも、
+   常にこの右上に浮きます。 */
+.settings-fab {
+  position: absolute; top: 12px; right: 12px; z-index: 600;
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: var(--md-sys-elevation-1);
+  color: var(--md-sys-color-on-surface);
 }
 
 /* ------------------------------------------------------ 希望の入力 --- */
@@ -236,48 +225,6 @@ p, li { text-wrap: pretty; }
   font: inherit; font-size: 12px;
 }
 .ex-chip:hover { background: var(--hig-fill-2); }
-
-/* 何をしてくれるサイトなのかを、最初の3行で。
-   「日本のどこからでも組めます」は機能の説明で、結果が想像できません。
-
-   文字だけを地に置くと、下の入力欄と同じ重さに見えて、
-   「ここは看板」だと伝わりませんでした。藍と青緑を薄く敷いた
-   1枚のカードにして、しるしを添えます。 */
-.pitch {
-  position: relative; overflow: hidden;
-  margin: 0 0 24px;
-  padding: 20px 20px 18px;
-  border-radius: var(--hig-r-lg);
-  background:
-    radial-gradient(120% 90% at 100% 0%,
-      color-mix(in srgb, var(--tabi-teal) 22%, transparent), transparent 60%),
-    radial-gradient(90% 80% at 0% 100%,
-      color-mix(in srgb, var(--tabi-indigo) 16%, transparent), transparent 60%),
-    var(--hig-card-2);
-  box-shadow: inset 0 0 0 .5px var(--hig-separator);
-}
-/* 遠景の山なみ。og.svg と同じ形です。旅の気配だけ置きます。 */
-.pitch::after {
-  content: ""; position: absolute; inset: auto 0 0 0; height: 46%;
-  pointer-events: none; opacity: .12;
-  background: var(--tabi-indigo);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 300' preserveAspectRatio='none'%3E%3Cpath d='M0 200 L170 60 L300 160 L470 0 L640 170 L800 80 L980 210 L1200 110 L1200 300 L0 300 Z'/%3E%3C/svg%3E") bottom / 100% 100% no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 300' preserveAspectRatio='none'%3E%3Cpath d='M0 200 L170 60 L300 160 L470 0 L640 170 L800 80 L980 210 L1200 110 L1200 300 L0 300 Z'/%3E%3C/svg%3E") bottom / 100% 100% no-repeat;
-}
-.pitch > * { position: relative; z-index: 1; }
-.pitch-mark {
-  display: block; width: 36px; height: 36px; margin-bottom: 10px;
-  filter: drop-shadow(0 2px 4px rgba(15, 76, 129, .25));
-}
-.pitch h2 {
-  margin: 0 0 8px;
-  font-size: 27px; font-weight: 700; letter-spacing: -.7px; line-height: 1.22;
-  color: var(--hig-label);
-}
-.pitch p {
-  margin: 0; max-width: 34em;
-  font-size: 14px; line-height: 1.75; color: var(--hig-label-2);
-}
 
 /* 主ボタン。押す前に、一度だけ光が流れます。
    「ここを押す」を、矢印や太字ではなく動きで伝えます。
@@ -744,7 +691,7 @@ p, li { text-wrap: pretty; }
   box-shadow: var(--md-sys-elevation-1);
   color: var(--md-sys-color-on-surface);
 }
-.result.map-full .map { height: calc(100vh - 52px - 140px); }
+.result.map-full .map { height: calc(100vh - 140px); }
 .result.map-full .itin { max-height: 240px; overflow-y: auto; }
 
 .itin { padding: 20px; }
@@ -1253,19 +1200,16 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .tl .body.tap:hover { box-shadow: var(--md-sys-elevation-1); }
 
-.card-art { position: relative; height: 140px; background-size: cover;
-            background-position: center; }
-.card-art .card-photo {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; opacity: 0;
-  transition: opacity var(--md-sys-motion-long) var(--md-sys-motion-standard);
-}
-.card-art .card-photo.on { opacity: 1; }
-.card-art .art-ic {
-  position: absolute; right: 14px; bottom: 12px; font-size: 26px;
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .3));
-}
 .card-info { padding: 14px 16px 16px; }
+
+/* スポットのカードは、写真の代わりに分類の色をごく薄く敷くだけにします
+   （--card-hue は js/ui.js が art.js の色相を入れます）。 */
+.tl.spot .body.card-tinted {
+  background: hsl(var(--card-hue) 55% 95%);
+}
+@media (prefers-color-scheme: dark) {
+  .tl.spot .body.card-tinted { background: hsl(var(--card-hue) 26% 20%); }
+}
 
 /* ティア。色の粒に、必ず言葉を添えます。 */
 .tier {
@@ -1283,10 +1227,6 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .tier.major::before  { background: var(--md-sys-color-primary); }
 .tier.known::before  { background: var(--md-sys-color-tertiary); }
 .tier.hidden::before { background: var(--md-sys-color-secondary); }
-.card-art .tier {
-  position: absolute; top: 12px; left: 14px;
-  box-shadow: var(--md-sys-elevation-1);
-}
 
 /* 混雑の見込み。色だけで伝えないよう、必ず言葉を出します。 */
 .crowd-chip {
@@ -1661,14 +1601,6 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     border-right: none;
     border-bottom: .5px solid var(--hig-separator);
   }
-  /* 幅が狭いと全体がスクロールします。上のバーは貼り付けたままに
-     して、すりガラス越しに中身が流れて見えるようにします。 */
-  .app-bar {
-    position: sticky; top: 0;
-    padding: 0 4px 0 16px;
-    padding-top: env(safe-area-inset-top);
-    height: calc(52px + env(safe-area-inset-top));
-  }
   /* 幅が狭いときは、ページ全体がスクロールします。
      以前ここを position: static にしていました。並びのとおり下に流れる
      ので重なりはしませんが、**スクロールして探さないと押せません**。
@@ -1703,8 +1635,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
 @media print {
   body { overflow: visible; background: #fff; color: #000; font-size: 11pt; }
-  .app-bar, .pane-form, .map, .map-expand, .md-fab-extended,
-  .day-tabs, .item-links, .chev, .card-art, .panel.talk, .panel.adjust,
+  .pane-form, .map, .map-expand, .settings-fab, .md-fab-extended,
+  .day-tabs, .item-links, .chev, .panel.talk, .panel.adjust,
   .variants, .actions { display: none !important; }
   .layout { display: block; }
   .pane, .pane-result { overflow: visible !important; height: auto !important; }

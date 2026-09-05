@@ -920,16 +920,20 @@ function renderItem(item, index, itin, handlers, sunNote) {
 
   const body = el("div", { class: `body${item.kind === "spot" ? " tap" : ""}` });
 
-  // スポットは「泡」のような大きなカードにします。上に絵（取れれば写真）、
-  // 下に文字。一覧を流し見たとき、読む前にどんな場所かが入るように。
+  // スポットのカードは、写真の代わりに分類の色をごく薄く敷くだけにします
+  // （写真は無く、art.js の色面を大きく出すと目立ちすぎるため）。
+  const spotArt = item.kind === "spot" ? artFor(item.place) : null;
+  if (spotArt) {
+    body.classList.add("card-tinted");
+    body.style.setProperty("--card-hue", spotArt.hue);
+  }
   const info = item.kind === "spot" ? el("div", { class: "card-info" }) : body;
-  if (item.kind === "spot") body.append(cardArt(item.place), info);
+  if (item.kind === "spot") body.append(info);
 
   const title = el("div", { class: "title" },
-    el("span", { class: "ic", "aria-hidden": "true" }, ICON[item.kind] ?? "•"),
+    el("span", { class: "ic", "aria-hidden": "true" }, spotArt?.icon ?? ICON[item.kind] ?? "•"),
     el("span", { class: "tx" }, item.title));
-  // ティアの粒はカードの絵の上に置くので、ここでは重ねません
-  if (item.place?.fame_tier && item.kind !== "spot") {
+  if (item.place?.fame_tier) {
     title.append(el("em", { class: `tier ${item.place.fame_tier}` },
       TIER_LABEL[item.place.fame_tier]));
   }
