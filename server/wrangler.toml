@@ -1,0 +1,32 @@
+# 旅さき — Cloudflare Worker の設定（雛形）
+#
+#   npx wrangler secret put GEMINI_API_KEY
+#   npx wrangler secret put MAPS_API_KEY
+#   npx wrangler deploy
+#
+# キーは secret に入れます。このファイルには書かないでください
+# （リポジトリに入ります）。
+
+name = "tabisaki-api"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# --- レート制限（Durable Object） -------------------------------------------
+# KV では数えられません。同時に来た2本が同じ値を読み、同じ値を書くため、
+# 「20回まで」が「束ねて投げれば何回でも」になります。従量課金のAPIを
+# 後ろに置いている以上、ここは正確でなければ意味がありません。
+#
+# Durable Object は、1つのIPにつき1つの実体が1本ずつ処理します。
+
+[[durable_objects.bindings]]
+name = "RATE"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
+
+# --- 保険としての、Cloudflare 側のレート制限 --------------------------------
+# 上のものは「このWorkerに届いてから」効きます。届く前に落としたいなら、
+# ダッシュボードの Security → WAF → Rate limiting rules で、
+# このWorkerのパスに対する上限も設定してください。二重にかけて損はありません。
