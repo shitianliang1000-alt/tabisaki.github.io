@@ -11,19 +11,30 @@
 //   ・キーが無い / 失敗した場合は距離からの推定に落ちる。その場合は
 //     routed:false を返し、画面に「推定」と出す。
 
-import { MAPS_API_KEY, PROXY_URL, TUNING, USE_ROUTES_API }
-  from "./config.js";
+import { TUNING, USE_ROUTES_API } from "./config.js";
 import { endpointFor, keyHeaders, usingProxy } from "./endpoints.js";
+import { effectiveConfig } from "./settings.js";
 import { QuotaBlockedError, meteredFetch } from "./quota.js";
 import { estimateMinutes, haversineKm } from "./feasibility.js";
 import { summarizeTransitLeg, transitFieldMask } from "./transit.js";
 
-/** どこへ投げるか。PROXY_URL があれば自分のサーバーへ向きます。 */
-const NET = { proxyUrl: PROXY_URL, mapsKey: MAPS_API_KEY };
+/**
+ * どこへ投げるか。
+ *
+ * 毎回読み直します。設定画面で入れたキー（localStorage）が、
+ * config.js より優先されます。起動時に1回だけ読むと、設定画面で
+ * 保存したあともページを再読み込みするまで効かず、「入れたのに
+ * 推定のまま」に見えます。
+ */
+function net() {
+  const c = effectiveConfig();
+  return { proxyUrl: c.proxyUrl, mapsKey: c.mapsKey };
+}
 
 /** 経路を呼べる状態か。プロキシ経由なら、キーはサーバーが持っています。 */
-function hasMapsAccess() {
-  return usingProxy(NET) || Boolean(MAPS_API_KEY);
+export function hasMapsAccess() {
+  const c = net();
+  return usingProxy(c) || Boolean(c.mapsKey);
 }
 
 /** 秒文字列 "1234s" を秒数に。 */
@@ -174,16 +185,48 @@ export function resetRoutesBreaker() {
   usage.skipped = 0;
 }
 
+/**
+ * 設定の問題（キーが無効・APIが未有効・参照元の制限）か。
+ * これは何度投げても同じ結果なので、1回で止めて構いません。
+ */
+function isConfigError(status, detail) {
+  if (status === 401 || status === 403) return true;
+  return status === 400
+    && /API[ _]?KEY|api key|PERMISSION_DENIED|not (been )?enabled|referer/i
+      .test(detail);
+}
+
 function noteFailure(status, detail) {
   usage.failures++;
   usage.lastError = detail;
-  if (status >= 400 && status < 500) {
-    breaker.fails++;
-    if (breaker.fails >= 2) {
-      breaker.open = true;
-      breaker.reason = detail;
-    }
+  if (status < 400 || status >= 500) return;
+  // 429（回数制限）は時間が経てば直ります。止めっぱなしにはしません。
+  if (status === 429) return;
+  if (isConfigError(status, detail)) {
+    breaker.open = true;
+    breaker.reason = detail;
+    return;
   }
+  // それ以外の 4xx は、その区間だけの都合（出発時刻が過去だった等）
+  // かもしれません。1回で全部を止めると、旅程ぜんぶが推定に落ちます。
+  // 3回続いたら、リクエストの形そのものが通っていないと見て止めます。
+  breaker.fails++;
+  if (breaker.fails >= 3) {
+    breaker.open = true;
+    breaker.reason = detail;
+  }
+}
+
+/** Google のエラー本文から、人が読める1行を取り出します。 */
+function readableError(text) {
+  try {
+    const j = JSON.parse(text);
+    const e = j?.error;
+    if (e?.message) {
+      return [e.status, e.message].filter(Boolean).join(" ");
+    }
+  } catch { /* JSON でなければそのまま */ }
+  return text;
 }
 
 /** 推定にフォールバックしたときの結果。 */
@@ -474,7 +517,8 @@ async function computeRouteUncached(points, opts = {}) {
                + "空路のため経路検索は行いません" };
   }
   if (!hasMapsAccess()) {
-    return { ...estimatedLegs(points), mode, error: "APIキー未設定" };
+    return { ...estimatedLegs(points), mode,
+             error: "経路APIのキーが未設定です（⚙ 設定 → 開発者向け から入力できます）" };
   }
   if (!USE_ROUTES_API) {
     usage.skipped++;
@@ -494,11 +538,12 @@ async function computeRouteUncached(points, opts = {}) {
   try {
     // 使用量の確認をここに置きます。数えるだけの場所に置くと、
     // 「やめる」を選んだあとも呼び続けてしまいます。
-    const res = await meteredFetch("routes", endpointFor("routes", {}, NET), {
+    const cfg = net();
+    const res = await meteredFetch("routes", endpointFor("routes", {}, cfg), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...keyHeaders("maps", NET),
+        ...keyHeaders("maps", cfg),
         "X-Goog-FieldMask": fieldMask,
       },
       body: JSON.stringify(body),
@@ -506,7 +551,7 @@ async function computeRouteUncached(points, opts = {}) {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      const detail = `Routes API ${res.status}: ${text.slice(0, 160)}`;
+      const detail = `Routes API ${res.status}: ${readableError(text).slice(0, 200)}`;
       noteFailure(res.status, detail);
       return { ...estimatedLegs(points), mode, modeNote, error: detail };
     }
@@ -676,11 +721,18 @@ export function legDetailLookup(entries) {
 export async function diagnoseMapsKey(signal) {
   if (!hasMapsAccess()) {
     return { ok: false, code: "no-key",
-      message: "js/config.js の MAPS_API_KEY が空です。ここにキーを貼るか、"
-        + "PROXY_URL に自分のバックエンドを設定してください。" };
+      message: "経路APIのキーが空です。上の欄に Google Maps Platform のキーを"
+        + "貼るか、PROXY_URL に自分のバックエンドを設定してください。" };
   }
+  // 「確認」は、いまの設定で **必ず1回投げます**。
+  // 控え（cache）と停止スイッチ（breaker）を通すと、キーを直したあとも
+  // 前の失敗がそのまま返り、「直したのに直らない」に見えます。
+  breaker.open = false;
+  breaker.fails = 0;
+  breaker.reason = "";
   const tokyo = { lat: 35.681236, lng: 139.767125 };
   const yokohama = { lat: 35.465786, lng: 139.622313 };
+  routeCache.delete(cacheKey([tokyo, yokohama], "TRANSIT", undefined));
   const r = await computeRoute([tokyo, yokohama], { mode: "TRANSIT", signal });
   if (r.routed) {
     return { ok: true, code: "ok",
@@ -689,14 +741,16 @@ export async function diagnoseMapsKey(signal) {
   const err = r.error ?? "";
   const m = /Routes API (\d+)/.exec(err);
   const status = m ? Number(m[1]) : 0;
+  const here = globalThis.location?.origin
+    ? `${globalThis.location.origin}/*` : "http://localhost:8000/*";
   const hint = status === 403
     ? "キーは届いていますが拒否されました。Google Cloud で ①Routes API を"
       + "有効化 ②請求先アカウントを紐付け ③キーのAPI制限に Routes API を含める "
-      + "④HTTPリファラー制限に今のURL（http://localhost:8000/* など）を追加、"
+      + `④HTTPリファラー制限に今のURL（${here}）を追加、`
       + "の4点をご確認ください。"
     : status === 400
       ? "リクエストが拒否されました。キーの文字列に余分な空白や改行が"
-        + "入っていないかご確認ください。"
+        + "入っていないか、キーの種類（Maps Platform のキー）をご確認ください。"
       : status === 429
         ? "回数制限に達しています。しばらく待つか割り当てをご確認ください。"
         : "ネットワークかブラウザの拡張機能に遮断されている可能性があります。";

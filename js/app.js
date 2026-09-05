@@ -6,15 +6,16 @@
 //   ・結果を描く／エラーを日本語で出す
 //   ・APIキーの疎通確認（「キーを入れたのに効かない」を切り分けるため）
 
-import { GEMINI_API_KEY, KB_INDEX_URL, MAPS_API_KEY, PROXY_URL,
-         TILE_ATTRIBUTION, TILE_URL }
-  from "./config.js";
+import { KB_INDEX_URL, TILE_ATTRIBUTION, TILE_URL } from "./config.js";
+import { clearSettings, cspAllows, effectiveConfig, loadSettings, maskKey,
+         saveSettings } from "./settings.js";
 import { callModel, describeSpot, diagnoseGeminiKey, hasApiKey }
   from "./ai.js";
 import { discoverArea } from "./discover.js";
 import { loadKnowledgeBase, mergeIntoKb } from "./kb.js";
 
-import { diagnoseMapsKey, resetRoutesBreaker, routesUsage } from "./routes.js";
+import { clearRouteCache, diagnoseMapsKey, resetRoutesBreaker, routesUsage }
+  from "./routes.js";
 import { PLACES, findPlace, nearestPlaceInfo } from "./places.js";
 import { END_MODES, makeTrip, validateTrip } from "./trip.js";
 import { TripMap, pointsFromItinerary } from "./map.js";
@@ -244,7 +245,11 @@ function renderAttribution(kb) {
 }
 
 function setBadge(text, isError = false) {
-  const b = $("#kb-status");
+  // 以前ここは #kb-status を前提にしていましたが、その要素は
+  // 画面から無くなっています。読み込みに失敗したときだけ呼ばれるので、
+  // 気づかれないまま TypeError で起動が止まっていました。
+  const b = $("#kb-status") ?? $("#ph-data");
+  if (!b) return;
   b.textContent = text;
   b.classList.toggle("err", isError);
 }
@@ -273,38 +278,109 @@ function setDefaultDates() {
 
 function wireKeyPanel() {
   const mark = (elm, ok, text) => {
+    if (!elm) return;
     elm.textContent = text;
     elm.classList.toggle("ok", ok);
     elm.classList.toggle("ng", !ok);
   };
+
   // 使う人に向けては、「できるかどうか」だけを言います。
   //
   // 「Gemini」「Routes API」は、こちらの都合の名前です。使う人が
-  // 知りたいのは「AIが効いているのか」だけです。キーの末尾も出しません。
-  // 見せても何もできませんし、キーというものがあることを意識させる
-  // 必要もありません。
+  // 知りたいのは「AIが効いているのか」だけです。
   // プロキシを使っているなら、キーはサーバー側にあります。
   // ブラウザ側が空なのは正常なので、「未設定」とは言いません。
-  const viaProxy = Boolean(String(PROXY_URL ?? "").trim());
-  const aiOn = hasApiKey();
-  const routesOn = viaProxy || Boolean(MAPS_API_KEY);
-  mark($("#key-gemini"), aiOn,
-       aiOn ? "利用できます" : "使わない設定です（収録データから提案します）");
-  mark($("#key-maps"), routesOn,
-       routesOn ? "利用できます" : "使わない設定です（距離から推定します）");
+  const refresh = () => {
+    const cfg = effectiveConfig();
+    const viaProxy = Boolean(cfg.proxyUrl);
+    const aiOn = hasApiKey();
+    const routesOn = viaProxy || Boolean(cfg.mapsKey);
+    mark($("#key-gemini"), aiOn,
+         aiOn ? "利用できます" : "使わない設定です（収録データから提案します）");
+    mark($("#key-maps"), routesOn,
+         routesOn ? "利用できます" : "使わない設定です（距離から推定します）");
 
-  // 開発者向けには、設定されているかどうかまで出します。
-  // ここでも末尾は出しません。分かって困ることはあっても、得はありません。
-  const dev = (id, ok) => {
-    const elm = $(id);
-    if (elm) mark(elm, ok, ok ? "設定済み" : "未設定");
+    // 開発者向けには、どこから来た設定なのかまで出します。
+    // 末尾4文字だけ見せます。「入れたはずのキーが効いているか」を
+    // 確かめるのに、それ以上は要りません。
+    const where = { settings: "この端末の設定", config: "config.js", none: "" };
+    const dev = (id, key, from) => {
+      const elm = $(id);
+      if (!elm) return;
+      if (viaProxy) mark(elm, true, `プロキシ経由（${where[cfg.from.proxyUrl]}）`);
+      else if (key) mark(elm, true, `設定済み（${where[from]}・…${key.slice(-4)}）`);
+      else mark(elm, false, "未設定");
+    };
+    dev("#dev-gemini", cfg.geminiKey, cfg.from.geminiKey);
+    dev("#dev-maps", cfg.mapsKey, cfg.from.mapsKey);
+
+    // ブラウザで入れたプロキシは、index.html の CSP に無ければ繋がりません。
+    // 保存はできても動かない、を黙って通さないための注意書きです。
+    const ph = $("#proxy-help");
+    if (ph && cfg.proxyUrl && !cspAllows(cfg.proxyUrl)) {
+      ph.innerHTML = "<b>この入口は index.html の connect-src に含まれていない"
+        + "ため、ブラウザが接続を拒みます。</b> index.html の "
+        + "<code>connect-src</code> に " + escapeHtml(new URL(cfg.proxyUrl).origin)
+        + " を足してください。";
+      ph.classList.add("ng");
+    }
   };
-  dev("#dev-gemini", Boolean(GEMINI_API_KEY) || viaProxy);
-  dev("#dev-maps", Boolean(MAPS_API_KEY) || viaProxy);
+
+  // 保存してあるものを欄に戻します（config.js の値は欄に出しません。
+  // 消すべき対象ではないからです）。
+  const fill = () => {
+    const saved = loadSettings();
+    const g = $("#in-gemini"), m = $("#in-maps"), px = $("#in-proxy");
+    if (g) g.value = saved.geminiKey;
+    if (m) m.value = saved.mapsKey;
+    if (px) px.value = saved.proxyUrl;
+  };
+
+  const note = (text, ok) => {
+    const n = $("#keys-note");
+    if (!n) return;
+    n.hidden = !text;
+    n.textContent = text;
+    n.classList.toggle("ok", Boolean(ok));
+    n.classList.toggle("ng", !ok);
+  };
+
+  $("#save-keys")?.addEventListener("click", () => {
+    const r = saveSettings({
+      geminiKey: $("#in-gemini")?.value,
+      mapsKey: $("#in-maps")?.value,
+      proxyUrl: $("#in-proxy")?.value,
+    });
+    if (!r.ok) { note(r.errors.join("／"), false); return; }
+    // 前の設定で失敗して止まっていた経路検索を、動かせる状態に戻します。
+    resetRoutesBreaker();
+    clearRouteCache();
+    fill();
+    refresh();
+    const any = r.value.geminiKey || r.value.mapsKey || r.value.proxyUrl;
+    note(any ? "保存しました。すぐに効きます（再読み込みは要りません）。"
+             : "消しました。config.js の値に戻ります。", true);
+  });
+  $("#clear-keys")?.addEventListener("click", () => {
+    clearSettings();
+    resetRoutesBreaker();
+    clearRouteCache();
+    fill();
+    refresh();
+    note("この端末に保存していたキーを消しました。", true);
+  });
+  $("#show-keys")?.addEventListener("change", (e) => {
+    const type = e.currentTarget.checked ? "text" : "password";
+    for (const id of ["#in-gemini", "#in-maps"]) {
+      const elm = $(id);
+      if (elm) elm.type = type;
+    }
+  });
 
   const run = async (btn, fn) => {
     const out = $("#key-result");
     btn.disabled = true;
+    out.hidden = false;
     out.textContent = "確認しています…";
     out.classList.remove("ok", "ng");
     try {
@@ -328,7 +404,14 @@ function wireKeyPanel() {
     quota.reset();
     showQuota();
   });
+  fill();
+  refresh();
   showQuota();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 // --- APIの使用量 ------------------------------------------------------------

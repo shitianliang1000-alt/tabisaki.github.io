@@ -10,17 +10,24 @@
 // で取得でき、画面にも表示します。
 
 import {
-  FALLBACK_MODELS, GEMINI_API_KEY, EMBED_DIM, EMBED_MODEL, LOCAL_BASE_URL,
-  LOCAL_MODEL, MODEL, MODEL_PROVIDER, PROXY_URL,
+  FALLBACK_MODELS, EMBED_DIM, EMBED_MODEL, LOCAL_BASE_URL,
+  LOCAL_MODEL, MODEL, MODEL_PROVIDER,
 } from "./config.js";
 import { endpointFor, keyHeaders, usingProxy } from "./endpoints.js";
+import { effectiveConfig } from "./settings.js";
 import { buildSearchText, extractKeywords } from "./keywords.js";
 import { meteredFetch } from "./quota.js";
 import { joinAreaNames } from "./stays.js";
 
-/** どこへ投げるか。PROXY_URL があれば自分のサーバーへ向きます。 */
-const NET = { proxyUrl: PROXY_URL, geminiKey: GEMINI_API_KEY,
-              localBaseUrl: LOCAL_BASE_URL };
+/**
+ * どこへ投げるか。毎回読み直します。
+ * 設定画面で入れたキー（localStorage）が config.js より優先されます。
+ */
+function net() {
+  const c = effectiveConfig();
+  return { proxyUrl: c.proxyUrl, geminiKey: c.geminiKey,
+           localBaseUrl: LOCAL_BASE_URL };
+}
 
 /**
  * 自分で立てたモデルを使うか（Gemma など）。
@@ -76,8 +83,9 @@ export async function diagnoseGeminiKey(signal) {
     }
   }
   if (!hasApiKey()) {
-    return { ok: false, message: "js/config.js の GEMINI_API_KEY が空です。"
-      + "未設定でも語句検索で動きますが、AIによる選定は行われません。" };
+    return { ok: false, message: "AIのキーが空です。上の欄に Google AI Studio の"
+      + "キーを貼ってください。未設定でも語句検索で動きますが、AIによる"
+      + "選定は行われません。" };
   }
   const errors = [];
   for (const model of modelCandidates()) {
@@ -107,7 +115,8 @@ export function hasApiKey() {
   if (usingLocalModel()) return true;
   // プロキシ経由なら、キーはサーバーが持っています。
   // ブラウザ側が空なのは正常なので、それで「使えない」とは判断しません。
-  return usingProxy(NET) || Boolean(GEMINI_API_KEY);
+  const c = net();
+  return usingProxy(c) || Boolean(c.geminiKey);
 }
 
 /** モデル候補の順序。指定を最優先し、だめなら控えへ。 */
@@ -204,7 +213,7 @@ export function extractSources(data) {
  */
 async function callLocal(prompt, opts = {}) {
   const { signal, temperature = 0.4, topP, schema } = opts;
-  const url = endpointFor("local:generate", {}, NET);
+  const url = endpointFor("local:generate", {}, net());
   const body = {
     model: LOCAL_MODEL,
     messages: [
@@ -238,12 +247,13 @@ async function callLocal(prompt, opts = {}) {
 
 async function callOnce(model, prompt, opts = {}) {
   const { signal } = opts;
-  const url = endpointFor("gemini:generate", { model }, NET);
+  const cfg = net();
+  const url = endpointFor("gemini:generate", { model }, cfg);
   const res = await meteredFetch("gemini", url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...keyHeaders("gemini", NET),
+      ...keyHeaders("gemini", cfg),
     },
     body: JSON.stringify(buildModelRequest(prompt, opts)),
     signal,
@@ -300,7 +310,9 @@ export async function callModel(prompt, opts = {}) {
     resolved = LOCAL_MODEL;
     return callLocal(prompt, rest);
   }
-  if (!hasApiKey()) throw new Error("GEMINI_API_KEY が未設定です（js/config.js）");
+  if (!hasApiKey()) {
+    throw new Error("AIのキーが未設定です（⚙ 設定 → 開発者向け から入力できます）");
+  }
 
   let lastErr = null;
   for (const model of modelCandidates()) {
@@ -438,12 +450,13 @@ export async function embedQuery(text, opts = {}) {
   if (usingLocalModel() || !EMBED_MODEL) return null;
   if (!hasApiKey()) return null;
   try {
-    const url = endpointFor("gemini:embed", { model: EMBED_MODEL }, NET);
+    const cfg = net();
+    const url = endpointFor("gemini:embed", { model: EMBED_MODEL }, cfg);
     const res = await meteredFetch("embed", url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...keyHeaders("gemini", NET),
+        ...keyHeaders("gemini", cfg),
       },
       body: JSON.stringify({
         model: `models/${EMBED_MODEL}`,
