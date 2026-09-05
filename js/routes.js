@@ -739,6 +739,25 @@ export async function diagnoseMapsKey(signal) {
       message: `Routes API に接続できました（東京→横浜 約${r.legs[0].minutes}分）。` };
   }
   const err = r.error ?? "";
+
+  // 「経路が見つかりません」は、Routes API に届いて 200 が返った上での
+  // ZERO_RESULTS です。通信そのものは成功しているので、「ネットワークか
+  // 拡張機能に遮断されている」と言うのは誤りです。東京→横浜は本来
+  // ほぼ確実に公共交通が見つかる区間なので、ここで返ってきた場合は
+  // キーや通信ではなく、Google 側の一時的な事情を疑うほうが近道です。
+  if (/^経路が見つかりません/.test(err) || /ZERO_RESULTS/.test(err)) {
+    return {
+      ok: false,
+      code: "ZERO_RESULTS",
+      message: "Routes APIには接続できましたが、東京→横浜という本来まず"
+        + "経路が見つかるはずの区間で、公共交通の経路が返ってきませんでした。"
+        + "キーや通信の問題ではなく、時間帯の巡り合わせや"
+        + "Google側の一時的な事情の可能性があります。"
+        + "少し時間を置いてもう一度「確認」を押してみてください。"
+        + `\n詳細: ${err}`,
+    };
+  }
+
   const m = /Routes API (\d+)/.exec(err);
   const status = m ? Number(m[1]) : 0;
   const here = globalThis.location?.origin
