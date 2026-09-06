@@ -360,10 +360,14 @@ function wireKeyPanel() {
     // 保存はできても動かない、を黙って通さないための注意書きです。
     const ph = $("#proxy-help");
     if (ph && cfg.proxyUrl && !cspAllows(cfg.proxyUrl)) {
-      ph.innerHTML = "<b>この入口は index.html の connect-src に含まれていない"
-        + "ため、ブラウザが接続を拒みます。</b> index.html の "
-        + "<code>connect-src</code> に " + escapeHtml(new URL(cfg.proxyUrl).origin)
-        + " を足してください。";
+      ph.replaceChildren(
+        el("b", {}, "この入口は index.html の connect-src に含まれていないため、ブラウザが接続を拒みます。"),
+        " index.html の ",
+        el("code", {}, "connect-src"),
+        " に ",
+        new URL(cfg.proxyUrl).origin,
+        " を足してください。"
+      );
       ph.classList.add("ng");
     }
   };
