@@ -48,6 +48,7 @@ const UPSTREAM_TIMEOUT_MS = 30_000;
 
 const GEMINI_ROOT = "https://generativelanguage.googleapis.com/v1beta";
 const ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
+const YAHOO_TRANSIT_URL = "https://transit.yahoo.co.jp/search/result";
 
 /** 呼ばれてよいモデル。ここに無いものは通しません。 */
 const ALLOWED_MODELS = new Set([
@@ -99,6 +100,9 @@ export default {
       if (path.endsWith("/routes")) {
         return cors(await routes(request, env), origin);
       }
+      if (path.endsWith("/yahoo/transit")) {
+        return cors(await yahooTransit(request), origin);
+      }
     } catch (e) {
       // 中で何が起きたかは、そのまま外に出しません
       // （キーやサーバーの事情が漏れます）。
@@ -128,6 +132,70 @@ async function gemini(request, env, method) {
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
   return passthrough(res);
+}
+
+async function yahooTransit(request) {
+  const body = await readJson(request);
+  const from = String(body?.from ?? "").trim();
+  const to = String(body?.to ?? "").trim();
+  if (!from || !to || from.length > 100 || to.length > 100) {
+    return text("出発地と到着地が必要です", 400);
+  }
+
+  const u = new URL(YAHOO_TRANSIT_URL);
+  u.searchParams.set("from", from);
+  u.searchParams.set("to", to);
+  u.searchParams.set("shin", "1");
+  u.searchParams.set("ex", "1");
+  u.searchParams.set("al", "1");
+  u.searchParams.set("s", "0");
+  u.searchParams.set("all", "1");
+  u.searchParams.set("type", "1");
+
+  // Yahoo!路線情報の指定日時形式: dispDate=YYYYMMDDHHMM
+  if (body?.departAt) {
+    const d = new Date(body.departAt);
+    if (!Number.isNaN(d.getTime())) {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false,
+      }).formatToParts(d);
+      const get = (name) => parts.find((x) => x.type === name)?.value ?? "";
+      const hh = get("hour") === "24" ? "00" : get("hour");
+      u.searchParams.set("dispDate", `${get("year")}${get("month")}${get("day")}${hh}${get("minute")}`);
+    }
+  }
+
+  const res = await fetch(u, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; TabisakiTransit/1.0)",
+      "Accept-Language": "ja-JP,ja;q=0.9",
+    },
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+  });
+  if (!res.ok) return text(`Yahoo Transit ${res.status}`, 502);
+
+  const html = await res.text();
+  const route = html.match(/id=["']route01["'][\s\S]*?<\/div>\s*<\/div>/i)?.[0] ?? html;
+  const plain = route.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+  const time = plain.match(/(\d{1,2}:\d{2})\s*(?:発|出発)?[^0-9]{0,80}?(\d{1,2}:\d{2})\s*(?:着|到着)?/);
+  if (!time) {
+    return json({ routed: false, url: u.toString(), reason: "Yahoo!路線情報の経路結果を取得できませんでした" });
+  }
+
+  const [h1, m1] = time[1].split(":").map(Number);
+  const [h2, m2] = time[2].split(":").map(Number);
+  let minutes = (h2 * 60 + m2) - (h1 * 60 + m1);
+  if (minutes < 0) minutes += 1440;
+  if (minutes <= 0 || minutes > 1440) return json({ routed: false, url: u.toString() });
+
+  return json({
+    routed: true,
+    minutes,
+    summary: plain.slice(0, 500),
+    meta: { url: u.toString(), departure: time[1], arrival: time[2] },
+  });
 }
 
 async function routes(request, env) {
