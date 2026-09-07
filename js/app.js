@@ -14,7 +14,8 @@ import { callModel, describeSpot, diagnoseGeminiKey, hasApiKey }
 import { discoverArea } from "./discover.js";
 import { loadKnowledgeBase, mergeIntoKb } from "./kb.js";
 
-import { clearRouteCache, diagnoseMapsKey, resetRoutesBreaker, routesUsage }
+import { clearRouteCache, diagnoseMapsKey, diagnoseYahooTransit,
+         resetRoutesBreaker, routesUsage }
   from "./routes.js";
 import { PLACES, findPlace, nearestPlaceInfo } from "./places.js";
 import { findStop, preloadStops, searchStops } from "./stops.js";
@@ -443,8 +444,18 @@ function wireKeyPanel() {
   };
   $("#test-gemini").addEventListener("click", (e) =>
     run(e.currentTarget, () => diagnoseGeminiKey()));
+  // 「確認」は両方見ます。電車・バスはYahoo!路線情報、徒歩はGoogleと、
+  // 使う先が分かれているためです。片方だけ通っていることがあります。
   $("#test-maps").addEventListener("click", (e) =>
-    run(e.currentTarget, () => diagnoseMapsKey()));
+    run(e.currentTarget, async () => {
+      const [maps, yahoo] = await Promise.all([
+        diagnoseMapsKey(), diagnoseYahooTransit(),
+      ]);
+      return {
+        ok: maps.ok && yahoo.ok,
+        message: `【電車・バス】${yahoo.message}\n\n【徒歩・車】${maps.message}`,
+      };
+    }));
 
   $("#reset-quota").addEventListener("click", () => {
     quota.reset();

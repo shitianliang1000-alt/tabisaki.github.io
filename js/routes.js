@@ -459,9 +459,29 @@ async function computeViaStations(points, opts) {
              error: `区間が長すぎます（最長 ${Math.round(longest)}km）。`
                + "空路のため経路検索は行いません" };
   }
-  const plans = [];
+  // まずYahoo!路線情報に聞きます。**区間ごとに**聞くので、経由地のある
+  // 旅程でも公共交通の実際の便が入ります（以前は2地点のときだけでした）。
+  // 出発時刻は区間ごとにずらします。1区間目を10時に出るなら、
+  // 2区間目に乗るのは10時ではありません。
+  const plans = new Array(n);
+  const yahooLegs = new Array(n).fill(null);
+  let clock = opts.departAt ? new Date(opts.departAt) : null;
+  let yahooBudget = Math.max(0,
+    (TUNING.maxTransitRequests ?? 8) - transitBudget.spent);
   for (let i = 0; i < n; i++) {
-    plans.push(await planStationLeg(points[i], points[i + 1]));
+    const hit = yahooBudget > 0
+      ? await yahooLeg(points[i], points[i + 1], { ...opts, departAt: clock })
+      : null;
+    if (hit) {
+      yahooBudget--;
+      transitBudget.spent++;
+      yahooLegs[i] = hit;
+      plans[i] = { minutes: hit.minutes, walkKm: 0,
+                   fromStop: null, toStop: null, walkMeasured: false };
+    } else {
+      plans[i] = await planStationLeg(points[i], points[i + 1]);
+    }
+    if (clock) clock = new Date(clock.getTime() + plans[i].minutes * 60000);
   }
 
   // 歩きの長い区間から実測します。
@@ -481,7 +501,7 @@ async function computeViaStations(points, opts) {
     if (walked) { plans[i] = walked; measured++; transitBudget.spent++; }
   }
 
-  const legs = plans.map((p, i) => ({
+  const legs = plans.map((p, i) => yahooLegs[i] ?? ({
     minutes: p.minutes,
     meters: Math.round(haversineKm(points[i], points[i + 1]) * 1000),
     line: null,
@@ -492,14 +512,48 @@ async function computeViaStations(points, opts) {
       : null,
   }));
 
+  const searched = yahooLegs.filter(Boolean).length;
   const viaStations = plans.filter((p) => p.fromStop && p.toStop).length;
-  const note = viaStations
-    ? `${n}区間のうち${viaStations}区間を、最寄りの駅・バス停どうしの`
-      + "移動として見ています"
-      + (measured ? `（うち${measured}区間は駅までの徒歩を実測）` : "")
-    : null;
-  return { legs, routed: false, mode: "TRANSIT", modeNote: note,
-           requests: measured };
+  const parts = [];
+  if (searched) parts.push(`${n}区間のうち${searched}区間はYahoo!路線情報で検索`);
+  if (viaStations) {
+    parts.push(`${viaStations}区間は最寄りの駅・バス停どうしの移動として`
+      + "見ています"
+      + (measured ? `（うち${measured}区間は駅までの徒歩を実測）` : ""));
+  }
+  return { legs, routed: searched === n, mode: "TRANSIT",
+           modeNote: parts.length ? parts.join("、") : null,
+           requests: measured + searched };
+}
+
+/**
+ * 1区間を、Yahoo!路線情報で調べます。引けなければ null。
+ *
+ * 出発地・目的地そのものは駅名ではないことが多いので、収録の停留所から
+ * 最寄りを引いて名前にします（「箱根湯本駅」「大涌谷」）。
+ */
+async function yahooLeg(a, b, opts) {
+  try {
+    const [fromStop, toStop] = await Promise.all([
+      nearestStop(a, 5), nearestStop(b, 5),
+    ]);
+    const from = fromStop ?? a;
+    const to = toStop ?? b;
+    if (!from?.name || !to?.name || from.name === to.name) return null;
+    const yahoo = await searchYahooTransit(from, to, opts);
+    if (!yahoo?.routed || !(yahoo.minutes > 0)) return null;
+    return {
+      minutes: yahoo.minutes,
+      meters: Math.round(haversineKm(a, b) * 1000),
+      line: yahoo.summary ?? "Yahoo!路線情報",
+      routed: true,
+      stations: { from: from.name, to: to.name, walkMeasured: false },
+      yahoo: yahoo.meta ?? null,
+    };
+  } catch (e) {
+    usage.lastError = `Yahoo Transit: ${String(e?.message ?? e).slice(0, 200)}`;
+    return null;
+  }
 }
 
 /** 1区間ぶんの組み立て（まだ経路APIは呼びません）。 */
@@ -554,37 +608,7 @@ export async function computeRoute(points, opts = {}) {
     const hit = routeCache.get(key);
     if (hit) return hit;
 
-    if (points.length === 2) {
-      try {
-        const [fromStop, toStop] = await Promise.all([
-          nearestStop(points[0], 5),
-          nearestStop(points[1], 5),
-        ]);
-        const yahoo = await searchYahooTransit(
-          fromStop ?? points[0], toStop ?? points[1], opts,
-        );
-        if (yahoo?.routed && yahoo.minutes > 0) {
-          const result = {
-            legs: [{
-              minutes: yahoo.minutes,
-              meters: Math.round(haversineKm(points[0], points[1]) * 1000),
-              line: yahoo.summary ?? "Yahoo!路線情報",
-              routed: true,
-              yahoo: yahoo.meta ?? null,
-            }],
-            routed: true,
-            mode: "TRANSIT",
-            modeNote: "Yahoo!路線情報で検索",
-          };
-          routeCache.set(key, result);
-          return result;
-        }
-      } catch (e) {
-        usage.lastError = `Yahoo Transit: ${String(e?.message ?? e).slice(0, 200)}`;
-      }
-    }
-
-    // Yahoo!で取得できない場合だけ、従来の駅・バス停ベース推定へ戻します。
+    // 区間ごとにYahoo!路線情報へ聞き、引けない区間だけ駅の位置から見積もります。
     const result = await computeViaStations(points, opts);
     routeCache.set(key, result);
     return result;
@@ -853,4 +877,32 @@ export async function diagnoseMapsKey(signal) {
         ? "回数制限に達しています。しばらく待つか割り当てをご確認ください。"
         : "ネットワークかブラウザの拡張機能に遮断されている可能性があります。";
   return { ok: false, code: status || "error", message: `${hint}\n詳細: ${err}` };
+}
+
+/**
+ * 公共交通（Yahoo!路線情報）の疎通確認。
+ *
+ * 電車・バスの時間はGoogleではなくYahoo!路線情報から取ります。
+ * 「確認」でGoogleだけを試すと、実際に旅程で使う側が通っているのか
+ * 分かりません。新宿→箱根湯本で、中継とYahoo!の応答を見ます。
+ */
+export async function diagnoseYahooTransit(signal) {
+  const shinjuku = { lat: 35.690921, lng: 139.700258, name: "新宿駅" };
+  const hakone = { lat: 35.2325, lng: 139.1063, name: "箱根湯本駅" };
+  try {
+    const r = await searchYahooTransit(shinjuku, hakone,
+      { departAt: neutralDepartureTime(), signal });
+    if (r?.routed && r.minutes > 0) {
+      return { ok: true, code: "ok",
+        message: `Yahoo!路線情報に接続できました（新宿駅→箱根湯本駅 約${r.minutes}分`
+          + `${r.summary ? "・" + r.summary : ""}）。` };
+    }
+    return { ok: false, code: "no-route",
+      message: "Yahoo!路線情報は応答しましたが、経路を取り出せませんでした。"
+        + (r?.reason ? `\n詳細: ${r.reason}` : "") };
+  } catch (e) {
+    return { ok: false, code: "error",
+      message: "Yahoo!路線情報に接続できませんでした。中継（PROXY_URL）の設定を"
+        + `ご確認ください。\n詳細: ${String(e?.message ?? e)}` };
+  }
 }

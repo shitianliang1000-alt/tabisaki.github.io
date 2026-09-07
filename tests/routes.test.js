@@ -327,3 +327,71 @@ test("待ちが無ければ、余計に足さない", () => {
   assert.equal(t.waitMinutes, 0);
   assert.equal(Math.round((t.lastArriveAt - start) / 60000), 25);
 });
+
+// --- Yahoo!路線情報 ---------------------------------------------------------
+//
+// 電車・バスの時間はYahoo!路線情報から取ります。以前は2地点のときだけで、
+// 経由地があると駅の位置からの目安に落ちていました。区間ごとに聞きます。
+
+/** 駅データとYahoo!の応答を差し替えます。 */
+function withYahoo(stops, reply, fn) {
+  const real = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.includes("stops-rail")) {
+      return { ok: true, json: async () => ({ year: 2008, stops }) };
+    }
+    if (u.includes("stops-bus")) {
+      return { ok: true, json: async () => ({ year: 2012, stops: [] }) };
+    }
+    const body = JSON.parse(init?.body ?? "{}");
+    asked.push(body);
+    return { ok: true, json: async () => reply(body) };
+  };
+  clearRouteCache();
+  resetRoutesBreaker();
+  return fn(asked).finally(() => {
+    globalThis.fetch = real;
+    resetStopsCache();
+    clearRouteCache();
+  });
+}
+
+const ODAWARA = { lat: 35.2560, lng: 139.1550 };
+const STOPS = [
+  [35.6896, 139.7006, "新宿"],
+  [35.2560, 139.1550, "小田原"],
+  [35.2325, 139.1063, "箱根湯本"],
+];
+
+test("経由地があっても、区間ごとにYahoo!路線情報で調べる", () =>
+  withYahoo(STOPS, () => ({ routed: true, minutes: 90, summary: "小田急線" }),
+    async (asked) => {
+      const r = await computeRoute([SHINJUKU_ST, ODAWARA, HAKONE_YUMOTO],
+        { mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00") });
+      assert.equal(asked.length, 2, "区間の数だけ聞いていません");
+      assert.equal(r.legs.length, 2);
+      assert.ok(r.legs.every((l) => l.routed), "実測扱いになっていません");
+      assert.equal(r.routed, true);
+      assert.match(r.modeNote ?? "", /Yahoo/);
+      assert.equal(routesUsage().calls, 0, "Googleに投げています");
+      // 2区間目に乗るのは、1区間目に乗った時刻ではありません。
+      assert.ok(new Date(asked[1].departAt) > new Date(asked[0].departAt),
+        "2区間目も同じ時刻で聞いています");
+    }));
+
+test("Yahoo!で引けない区間だけ、駅の位置からの目安に戻す", () =>
+  withYahoo(STOPS,
+    (body) => (body.from === "新宿"
+      ? { routed: true, minutes: 90, summary: "小田急線" }
+      : { routed: false, reason: "経路が見つかりません" }),
+    async () => {
+      const r = await computeRoute([SHINJUKU_ST, ODAWARA, HAKONE_YUMOTO],
+        { mode: "TRANSIT" });
+      assert.equal(r.legs[0].routed, true);
+      assert.equal(r.legs[1].routed, false);
+      assert.equal(r.routed, false);
+      assert.match(r.modeNote ?? "", /Yahoo/);
+      assert.match(r.modeNote ?? "", /最寄りの駅・バス停/);
+    }));
