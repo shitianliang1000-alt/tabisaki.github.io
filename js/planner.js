@@ -103,6 +103,8 @@ export function buildItinerary(input) {
   // --- 日ごとに組み立てる ---
   const movesByDay = new Map(moves.map((m) => [m.day, m]));
   let prevEnd = arriveStation;
+  // 直前に置いた宿。予定の無い日は、新しく置かずにこれを延ばします。
+  let lastLodging = null;
   // いまどこにいるか。区間の中身を引くには「どこから」が要ります。
   let cur = stays[0].station;
 
@@ -208,8 +210,19 @@ export function buildItinerary(input) {
           costYen: 0,
           reason: "現地に着く前の夜のため、宿は取りません",
         });
+      } else if (!dayEntries.length && !mv && lastLodging) {
+        // 何も予定が入らなかった日に、宿だけを置きません。
+        // 置くと「12日目 21:30 寄居町に宿泊」だけの日ができて、
+        // 旅程が1日ぶん増えたように見えます。実際には前の晩の宿に
+        // 連泊しているので、その宿を延ばして数えます。
+        lastLodging.nights += 1;
+        lastLodging.costYen += TUNING.lodgingYen;
+        lastLodging.checkOut = addMinutes(lastLodging.checkIn,
+                                          lastLodging.nights * 24 * 60);
+        lastLodging.detail = `${lastLodging.nights}連泊（宿泊費は目安）`;
+        totalCost += TUNING.lodgingYen;
       } else {
-        pushLodging(items, trip, region, day, anchor, input.kb);
+        lastLodging = pushLodging(items, trip, region, day, anchor, input.kb);
         totalCost += TUNING.lodgingYen;
       }
       prevEnd = anchor;
@@ -322,7 +335,7 @@ function pushLodging(items, trip, region, dayIndex, after, kb) {
   const fallbackStart = atHour(after, TUNING.dayEndHour + 1);
   const start = lodging?.checkInBy
     ?? (fallbackStart > after ? fallbackStart : addMinutes(after, 30));
-  items.push({
+  const item = {
     id: nextId(), kind: "lodging",
     start, end: addMinutes(start, 60),
     title: `${spot.regionName}に宿泊`,
@@ -334,7 +347,10 @@ function pushLodging(items, trip, region, dayIndex, after, kb) {
     movedFrom: spot.movedFrom,
     checkIn: start,
     checkOut: addMinutes(start, 24 * 60),
+    nights: 1,
     reason: spot.movedFrom
       ? `${spot.movedFrom}には宿が少ないため` : "翌日も旅が続くため",
-  });
+  };
+  items.push(item);
+  return item;
 }

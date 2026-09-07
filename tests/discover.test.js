@@ -164,10 +164,16 @@ test("壊れた応答でも例外にせず、理由を返す", async () => {
   assert.match(r.reason, /調べられませんでした/);
 });
 
-test("AIキーが無いときは、そう言う", async () => {
-  const r = await discoverArea("鳥取県", { useCache: false });
+test("AIに聞けないときは、例外にせず理由を返す", async () => {
+  // 以前は「AIキーが無いとき」を見ていました。キーは画面から消えて
+  // 中継側に移ったので、いまここで起きるのは通信そのものの失敗です。
+  // 実際に外へ出しにいくと、テストが回線の状態で落ちます。
+  const r = await discoverArea("鳥取県", {
+    useCache: false,
+    call: async () => { throw new Error("403 このサイトからは呼べません"); },
+  });
   assert.equal(r.ok, false);
-  assert.match(r.reason, /AIキー/);
+  assert.match(r.reason, /調べられませんでした/);
 });
 
 

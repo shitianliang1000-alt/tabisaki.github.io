@@ -26,10 +26,18 @@ export function capacityDays(spotCount, perDay = 4) {
 /**
  * 何エリアを回るのが自然か。
  * 2日にひとつを目安にしつつ、移動ばかりにならないよう上限を置きます。
+ *
+ * 上限は 4 で固定していました。そのため「最長片道切符の経路をたどりたい」の
+ * ような、日本を縦断する長い旅を頼まれても、答えは4エリアどまりでした
+ * （12日間で「寄居町〜新潟市ほか4エリア・8か所」）。長い旅は、長いなりに
+ * 拠点が増えるのが自然なので、日数に応じて上限も伸ばします。
+ * それでも 2日にひとつという目安は変えません。1日ごとに拠点を移すのは、
+ * 旅ではなく移動になります。
  */
-export function suggestRegionCount(days, maxRegions = 4) {
+export function suggestRegionCount(days, maxRegions = null) {
   if (days <= 2) return 1;
-  return Math.min(maxRegions, Math.max(1, Math.ceil(days / 2)));
+  const cap = maxRegions ?? Math.min(10, Math.max(4, Math.round(days / 2)));
+  return Math.min(cap, Math.max(1, Math.ceil(days / 2)));
 }
 
 const stationOf = (region) => ({
@@ -46,19 +54,62 @@ const stationOf = (region) => ({
 export function orderRegions(regions, { origin, end, travelFn = estimateMinutes }) {
   if (regions.length <= 1) return [...regions];
   const idx = regions.map((_, i) => i);
+  const stations = regions.map(stationOf);
+  const cost = (perm) => {
+    let sum = 0;
+    let prev = origin;
+    for (const i of perm) { sum += travelFn(prev, stations[i]); prev = stations[i]; }
+    return end ? sum + travelFn(prev, end) : sum;
+  };
+
+  // 7エリアを超えると全順列は 5040通りを超え、日数を伸ばすほど跳ね上がります
+  // （10エリアで362万通り）。数が増えたら、近いほうから順に並べたうえで
+  // 2辺の入れ替え（2-opt）で直します。最短とは限りませんが、
+  // 「行って戻ってまた行く」ような並びは残りません。
+  if (regions.length > 7) return twoOpt(nearestFirst(idx, stations, origin, travelFn),
+                                        cost).map((i) => regions[i]);
+
   let best = null;
   for (const perm of permutations(idx)) {
-    let cost = 0;
-    let prev = origin;
-    for (const i of perm) {
-      const st = stationOf(regions[i]);
-      cost += travelFn(prev, st);
-      prev = st;
-    }
-    if (end) cost += travelFn(prev, end);
-    if (!best || cost < best.cost) best = { cost, perm };
+    const c = cost(perm);
+    if (!best || c < best.cost) best = { cost: c, perm };
   }
   return best.perm.map((i) => regions[i]);
+}
+
+function nearestFirst(idx, stations, origin, travelFn) {
+  const rest = new Set(idx);
+  const out = [];
+  let prev = origin;
+  while (rest.size) {
+    let pick = null;
+    for (const i of rest) {
+      const d = travelFn(prev, stations[i]);
+      if (pick === null || d < pick.d) pick = { i, d };
+    }
+    out.push(pick.i);
+    rest.delete(pick.i);
+    prev = stations[pick.i];
+  }
+  return out;
+}
+
+function twoOpt(perm, cost) {
+  let best = perm;
+  let bestCost = cost(perm);
+  for (let pass = 0; pass < 4; pass++) {
+    let improved = false;
+    for (let i = 0; i < best.length - 1; i++) {
+      for (let j = i + 1; j < best.length; j++) {
+        const next = [...best.slice(0, i), ...best.slice(i, j + 1).reverse(),
+                      ...best.slice(j + 1)];
+        const c = cost(next);
+        if (c < bestCost - 0.001) { best = next; bestCost = c; improved = true; }
+      }
+    }
+    if (!improved) break;
+  }
+  return best;
 }
 
 function* permutations(arr) {
