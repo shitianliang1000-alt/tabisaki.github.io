@@ -40,6 +40,7 @@ import { QuotaBlockedError, meteredFetch } from "./quota.js";
 import { estimateMinutes, haversineKm, isSlowTerrain } from "./feasibility.js";
 import { nearestStop } from "./stops.js";
 import { summarizeTransitLeg, transitFieldMask } from "./transit.js";
+import { searchYahooTransit } from "./yahoo-transit.js";
 
 /**
  * どこへ投げるか。
@@ -549,9 +550,41 @@ export async function computeRoute(points, opts = {}) {
   // 日本国内では必ず「経路が見つかりません」が返り、それでも課金対象の
   // リクエストは消費されます。駅の位置から組み立てます。
   if (mode === "TRANSIT") {
-    const key = cacheKey(points, "TRANSIT-stations", opts.departAt);
+    const key = cacheKey(points, "TRANSIT-yahoo", opts.departAt);
     const hit = routeCache.get(key);
     if (hit) return hit;
+
+    if (points.length === 2) {
+      try {
+        const [fromStop, toStop] = await Promise.all([
+          nearestStop(points[0], 5),
+          nearestStop(points[1], 5),
+        ]);
+        const yahoo = await searchYahooTransit(
+          fromStop ?? points[0], toStop ?? points[1], opts,
+        );
+        if (yahoo?.routed && yahoo.minutes > 0) {
+          const result = {
+            legs: [{
+              minutes: yahoo.minutes,
+              meters: Math.round(haversineKm(points[0], points[1]) * 1000),
+              line: yahoo.summary ?? "Yahoo!路線情報",
+              routed: true,
+              yahoo: yahoo.meta ?? null,
+            }],
+            routed: true,
+            mode: "TRANSIT",
+            modeNote: "Yahoo!路線情報で検索",
+          };
+          routeCache.set(key, result);
+          return result;
+        }
+      } catch (e) {
+        usage.lastError = `Yahoo Transit: ${String(e?.message ?? e).slice(0, 200)}`;
+      }
+    }
+
+    // Yahoo!で取得できない場合だけ、従来の駅・バス停ベース推定へ戻します。
     const result = await computeViaStations(points, opts);
     routeCache.set(key, result);
     return result;

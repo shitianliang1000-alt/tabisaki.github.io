@@ -1,4 +1,4 @@
-# 旅さき — Cloudflare Worker の設定（雛形）
+# 旅さき — Cloudflare Worker の設定
 #
 #   npx wrangler secret put GEMINI_API_KEY
 #   npx wrangler secret put MAPS_API_KEY
