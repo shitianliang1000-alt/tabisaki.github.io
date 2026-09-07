@@ -1,0 +1,65 @@
+name: Enable Yahoo Transit live routing
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply Yahoo Transit integration
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          routes = Path('js/routes.js')
+          s = routes.read_text()
+
+          marker = 'import { summarizeTransitLeg, transitFieldMask } from "./transit.js";'
+          if 'async function computeViaYahoo' not in s:
+              insert = r'''\n\n/** Yahoo!路線情報を使った日本国内の公共交通検索。\n * ブラウザからYahooへ直接アクセスせず、設定済みのWorkerを経由します。\n * 失敗時は既存の駅ベース推定へ戻します。\n */\nasync function computeViaYahoo(points, opts = {}) {\n  if (points.length !== 2) return null;\n  const cfg = net();\n  if (!cfg.proxyUrl) return null;\n\n  const fromStop = await nearestStop(points[0], Math.min(5, Math.max(1.5, haversineKm(points[0], points[1]) / 3)));\n  const toStop = await nearestStop(points[1], Math.min(5, Math.max(1.5, haversineKm(points[0], points[1]) / 3)));\n  if (!fromStop?.name || !toStop?.name) return null;\n\n  const url = `${String(cfg.proxyUrl).replace(/\\/$/, '')}/yahoo/transit`;\n  const res = await fetch(url, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      from: fromStop.name,\n      to: toStop.name,\n      departAt: opts.departAt ? new Date(opts.departAt).toISOString() : null,\n    }),\n    signal: opts.signal,\n  });\n  if (!res.ok) return null;\n  const data = await res.json();\n  if (!data?.ok || !Number.isFinite(data.minutes)) return null;\n\n  return {\n    legs: [{\n      minutes: Math.max(1, Math.round(data.minutes)),\n      meters: Math.round(haversineKm(points[0], points[1]) * 1000),\n      line: data.summary || null,\n      routed: true,\n      stations: { from: fromStop.name, to: toStop.name, walkMeasured: false },\n      yahoo: { departure: data.departure ?? null, arrival: data.arrival ?? null, url: data.url ?? null },\n    }],\n    routed: true,\n    mode: 'TRANSIT',\n    modeNote: 'Yahoo!路線情報で公共交通を検索',\n    provider: 'yahoo-transit',\n  };\n}\n'''
+              s = s.replace(marker, marker + insert, 1)
+
+          old = '''  if (mode === "TRANSIT") {\n    const key = cacheKey(points, "TRANSIT-stations", opts.departAt);\n    const hit = routeCache.get(key);\n    if (hit) return hit;\n    const result = await computeViaStations(points, opts);\n    routeCache.set(key, result);\n    return result;\n  }'''
+          new = '''  if (mode === "TRANSIT") {\n    const key = cacheKey(points, "TRANSIT-yahoo", opts.departAt);\n    const hit = routeCache.get(key);\n    if (hit) return hit;\n\n    // 日本の2点間公共交通はYahoo!路線情報を第一候補にします。\n    // Yahooが取得できない場合だけ、従来の駅ベース推定へ戻します。\n    const yahoo = await computeViaYahoo(points, opts).catch(() => null);\n    const result = yahoo ?? await computeViaStations(points, opts);\n    routeCache.set(key, result);\n    return result;\n  }'''
+          if old not in s:
+              raise SystemExit('routes.js target block not found')
+          s = s.replace(old, new, 1)
+          routes.write_text(s)
+
+          worker = Path('server/worker.js')
+          w = worker.read_text()
+          route_marker = '      if (path.endsWith("/routes")) {\n        return cors(await routes(request, env), origin);\n      }'
+          yahoo_insert = '''      if (path.endsWith("/yahoo/transit")) {\n        return cors(await yahooTransit(request), origin);\n      }\n'''
+          if '/yahoo/transit' not in w:
+              if route_marker not in w:
+                  raise SystemExit('worker route marker not found')
+              w = w.replace(route_marker, yahoo_insert + route_marker, 1)
+
+          func_marker = 'async function routes(request, env) {'
+          if 'async function yahooTransit(request)' not in w:
+              fn = r'''\n\n/** Yahoo!路線情報のWeb検索をWorker側から行います。\n * Yahoo側のHTML構造に依存するため、取得不能時は呼び出し側で推定へ戻します。\n */\nasync function yahooTransit(request) {\n  const body = await readJson(request);\n  const from = String(body?.from ?? '').trim();\n  const to = String(body?.to ?? '').trim();\n  if (!from || !to || from.length > 120 || to.length > 120) {\n    return text('出発地と到着地が必要です', 400);\n  }\n\n  const qs = new URLSearchParams({\n    from, to, shin: '1', ex: '1', al: '1', s: '0',\n  });\n  const url = `https://transit.yahoo.co.jp/search/result?${qs}`;\n  const res = await fetch(url, {\n    headers: {\n      'User-Agent': 'Mozilla/5.0 (compatible; Tabisaki/1.0; +https://github.com/shitianliang1000-alt/tabisaki.github.io)',\n      'Accept-Language': 'ja,en;q=0.8',\n    },\n    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),\n  });\n  if (!res.ok) return text(`Yahoo Transit ${res.status}`, 502);\n  const html = await res.text();\n\n  const route = html.match(/id=["']route01["'][\\s\\S]*?(?=<div[^>]+class=["'][^"']*(?:elmRoute|route)[^"']*["']|<\\/body>)/i)?.[0] ?? html;\n  const time = route.match(/class=["'][^"']*time[^"']*["'][^>]*>\\s*([0-9]{1,2}:[0-9]{2})[^<]*<[^>]*>\\s*[-～〜]?\\s*([0-9]{1,2}:[0-9]{2})/i);\n  const duration = route.match(/([0-9]+)分/);\n  const departure = time?.[1] ?? null;\n  const arrival = time?.[2] ?? null;\n  let minutes = duration ? Number(duration[1]) : null;\n  if (!minutes && departure && arrival) {\n    const [dh, dm] = departure.split(':').map(Number);\n    const [ah, am] = arrival.split(':').map(Number);\n    minutes = (ah * 60 + am) - (dh * 60 + dm);\n    if (minutes < 0) minutes += 24 * 60;\n  }\n  if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 1440) {\n    return json({ ok: false, url, departure, arrival });\n  }\n\n  const title = route.match(/class=["'][^"']*(?:routeName|small|summary)[^"']*["'][^>]*>\\s*([^<]{2,160})/i)?.[1]\n    ?.replace(/\\s+/g, ' ').trim() ?? null;\n  return json({ ok: true, minutes, departure, arrival, summary: title, url });\n}\n'''
+              w = w.replace(func_marker, fn + '\n' + func_marker, 1)
+          worker.write_text(w)
+          PY
+      - name: Verify syntax and tests
+        run: |
+          node --check js/routes.js
+          node --check server/worker.js
+          npm test --if-present
+      - name: Commit and remove one-time workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add js/routes.js server/worker.js .github/workflows/enable-yahoo-live.yml
+          git rm .github/workflows/enable-yahoo-live.yml
+          git commit -m 'feat: use Yahoo Transit for Japan public transport' || exit 0
+          git push
