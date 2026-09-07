@@ -535,3 +535,32 @@ test("日帰りでは、遠くて数か所しか回れない旅先を上位に�
     `泊まりでも移動を同じだけ嫌っています（日帰り ${gapOf(day).toFixed(2)} / `
     + `3日 ${gapOf(stay).toFixed(2)}）`);
 });
+
+test("宿泊だけの日は作らず、前の晩に連泊としてまとめる", () => {
+  // 「12日目 21:30 寄居町に宿泊」だけの日が出ていました。予定の入らない
+  // 日にも宿を置いていたためです。実際には前の晩の宿に連泊しています。
+  const trip = makeTrip({
+    origin: TOKYO,
+    departAt: d("2026-09-12T09:00"),
+    arriveBy: d("2026-09-16T19:00"),
+  });
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+    nights: 4, day0: trip.departAt,
+  });
+  const itin = buildItinerary({
+    trip, region: REGION, visits: v.visits, meals: v.meals, moves: v.moves,
+    reasons: new Map(),
+    legs: { outbound: { minutes: 60, routed: false },
+            inbound: { minutes: 60, routed: false } },
+  });
+  for (const day of itin.days) {
+    assert.ok(day.items.some((i) => i.kind !== "lodging"),
+      `${day.date.toLocaleDateString("ja-JP")} が宿泊だけの日になっています`);
+  }
+  // 泊まった数は減らしません。連泊としてまとめるだけです。
+  const lodgings = itin.days.flatMap((x) => x.items)
+    .filter((i) => i.kind === "lodging");
+  assert.equal(lodgings.reduce((n, i) => n + i.nights, 0), 4);
+});

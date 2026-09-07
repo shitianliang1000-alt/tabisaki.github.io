@@ -120,7 +120,12 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
   let talkBox = null;
   let variantsBox = null;
 
-  const nights = itin.days.length - 1;
+  // 日数は「並んでいる日の数」ではなく、初日から最終日までの日付の差です。
+  // 予定が何も入らなかった日（連泊のみの日）は表に出さないので、
+  // 数えると1日足りなくなります。
+  const nights = itin.days.length
+    ? Math.round((itin.days.at(-1).key - itin.days[0].key) / 86400000)
+    : 0;
   const title = itin.title ?? itin.regionName;
   // 見出しと同じことを繰り返さない（AIが見出しを付けなかった場合の控え）
   const sub = itin.headline && !itin.headline.startsWith(title)
