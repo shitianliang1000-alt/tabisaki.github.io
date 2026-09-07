@@ -6,6 +6,12 @@ on:
     paths:
       - "scripts/enable-yahoo-transit.mjs"
       - ".github/workflows/apply-yahoo-transit.yml"
+  pull_request:
+    paths:
+      - "scripts/enable-yahoo-transit.mjs"
+      - ".github/workflows/apply-yahoo-transit.yml"
+      - "js/routes.js"
+      - "server/worker.js"
 
 permissions:
   contents: write
@@ -21,6 +27,7 @@ jobs:
       - name: Apply integration
         run: node scripts/enable-yahoo-transit.mjs
       - name: Commit generated changes
+        if: github.event_name == 'pull_request'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
