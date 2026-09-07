@@ -28,6 +28,12 @@
  */
 
 import { createServer } from "node:http";
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const YAHOO_TRANSIT_SCRIPT = join(__dirname, "..", "tools", "yahoo_transit.py");
 
 const PORT = Number(process.env.PORT ?? 8787);
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN ?? "";
@@ -196,6 +202,36 @@ export const handler = async (req, res) => {
         { "Content-Type": "application/json" }, body);
       res.writeHead(r.status, head);
       return res.end(r.text);
+    }
+    if (path.endsWith("/transit")) {
+      const fromLoc = body.origin || body.from || "";
+      const toLoc = body.destination || body.to || "";
+      if (!fromLoc || !toLoc) {
+        return send(res, 400, head, " transit の起点と終点が必要です");
+      }
+      const fromArg = typeof fromLoc === "object" ? `${fromLoc.lat},${fromLoc.lng}` : String(fromLoc);
+      const toArg = typeof toLoc === "object" ? `${toLoc.lat},${toLoc.lng}` : String(toLoc);
+
+      return new Promise((resolve) => {
+        execFile("python3", [YAHOO_TRANSIT_SCRIPT, "--from", fromArg, "--to", toArg, "--json"], (err, stdout, stderr) => {
+          if (err) {
+            console.error("yahoo_transit.py error:", stderr || err.message);
+            res.writeHead(500, head);
+            res.end(JSON.stringify({ error: { message: "Yahoo Transit の取得に失敗しました" } }));
+            return resolve();
+          }
+          try {
+            const data = JSON.parse(stdout.trim());
+            res.writeHead(200, head);
+            res.end(JSON.stringify(data));
+          } catch (e) {
+            console.error("JSON parse error:", e);
+            res.writeHead(500, head);
+            res.end(JSON.stringify({ error: { message: "応答の解析に失敗しました" } }));
+          }
+          resolve();
+        });
+      });
     }
     if (path.endsWith("/routes")) {
       // 4. 入力の中身。経路は起点と終点が要ります。無いものを上流に流すと、

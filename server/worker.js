@@ -96,6 +96,9 @@ export default {
       if (path.endsWith("/gemini/embed")) {
         return cors(await gemini(request, env, "embedContent"), origin);
       }
+      if (path.endsWith("/transit")) {
+        return cors(text("Cloudflare Worker では Python の直実行は未サポートです。駅位置からの推定にフォールバックします。", 501), origin);
+      }
       if (path.endsWith("/routes")) {
         return cors(await routes(request, env), origin);
       }

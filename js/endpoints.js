@@ -53,6 +53,7 @@ export function endpointFor(what, args = {}, cfg = {}) {
     return `${base}/${{ "gemini:generate": "gemini/generate",
                         "gemini:embed": "gemini/embed",
                         "local:generate": "local/generate",
+                        "transit": "transit",
                         "routes": "routes" }[what] ?? what}`;
   }
   if (what === "local:generate") {

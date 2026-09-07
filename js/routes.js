@@ -548,16 +548,55 @@ async function measureWalks(plan, opts) {
            walkMeasured: true };
 }
 
+async function fetchYahooTransitBackend(points, opts) {
+  const cfg = net();
+  if (usingProxy(cfg)) {
+    try {
+      const url = endpointFor("transit", {}, cfg);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin: points[0],
+          destination: points[points.length - 1],
+        }),
+        signal: opts.signal,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === "success") {
+          const legs = [];
+          for (let i = 0; i < points.length - 1; i++) {
+            legs.push({
+              minutes: data.duration_minutes || estimateMinutes(points[i], points[i + 1]),
+              meters: Math.round(haversineKm(points[i], points[i + 1]) * 1000),
+              line: data.line || null,
+              routed: true,
+              stations: {
+                from: data.board_at || data.departure,
+                to: data.alight_at || data.arrival,
+                yahooUrl: data.url,
+              },
+            });
+          }
+          return { legs, routed: true, mode: "TRANSIT", modeNote: "Yahoo!乗換案内より取得" };
+        }
+      }
+    } catch {
+      // Proxy unavailable or failed -> fallback to station estimation
+    }
+  }
+  return computeViaStations(points, opts);
+}
+
 export async function computeRoute(points, opts = {}) {
   const mode = opts.mode ?? pickMode(points);
-  // 公共交通は、Googleの経路APIには投げません（JAPAN_TRANSIT）。
-  // 日本国内では必ず「経路が見つかりません」が返り、それでも課金対象の
-  // リクエストは消費されます。駅の位置から組み立てます。
+  // 公共交通は Google Routes API ではなく Yahoo!乗換案内 / 駅位置組み立てを使用します。
   if (mode === "TRANSIT") {
     const key = cacheKey(points, "TRANSIT-stations", opts.departAt);
     const hit = routeCache.get(key);
     if (hit) return hit;
-    const result = await computeViaStations(points, opts);
+    const result = await fetchYahooTransitBackend(points, opts);
     routeCache.set(key, result);
     return result;
   }
