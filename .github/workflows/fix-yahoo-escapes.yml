@@ -1,0 +1,58 @@
+name: Fix Yahoo Transit source formatting
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix escaped source blocks
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          p = Path('js/routes.js')
+          s = p.read_text()
+          a = 'import { summarizeTransitLeg, transitFieldMask } from "./transit.js";'
+          b = '\\n\n/**\\n * どこへ投げるか。'
+          start = s.find(a)
+          end = s.find(b, start)
+          if start < 0 or end < 0:
+              raise SystemExit('routes.js Yahoo block not found')
+          head = s[:start + len(a)]
+          block = s[start + len(a):end].replace('\\n', '\n')
+          tail = s[end:]
+          p.write_text(head + block + tail)
+
+          p = Path('server/worker.js')
+          s = p.read_text()
+          a = '\\n\\nasync function yahooTransit(request)'
+          b = '\\n\nasync function routes(request, env)'
+          start = s.find(a)
+          end = s.find(b, start)
+          if start < 0 or end < 0:
+              raise SystemExit('worker Yahoo block not found')
+          head = s[:start]
+          block = s[start:end].replace('\\n', '\n')
+          tail = s[end:]
+          p.write_text(head + block + tail)
+          PY
+      - name: Verify syntax
+        run: |
+          node --check js/routes.js
+          node --check server/worker.js
+      - name: Commit and remove one-time workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add js/routes.js server/worker.js .github/workflows/fix-yahoo-escapes.yml
+          git rm .github/workflows/fix-yahoo-escapes.yml
+          git commit -m 'fix: normalize Yahoo Transit source formatting'
+          git push
