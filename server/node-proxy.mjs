@@ -128,6 +128,9 @@ export const handler = async (req, res) => {
     "Access-Control-Allow-Headers": "Content-Type, X-Goog-FieldMask",
     "Content-Type": "application/json",
     "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     Vary: "Origin",
   };
   if (req.method === "OPTIONS") { res.writeHead(204, head); return res.end(); }

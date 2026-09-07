@@ -276,6 +276,9 @@ function cors(res, origin) {
   h.set("Access-Control-Allow-Methods", "POST, OPTIONS");
   h.set("Access-Control-Allow-Headers", "Content-Type, X-Goog-FieldMask");
   h.set("X-Content-Type-Options", "nosniff");
+  h.set("X-Frame-Options", "DENY");
+  h.set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+  h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   h.set("Vary", "Origin");
   return new Response(res.body, { status: res.status, headers: h });
 }
