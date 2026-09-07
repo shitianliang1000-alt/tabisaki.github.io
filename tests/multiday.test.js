@@ -130,7 +130,10 @@ test("日数が増えると、拠点を移す前提になる", () => {
   assert.equal(suggestRegionCount(1), 1);
   assert.equal(suggestRegionCount(2), 1);
   assert.equal(suggestRegionCount(4), 2);
-  assert.equal(suggestRegionCount(10), 4);   // 上限
+  assert.equal(suggestRegionCount(10), 5);
+  // 長い旅は、長いなりに拠点が増えます。ただし2日にひとつまで。
+  assert.equal(suggestRegionCount(30), 10);  // 上限
+  assert.equal(suggestRegionCount(10, 4), 4);   // 呼び出し側の上限は効く
 });
 
 test("収録の少ないエリアに長く留めない", () => {
