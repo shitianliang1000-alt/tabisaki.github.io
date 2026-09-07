@@ -10,7 +10,7 @@
 //        ↓
 //     自分のサーバー（キーはここだけ）
 //        ↓
-//     Gemini / Routes API
+//     Gemini / Routes API / Yahoo!路線情報
 //
 // `js/config.js` の PROXY_URL にその入口を書くと、このモジュールが
 // 行き先を切り替えます。**キーはヘッダーに載せません**（サーバーが
@@ -31,8 +31,6 @@ function proxyBase(cfg) {
   const raw = String(cfg.proxyUrl ?? "").trim();
   if (!raw) return "";
   if (!/^https:\/\//i.test(raw)) {
-    // http だと、途中でキーも旅程も平文で読まれます。
-    // 「動くけれど危ない」を黙って通さないこと。
     throw new Error("PROXY_URL は https で指定してください"
       + "（http では通信の中身が読まれます）");
   }
@@ -42,22 +40,20 @@ function proxyBase(cfg) {
 /**
  * 投げ先のURL。
  *
- * @param {"gemini:generate"|"gemini:embed"|"routes"|"local:generate"} what
+ * @param {"gemini:generate"|"gemini:embed"|"routes"|"yahoo:transit"|"local:generate"} what
  * @param {{model?:string}} [args]
  * @param {{proxyUrl?:string, localBaseUrl?:string}} [cfg]
  */
 export function endpointFor(what, args = {}, cfg = {}) {
   const base = proxyBase(cfg);
   if (base) {
-    // プロキシ側は4つの入口だけを実装すれば足ります。
     return `${base}/${{ "gemini:generate": "gemini/generate",
                         "gemini:embed": "gemini/embed",
                         "local:generate": "local/generate",
-                        "routes": "routes" }[what] ?? what}`;
+                        "routes": "routes",
+                        "yahoo:transit": "yahoo/transit" }[what] ?? what}`;
   }
   if (what === "local:generate") {
-    // 自分で立てたサーバー（OpenAI 互換）。開発中だけの想定です。
-    // 公開するときは PROXY_URL 経由にしてください。
     const raw = String(cfg.localBaseUrl ?? "").trim().replace(/\/+$/, "");
     if (!raw) throw new Error("LOCAL_BASE_URL が未設定です（js/config.js）");
     return `${raw}/v1/chat/completions`;
