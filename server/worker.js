@@ -96,9 +96,6 @@ export default {
       if (path.endsWith("/gemini/embed")) {
         return cors(await gemini(request, env, "embedContent"), origin);
       }
-      if (path.endsWith("/yahoo/transit")) {
-        return cors(await yahooTransit(request), origin);
-      }
       if (path.endsWith("/routes")) {
         return cors(await routes(request, env), origin);
       }
@@ -133,7 +130,6 @@ async function gemini(request, env, method) {
   return passthrough(res);
 }
 
-\n\nasync function yahooTransit(request) {\n  const body = await readJson(request);\n  const from = String(body?.from ?? '').trim();\n  const to = String(body?.to ?? '').trim();\n  if (!from || !to || from.length > 120 || to.length > 120) return text('出発地と到着地が必要です', 400);\n  const qs = new URLSearchParams({ from, to, shin: '1', ex: '1', al: '1', s: '0' });\n  const url = `https://transit.yahoo.co.jp/search/result?${qs}`;\n  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Tabisaki/1.0)', 'Accept-Language': 'ja,en;q=0.8' }, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });\n  if (!res.ok) return text(`Yahoo Transit ${res.status}`, 502);\n  const html = await res.text();\n  const route = html.match(/id=["']route01["'][\\s\\S]*?(?=<div[^>]+class=["'][^"']*(?:elmRoute|route)[^"']*["']|<\\/body>)/i)?.[0] ?? html;\n  const duration = route.match(/([0-9]+)分/);\n  const time = route.match(/([0-9]{1,2}:[0-9]{2})[^0-9]{1,20}([0-9]{1,2}:[0-9]{2})/);\n  const departure = time?.[1] ?? null;\n  const arrival = time?.[2] ?? null;\n  let minutes = duration ? Number(duration[1]) : null;\n  if (!minutes && departure && arrival) {\n    const [dh, dm] = departure.split(':').map(Number); const [ah, am] = arrival.split(':').map(Number);\n    minutes = (ah * 60 + am) - (dh * 60 + dm); if (minutes < 0) minutes += 1440;\n  }\n  if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 1440) return json({ ok: false, url, departure, arrival });\n  const summary = route.match(/class=["'][^"']*(?:routeName|small|summary)[^"']*["'][^>]*>\\s*([^<]{2,160})/i)?.[1]?.replace(/\\s+/g, ' ').trim() ?? null;\n  return json({ ok: true, minutes, departure, arrival, summary, url });\n}\n
 async function routes(request, env) {
   const body = await readJson(request);
   // 起点と終点が無いものを上流に流しても、課金される呼び出しを
