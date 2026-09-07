@@ -39,7 +39,7 @@ import { effectiveConfig } from "./settings.js";
 import { QuotaBlockedError, meteredFetch } from "./quota.js";
 import { estimateMinutes, haversineKm, isSlowTerrain } from "./feasibility.js";
 import { nearestStop } from "./stops.js";
-import { summarizeTransitLeg, transitFieldMask } from "./transit.js";
+import { summarizeTransitLeg, transitFieldMask } from "./transit.js";\n\n/** Yahoo!路線情報を使った日本国内の公共交通検索。\n * ブラウザからYahooへ直接アクセスせず、設定済みのWorkerを経由します。\n * 失敗時は既存の駅ベース推定へ戻します。\n */\nasync function computeViaYahoo(points, opts = {}) {\n  if (points.length !== 2) return null;\n  const cfg = net();\n  if (!cfg.proxyUrl) return null;\n  const reach = Math.min(5, Math.max(1.5, haversineKm(points[0], points[1]) / 3));\n  const [fromStop, toStop] = await Promise.all([nearestStop(points[0], reach), nearestStop(points[1], reach)]);\n  if (!fromStop?.name || !toStop?.name) return null;\n  const url = `${String(cfg.proxyUrl).replace(/\\/$/, '')}/yahoo/transit`;\n  const res = await fetch(url, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({ from: fromStop.name, to: toStop.name, departAt: opts.departAt ? new Date(opts.departAt).toISOString() : null }),\n    signal: opts.signal,\n  });\n  if (!res.ok) return null;\n  const data = await res.json();\n  if (!data?.ok || !Number.isFinite(data.minutes)) return null;\n  return {\n    legs: [{ minutes: Math.max(1, Math.round(data.minutes)), meters: Math.round(haversineKm(points[0], points[1]) * 1000), line: data.summary || null, routed: true, stations: { from: fromStop.name, to: toStop.name, walkMeasured: false }, yahoo: { departure: data.departure ?? null, arrival: data.arrival ?? null, url: data.url ?? null } }],\n    routed: true, mode: 'TRANSIT', modeNote: 'Yahoo!路線情報で公共交通を検索', provider: 'yahoo-transit',\n  };\n}\n
 
 /**
  * どこへ投げるか。
@@ -549,10 +549,11 @@ export async function computeRoute(points, opts = {}) {
   // 日本国内では必ず「経路が見つかりません」が返り、それでも課金対象の
   // リクエストは消費されます。駅の位置から組み立てます。
   if (mode === "TRANSIT") {
-    const key = cacheKey(points, "TRANSIT-stations", opts.departAt);
+    const key = cacheKey(points, "TRANSIT-yahoo", opts.departAt);
     const hit = routeCache.get(key);
     if (hit) return hit;
-    const result = await computeViaStations(points, opts);
+    const yahoo = await computeViaYahoo(points, opts).catch(() => null);
+    const result = yahoo ?? await computeViaStations(points, opts);
     routeCache.set(key, result);
     return result;
   }
