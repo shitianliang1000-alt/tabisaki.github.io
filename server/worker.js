@@ -80,17 +80,15 @@ async function yahooTransit(request) {
   u.searchParams.set("all", "1");
   u.searchParams.set("type", "1");
 
-  if (body?.departAt) {
-    const d = new Date(body.departAt);
-    if (!Number.isNaN(d.getTime())) {
-      const parts = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit",
-        hour: "2-digit", minute: "2-digit", hour12: false,
-      }).formatToParts(d);
-      const get = (name) => parts.find((x) => x.type === name)?.value ?? "";
-      const hh = get("hour") === "24" ? "00" : get("hour");
-      u.searchParams.set("dispDate", `${get("year")}${get("month")}${get("day")}${hh}${get("minute")}`);
-    }
+  const requested = body?.departAt ? new Date(body.departAt) : null;
+  if (requested && !Number.isNaN(requested.getTime())) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(requested);
+    const get = (name) => parts.find((x) => x.type === name)?.value ?? "";
+    const hh = get("hour") === "24" ? "00" : get("hour");
+    u.searchParams.set("dispDate", `${get("year")}${get("month")}${get("day")}${hh}${get("minute")}`);
   }
 
   const res = await fetch(u, {
@@ -103,19 +101,104 @@ async function yahooTransit(request) {
   if (!res.ok) return text(`Yahoo Transit ${res.status}`, 502);
 
   const html = await res.text();
-  const route = html.match(/id=["']route01["'][\s\S]*?<\/div>\s*<\/div>/i)?.[0] ?? html;
-  const plain = route.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
-  const time = plain.match(/(\d{1,2}:\d{2})\s*(?:発|出発)?[^0-9]{0,80}?(\d{1,2}:\d{2})\s*(?:着|到着)?/);
-  if (!time) return json({ routed: false, url: u.toString(), reason: "Yahoo!路線情報の経路結果を取得できませんでした" });
+  const route = firstYahooRoute(html);
+  const plain = htmlToText(route);
+  const times = extractRouteTimes(route);
+  if (times.length < 2) {
+    return json({ routed: false, url: u.toString(),
+      reason: "Yahoo!路線情報の経路結果から出発・到着時刻を取得できませんでした" });
+  }
 
-  const [h1, m1] = time[1].split(":").map(Number);
-  const [h2, m2] = time[2].split(":").map(Number);
-  let minutes = (h2 * 60 + m2) - (h1 * 60 + m1);
-  if (minutes < 0) minutes += 1440;
-  if (minutes <= 0 || minutes > 1440) return json({ routed: false, url: u.toString() });
+  const departure = times[0];
+  const arrival = times[times.length - 1];
+  const rideMinutes = clockDiff(departure, arrival);
+  if (rideMinutes <= 0 || rideMinutes > 1440) {
+    return json({ routed: false, url: u.toString(), reason: "Yahoo!路線情報の時刻を解釈できませんでした" });
+  }
 
-  return json({ routed: true, minutes, summary: plain.slice(0, 500),
-    meta: { url: u.toString(), departure: time[1], arrival: time[2] } });
+  // ここが重要です。
+  // 「9:00に出発地を出る」検索なら、9:08発の電車に乗る場合は
+  // 8分の待ち時間もTabisakiの所要時間に含めます。
+  // これまでの実装は 9:08→9:42 の34分だけを返していたため、
+  // Tabisaki上では9:34着と誤って早く計算されていました。
+  const requestedMinutes = requested && !Number.isNaN(requested.getTime())
+    ? tokyoClockMinutes(requested)
+    : null;
+  const waitMinutes = requestedMinutes == null
+    ? 0
+    : (clockMinutes(departure) - requestedMinutes + 1440) % 1440;
+  const minutes = waitMinutes + rideMinutes;
+
+  return json({
+    routed: true,
+    minutes,
+    rideMinutes,
+    waitMinutes,
+    summary: plain.slice(0, 800),
+    meta: {
+      url: u.toString(),
+      departure,
+      arrival,
+      requestedDeparture: requested ? requested.toISOString() : null,
+    },
+  });
+}
+
+function firstYahooRoute(html) {
+  const start = html.search(/id=["']route01["']/i);
+  if (start < 0) return html;
+  const rest = html.slice(start);
+  const next = rest.search(/id=["']route02["']/i);
+  return next > 0 ? rest.slice(0, next) : rest.slice(0, 300000);
+}
+
+function extractRouteTimes(html) {
+  // Yahoo!の routeSummary / routeDetail の時刻を優先します。
+  // class名が多少変わっても、route01 の中にある時刻列から復旧できます。
+  const candidates = [];
+  const summary = html.match(/class=["'][^"']*routeSummary[^"']*["'][\s\S]{0,20000}/i)?.[0] ?? "";
+  for (const source of [summary, html]) {
+    const re = /(?:^|[^0-9])([01]?\d|2[0-3]):([0-5]\d)(?![0-9])/g;
+    let m;
+    while ((m = re.exec(source))) {
+      const value = `${m[1].padStart(2, "0")}:${m[2]}`;
+      if (!candidates.includes(value)) candidates.push(value);
+      if (candidates.length >= 40) break;
+    }
+    if (candidates.length >= 2) break;
+  }
+  return candidates;
+}
+
+function htmlToText(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&#39;|&#x27;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function clockMinutes(hm) {
+  const [h, m] = hm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function clockDiff(from, to) {
+  return (clockMinutes(to) - clockMinutes(from) + 1440) % 1440;
+}
+
+function tokyoClockMinutes(date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(date);
+  const h = Number(parts.find((x) => x.type === "hour")?.value ?? 0);
+  const m = Number(parts.find((x) => x.type === "minute")?.value ?? 0);
+  return h * 60 + m;
 }
 
 async function routes(request, env) {
