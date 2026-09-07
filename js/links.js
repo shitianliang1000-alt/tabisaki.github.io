@@ -53,8 +53,25 @@ export function hotelsUrl(near, checkIn, checkOut) {
   return url.toString();
 }
 
-/** 経路を Google マップで開く（実際に移動するときに使う想定）。 */
-export function directionsUrl(from, to, mode = "transit") {
+/** Yahoo!乗換案内で路線検索を開く。 */
+export function yahooTransitUrl(from, to, fromName, toName) {
+  const originStr = fromName || (from?.lat != null ? `${from.lat},${from.lng}` : "");
+  const destStr = toName || (to?.lat != null ? `${to.lat},${to.lng}` : "");
+  const url = new URL("https://transit.yahoo.co.jp/search/result");
+  url.searchParams.set("from", originStr);
+  url.searchParams.set("to", destStr);
+  url.searchParams.set("shin", "1");
+  url.searchParams.set("ex", "1");
+  url.searchParams.set("al", "1");
+  url.searchParams.set("s", "0");
+  return url.toString();
+}
+
+/** 経路を外部地図/乗換案内で開く（公共交通はYahoo!乗換案内、その他はGoogleマップ）。 */
+export function directionsUrl(from, to, mode = "transit", fromName = "", toName = "") {
+  if (mode === "transit") {
+    return yahooTransitUrl(from, to, fromName, toName);
+  }
   const url = new URL("https://www.google.com/maps/dir/");
   url.searchParams.set("api", "1");
   url.searchParams.set("origin", `${from.lat},${from.lng}`);
@@ -138,7 +155,13 @@ export function linksForItem(item, ctx = {}) {
     }
     case "transit": {
       if (ctx.from && ctx.to) {
-        out.push({ label: "経路を開く", url: directionsUrl(ctx.from, ctx.to) });
+        const fromName = ctx.fromName || ctx.from?.name || "";
+        const toName = ctx.toName || ctx.to?.name || "";
+        out.push({
+          label: "Yahoo!乗換案内で経路を開く",
+          url: directionsUrl(ctx.from, ctx.to, "transit", fromName, toName),
+          primary: true,
+        });
       }
       break;
     }

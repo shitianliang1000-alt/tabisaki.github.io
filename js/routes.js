@@ -487,7 +487,12 @@ async function computeViaStations(points, opts) {
     // 真ん中（乗車）が目安なので、区間としては実測扱いにしません。
     routed: false,
     stations: p.fromStop && p.toStop
-      ? { from: p.fromStop.name, to: p.toStop.name, walkMeasured: p.walkMeasured }
+      ? {
+          from: p.fromStop.name,
+          to: p.toStop.name,
+          walkMeasured: p.walkMeasured,
+          yahooUrl: `https://transit.yahoo.co.jp/search/result?from=${encodeURIComponent(p.fromStop.name)}&to=${encodeURIComponent(p.toStop.name)}&shin=1&ex=1&al=1&s=0`,
+        }
       : null,
   }));
 
