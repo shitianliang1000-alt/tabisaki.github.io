@@ -889,17 +889,34 @@ export async function diagnoseMapsKey(signal) {
 export async function diagnoseYahooTransit(signal) {
   const shinjuku = { lat: 35.690921, lng: 139.700258, name: "新宿駅" };
   const hakone = { lat: 35.2325, lng: 139.1063, name: "箱根湯本駅" };
+  // どこへ投げたのかを必ず出します。
+  //
+  // 中継の入口は2か所から決まります。設定画面に入れた値と、js/config.js。
+  // **設定画面のほうが勝ちます。**以前どこかで入れた古い入口が残っていると、
+  // config.js を直しても効かず、画面には「接続できませんでした」としか
+  // 出ませんでした。どちらを使ったかが分かれば、その場で気づけます。
+  const cfg = effectiveConfig();
+  const where = (() => {
+    try {
+      const url = endpointFor("yahoo:transit", {}, cfg);
+      const from = cfg.from?.proxyUrl === "settings" ? "設定画面"
+        : cfg.from?.proxyUrl === "config" ? "js/config.js" : "未設定";
+      return `\n投げ先: ${url}（${from}）`;
+    } catch (e) {
+      return `\n投げ先を決められません: ${String(e?.message ?? e)}`;
+    }
+  })();
   try {
     const r = await searchYahooTransit(shinjuku, hakone,
       { departAt: neutralDepartureTime(), signal });
     if (r?.routed && r.minutes > 0) {
       return { ok: true, code: "ok",
         message: `Yahoo!路線情報に接続できました（新宿駅→箱根湯本駅 約${r.minutes}分`
-          + `${r.summary ? "・" + r.summary : ""}）。` };
+          + `${r.summary ? "・" + r.summary : ""}）。` + where };
     }
     return { ok: false, code: "no-route",
       message: "Yahoo!路線情報は応答しましたが、経路を取り出せませんでした。"
-        + (r?.reason ? `\n詳細: ${r.reason}` : "") };
+        + where + (r?.reason ? `\n詳細: ${r.reason}` : "") };
   } catch (e) {
     // 「Load failed」は、ブラウザが返事の中身を捨てたときの言い方です。
     // たいていは、このページの出どころが中継側で許されていない場合です
@@ -907,7 +924,7 @@ export async function diagnoseYahooTransit(signal) {
     // ブラウザはそれを読ませません）。何を直せばいいのかを書きます。
     const here = globalThis.location?.origin ?? "";
     return { ok: false, code: "error",
-      message: "Yahoo!路線情報に接続できませんでした。"
+      message: "Yahoo!路線情報に接続できませんでした。" + where
         + (here ? `\nこのページの出どころは ${here} です。` : "")
         + "中継（Cloudflare Worker）の ALLOW_ORIGIN に、このアドレスが"
         + "入っているかご確認ください。"
