@@ -34,7 +34,18 @@ export async function searchYahooTransit(from, to, opts = {}) {
     }),
     signal: opts.signal,
   });
-  if (!res.ok) throw new Error(`Yahoo Transit ${res.status}`);
+  if (!res.ok) {
+    // 番号だけを投げていました。「Yahoo Transit 429」と出ても、
+    // 断ったのがYahoo!なのか、中継の回数制限なのかが分かりません。
+    // 待つ先が違うので、本文をそのまま添えます。
+    const why = await res.text().then(
+      (t) => { try { return JSON.parse(t)?.error?.message ?? ""; } catch { return ""; } },
+      () => "");
+    const err = new Error(why || `Yahoo Transit ${res.status}`);
+    err.status = res.status;
+    err.retryAfter = Number(res.headers?.get?.("Retry-After")) || null;
+    throw err;
+  }
   const doc = await res.json();
   return { ...doc, searchedAt: departAt.toISOString() };
 }

@@ -111,16 +111,40 @@ async function yahooTransit(request) {
   u.searchParams.set("lb", "1");
   u.searchParams.set("sr", "1");
 
-  const res = await fetch(u, {
+  // 同じ検索は、取りに行きません。
+  //
+  // 旅程1つで区間の数だけ聞きますし、条件を少し変えて何度も作り直します。
+  // 同じ日・同じ区間なら答えも同じなので、そのたびにYahoo!へ行くのは
+  // 相手にも失礼で、断られる（429）もとになります。1時間置きます。
+  const cacheKey = new Request(u.toString(), { method: "GET" });
+  const cache = globalThis.caches?.default;
+  const cached = await cache?.match(cacheKey);
+  const res = cached ?? await fetch(u, {
     headers: {
       "User-Agent": "Mozilla/5.0 (compatible; TabisakiTransit/1.0)",
       "Accept-Language": "ja-JP,ja;q=0.9",
     },
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
-  if (!res.ok) return text(`Yahoo Transit ${res.status}`, 502);
+  if (!res.ok) {
+    // 断られたのがYahoo!なのか、こちらの回数制限なのかが分かるように
+    // 書きます。同じ「429」でも、待つ先が違います。
+    if (res.status === 429) {
+      return text("Yahoo!路線情報から一時的に断られています（429）。"
+        + "少し時間をおくと戻ります。それまでは、駅の位置からの目安で"
+        + "組み立てます。", 429, { "Retry-After": "60" });
+    }
+    return text(`Yahoo Transit ${res.status}`, 502);
+  }
 
   const html = await res.text();
+  if (!cached && cache) {
+    // 本文はもう読んでしまったので、控えは作り直して入れます。
+    await cache.put(cacheKey, new Response(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8",
+                 "Cache-Control": "max-age=3600" },
+    }));
+  }
   const requestedMinutes = tokyoClockMinutes(requested);
 
   // 候補は全部読みます。1本目だけを見ていたときは、Yahoo!が「早い順」で

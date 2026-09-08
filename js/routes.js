@@ -217,6 +217,8 @@ const breaker = { fails: 0, open: false, reason: "" };
  * 経路ごとに数えると、エリアが増えるだけ合計が膨らみます。
  */
 const transitBudget = { spent: 0 };
+// Yahoo!路線情報に聞いた回数（Googleの回数とは別勘定）。
+const yahooBudgetSpent = { spent: 0 };
 
 /** 呼び出しの記録。画面で「何回呼んで、何が返ったか」を見せるため。 */
 const usage = { calls: 0, failures: 0, lastError: "", skipped: 0 };
@@ -232,6 +234,7 @@ export function routesBreakerState() {
 
 export function resetRoutesBreaker() {
   transitBudget.spent = 0;
+  yahooBudgetSpent.spent = 0;
   breaker.fails = 0;
   breaker.open = false;
   breaker.reason = "";
@@ -471,15 +474,18 @@ async function computeViaStations(points, opts) {
   const plans = new Array(n);
   const yahooLegs = new Array(n).fill(null);
   let clock = opts.departAt ? new Date(opts.departAt) : null;
+  // Yahoo!の回数は、Googleの徒歩実測とは別に数えます。混ぜていたので、
+  // 徒歩を測ると、そのぶん実際の時刻が取れなくなっていました。
+  // Yahoo!は課金されず、中継側で控えるので、多めに取ります。
   let yahooBudget = Math.max(0,
-    (TUNING.maxTransitRequests ?? 8) - transitBudget.spent);
+    (TUNING.maxYahooRequests ?? 40) - yahooBudgetSpent.spent);
   for (let i = 0; i < n; i++) {
     const hit = yahooBudget > 0
       ? await yahooLeg(points[i], points[i + 1], { ...opts, departAt: clock })
       : null;
     if (hit) {
       yahooBudget--;
-      transitBudget.spent++;
+      yahooBudgetSpent.spent++;
       yahooLegs[i] = hit;
       plans[i] = { minutes: hit.minutes, walkKm: 0,
                    fromStop: null, toStop: null, walkMeasured: false };
@@ -927,6 +933,19 @@ export async function diagnoseYahooTransit(signal) {
       message: "Yahoo!路線情報は応答しましたが、経路を取り出せませんでした。"
         + where + (r?.reason ? `\n詳細: ${r.reason}` : "") };
   } catch (e) {
+    // 返事が返ってきているなら、出どころ（ALLOW_ORIGIN）の話ではありません。
+    // 429 は「回数が多い」なので、設定を疑わせても直りません。
+    if (e?.status) {
+      return { ok: false, code: e.status,
+        message: (e.status === 429
+          ? "呼び出しが多すぎて、いま断られています。"
+            + (e.retryAfter ? `${e.retryAfter}秒ほど` : "少し")
+            + "待ってからもう一度お試しください。"
+            + "\n※ 旅程は組めます。この間の電車・バスの時間は、"
+            + "駅の位置からの目安になります。"
+          : "Yahoo!路線情報に接続できませんでした。")
+          + where + `\n詳細: ${String(e?.message ?? e)}` };
+    }
     // 「Load failed」は、ブラウザが返事の中身を捨てたときの言い方です。
     // たいていは、このページの出どころが中継側で許されていない場合です
     // （中継は断り文句を返していますが、CORSの見出しが合わないと

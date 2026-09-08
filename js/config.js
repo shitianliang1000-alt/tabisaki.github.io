@@ -50,7 +50,16 @@ export const TUNING = {
   lodgingYen: 12000,
   transitThresholdKm: 2.5,
   walkableKm: 1.4,
+  // 徒歩の実測（Googleの経路API）に使う回数。ここは課金対象なので絞ります。
   maxTransitRequests: 8,
+  // Yahoo!路線情報に聞く回数。こちらは課金されず、中継側で1時間控える
+  // ので、**実際の時刻を全区間ぶん取りにいきます**。目安で埋めるくらいなら
+  // 時間をかけて本物を取ったほうがよい、という判断です。
+  maxYahooRequests: 40,
+  // 案を練り直す回数。作って、検証して、問題を伝えてまた作らせます。
+  // 1回で止めていたころは、「時間が合わない場所が3件」のまま出ることが
+  // ありました。時間はかかっても、通る案に近づけます。
+  maxPlanRounds: 4,
   dayEndHour: 18.5,
   dayStartHour: 9.0,
 };

@@ -13,10 +13,11 @@
 //   7. 希望に応えられたかを確かめて、応えられていなければそう伝える
 
 import {
-  aiStatus, embedQuery, hasApiKey, proposePlan, resetAiStatus, resolvedModel,
-  understandRequest,
+  aiStatus, embedQuery, hasApiKey, noteAiError, proposePlan, resetAiStatus,
+  resolvedModel, understandRequest,
 } from "./ai.js";
 import { areaNote, areaScope, detectAreas, unknownPlaceTerms } from "./areas.js";
+import { TUNING } from "./config.js";
 import { discoverArea, resolveDestination } from "./discover.js";
 import { estimateMinutes, haversineKm } from "./feasibility.js";
 import {
@@ -354,31 +355,49 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   let checked = await verifyProposal(proposal, trip, candidates, kb,
                                      { useRoutes: false });
 
+  // 通る案になるまで、作り直します。
+  //
+  // 1回だけ直していたころは、「時間が合わない場所が3件」のまま出ることが
+  // ありました。2回目で別の問題が出ても、そこで打ち切っていたためです。
+  // 問題が残っているあいだは、その理由を渡してまた作らせます。
+  // 案は毎回点をつけて、**いちばん良かったものを覚えておきます**
+  // （作り直すほど良くなるとは限らないので、最後の案を採るのは誤りです）。
   let repaired = false;
   const needsRepair = (c) => !c.result.ok || c.result.underfilled;
   if (needsRepair(checked) && hasApiKey()) {
-    const n = checked.result.issues.length;
-    onProgress(4, n
-      ? `${n}件の問題を見つけました。作り直しています`
-      : "予定の空きが多いため、作り直しています");
-    const second = await proposePlan(candidates, query, trip.note, maxSpots,
-                                     targets, issuesToPrompt(checked.result),
-                                     planOpts);
-    const recheck = await verifyProposal(second, trip, candidates, kb,
-                                         { useRoutes: false });
-    // どちらを採るかは、点で決めます。
-    //
-    // 以前は「立ち寄りの多いほう」でした。その基準だと、30分の見学と
-    // 90分の移動を繰り返す詰め込み案が、ゆったり回る案に勝ちます。
-    // 回れる数ではなく、無理のなさで選びます。
-    const best = pickBest([
-      { key: "first", proposal, checked },
-      { key: "second", proposal: second, checked: recheck },
-    ].map((o) => ({ ...o, itin: draftItinerary(o.checked, trip, kb) })),
-    { interests: trip.interests ?? [] });
-    if (best?.key === "second") {
-      proposal = second; checked = recheck; repaired = true;
+    const rounds = Math.max(1, TUNING.maxPlanRounds ?? 4);
+    let best = { proposal, checked,
+                 itin: draftItinerary(checked, trip, kb), key: "first" };
+    for (let round = 2; round <= rounds; round++) {
+      const worst = best.checked.result.issues.length;
+      onProgress(4, worst
+        ? `${worst}件の問題を見つけました。${round - 1}回目の作り直しです`
+        : `予定の空きが多いため、${round - 1}回目の作り直しです`);
+      let next;
+      try {
+        next = await proposePlan(candidates, query, trip.note, maxSpots,
+                                 targets, issuesToPrompt(best.checked.result),
+                                 planOpts);
+      } catch (e) {
+        // 途中で聞けなくなっても、それまでの最善は残っています。
+        noteAiError(e);
+        break;
+      }
+      const recheck = await verifyProposal(next, trip, candidates, kb,
+                                           { useRoutes: false });
+      const round0 = { key: `round${round}`, proposal: next, checked: recheck,
+                       itin: draftItinerary(recheck, trip, kb) };
+      const pick = pickBest([best, round0],
+                            { interests: trip.interests ?? [] });
+      if (pick?.key === round0.key) {
+        best = round0;
+        repaired = true;
+      }
+      // 通ったら、そこで止めます。これ以上こねても良くなりません。
+      if (!needsRepair(best.checked)) break;
     }
+    proposal = best.proposal;
+    checked = best.checked;
   }
 
   // 採用が決まってから、実際の経路を取りにいきます（ここだけが課金対象）。
