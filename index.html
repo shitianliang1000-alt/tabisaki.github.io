@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#F4F1EB" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#16140F" media="(prefers-color-scheme: dark)">
-<title>旅さき｜行きたいことから旅程をつくるAI旅行プランナー</title>
+<title>旅さき</title>
 <meta name="description" content="「温泉と海をゆっくり楽しみたい」など、行きたいことを伝えるだけで、行き先・まわる順・移動時間まで考えた旅程を作ります。営業時間と移動時間を実際に照らし合わせるので、そのまま行ける旅程になります。">
 
 <!-- 共有したときの見た目。
@@ -15,12 +15,12 @@
      公開するドメインに合わせて OG_BASE を書き換えてください。 -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="旅さき">
-<meta property="og:title" content="旅さき｜行きたいことから旅程をつくる">
+<meta property="og:title" content="旅さき">
 <meta property="og:description" content="「温泉と海をゆっくり楽しみたい」の一言から、行き先・まわる順・移動時間まで組み立てます。">
 <meta property="og:image" content="og.svg">
 <meta property="og:locale" content="ja_JP">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="旅さき｜行きたいことから旅程をつくる">
+<meta name="twitter:title" content="旅さき">
 <meta name="twitter:description" content="「温泉と海をゆっくり楽しみたい」の一言から、行き先・まわる順・移動時間まで組み立てます。">
 <meta name="twitter:image" content="og.svg">
 
@@ -91,6 +91,10 @@
 
 
 
+<!-- 見出しは画面には出しません（名前と説明を上に置くと、条件の入力が
+     そのぶん下がります）。文書としての h1 は残します。 -->
+<h1 class="sr-only">旅さき</h1>
+
 <main class="layout">
 
   <!-- 設定は、上のバーではなく地図の上に浮かせます。結果が出る前も
@@ -110,16 +114,6 @@
          入った旅程）ではなく **条件** を覚えておいて、押されたら
          その場で組み直します。営業時間も混雑も日ごとに変わるので、
          3か月前の旅程をそのまま出すと閉まっている店へ案内します。 -->
-    <!-- 名前と、この道具が何をするか。
-         見出しを読み上げ用にだけ置いていたころは、開いた人に
-         「何のアプリか」が伝わりませんでした。設定は右上に浮いて
-         いるので、ここには置きません（2か所に同じものを置くと、
-         押した先が違うのではと迷わせます）。 -->
-    <header class="brand">
-      <h1>旅さき</h1>
-      <p>まだ知らない、<br>ちょうどいい旅へ。</p>
-    </header>
-
     <section class="recent" id="recent" hidden aria-labelledby="recent-title">
       <div class="recent-head">
         <h3 id="recent-title">前につくった旅</h3>

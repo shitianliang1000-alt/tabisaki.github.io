@@ -122,25 +122,6 @@ p, li { text-wrap: pretty; }
   #budget-choice button, #transport-choice button { padding-inline: 4px; }
 }
 
-/* ---------------------------------------------------------- 名前 --- */
-/* 開いた人に、まず「何をする道具か」を伝えます。 */
-
-.brand { margin: 4px 0 18px; }
-.brand h1 {
-  margin: 0;
-  font-size: 30px; font-weight: 700; letter-spacing: .04em;
-  color: var(--md-sys-color-on-surface);
-}
-.brand p {
-  margin: 6px 0 0;
-  font-size: 15px; line-height: 1.5;
-  color: var(--md-sys-color-on-surface-variant);
-}
-@media (max-width: 860px) {
-  /* 右上の設定ボタンに、名前がぶつからないようにします。 */
-  .brand { margin-right: 56px; }
-}
-
 /* ------------------------------------------------------ 希望の入力 --- */
 
 

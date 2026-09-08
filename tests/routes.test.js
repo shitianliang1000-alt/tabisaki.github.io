@@ -461,3 +461,32 @@ test("回数制限で断られたら、設定のせいにしない", () =>
       globalThis.fetch = real;
     }
   }));
+
+test("区間がいくつあっても、全部Yahoo!に聞く", () =>
+  withYahoo([
+    [35.6896, 139.7006, "新宿"],
+    [35.2560, 139.1550, "小田原"],
+    [35.2325, 139.1063, "箱根湯本"],
+    [35.2324, 139.0269, "箱根町"],
+    [35.1706, 139.0906, "湯河原"],
+  ], () => ({ routed: true, minutes: 40, rideMinutes: 38, waitMinutes: 2,
+              summary: "10:02 発→ 10:40 着 38分" }),
+  async (asked) => {
+    // Yahoo!の回数を、Googleの徒歩実測（課金対象・8回まで）と同じ財布から
+    // 出していました。徒歩を測るとそのぶん実際の時刻が取れなくなります。
+    // 別勘定にして、区間の数だけ聞きにいきます。
+    const points = [
+      { lat: 35.6896, lng: 139.7006 },
+      { lat: 35.2560, lng: 139.1550 },
+      { lat: 35.2325, lng: 139.1063 },
+      { lat: 35.2324, lng: 139.0269 },
+      { lat: 35.1706, lng: 139.0906 },
+    ];
+    const r = await computeRoute(points, {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    assert.equal(asked.length, 4, "聞いていない区間があります");
+    assert.equal(r.legs.length, 4);
+    assert.ok(r.legs.every((l) => l.routed), "目安のままの区間があります");
+    assert.equal(r.routed, true);
+  }));
