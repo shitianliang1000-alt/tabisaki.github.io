@@ -584,3 +584,59 @@ test("AIに聞けなかったら、そう言う", async () => {
   resetAiStatus();
   assert.equal(aiStatus().error, null);
 });
+
+test("往路は、実際に乗れる便の時刻から始まる", () => {
+  // 「4:00発・3時間55分」の行に「14:50発→18:40着」と書いてありました。
+  // 同じ行の中で食い違っています。実際に乗るのは次の便なので、
+  // 旅程の時刻もそちらに合わせます。
+  const trip = makeTrip({
+    origin: TOKYO,
+    departAt: d("2026-09-12T04:00"),
+    arriveBy: d("2026-09-12T22:00"),
+  });
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+  });
+  const built = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(),
+    legs: {
+      outbound: {
+        minutes: 355, rideMinutes: 230, waitMinutes: 125, routed: true,
+        line: "05:00 発→ 08:50 着 3時間50分", shifted: false,
+        yahoo: { departure: "05:00", arrival: "08:50" },
+      },
+      inbound: { minutes: 60, routed: false },
+    },
+  });
+  const first = built.days[0].items[0];
+  assert.equal(first.kind, "transit");
+  assert.equal(first.start.getHours(), 5, "始発の時刻になっていません");
+  assert.match(first.detail, /次に乗れる便/);
+});
+
+test("別の日のダイヤで調べたときは、時刻を動かさない", () => {
+  const trip = makeTrip({
+    origin: TOKYO,
+    departAt: d("2026-09-12T04:00"),
+    arriveBy: d("2026-09-12T22:00"),
+  });
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+  });
+  const built = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(),
+    legs: {
+      outbound: {
+        minutes: 235, rideMinutes: 230, waitMinutes: 5, routed: true,
+        line: "3時間50分（9月8日のダイヤで検索）", shifted: true,
+        yahoo: { departure: "14:50", arrival: "18:40" },
+      },
+      inbound: { minutes: 60, routed: false },
+    },
+  });
+  const first = built.days[0].items[0];
+  assert.equal(first.start.getHours(), 4,
+    "その日の時刻でないものを、その日の時刻として置いています");
+});

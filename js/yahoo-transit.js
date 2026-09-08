@@ -33,7 +33,16 @@ export async function searchYahooTransit(from, to, opts = {}) {
     signal: opts.signal,
   });
   if (!res.ok) throw new Error(`Yahoo Transit ${res.status}`);
-  return res.json();
+  const doc = await res.json();
+  // **いつのダイヤで調べたか**を返します。過ぎた日や、時刻表がまだ出て
+  // いない先の日は、そのままでは調べられないので別の日時に寄せています。
+  // それを黙っていると、旅程の時刻と、画面に出る「14:50発→18:40着」が
+  // 食い違います（実際にそう出ていました）。
+  return {
+    ...doc,
+    searchedAt: departAt.toISOString(),
+    shifted: departAt.getTime() !== requested.getTime(),
+  };
 }
 
 function neutralDepartureTime(now = new Date()) {
