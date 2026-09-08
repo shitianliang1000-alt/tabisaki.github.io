@@ -207,6 +207,20 @@ export function verifyOrder(spots, ctx) {
     const floor = ctx.dayFloorById?.get(spot.id) ?? 0;
     while (dayIndex < floor && dayIndex < nights) advanceDay();
 
+    // その日、拠点はもう別のエリアです。
+    //
+    // 下限（何日目以降）しか無かったので、前が押すと拠点を移したあとの
+    // 日へずれ込んでいました。「2日目 4:00 金沢→三ノ宮、7:20 近江町市場へ
+    // 移動（247km）」という旅程が実際に出ています。247km戻るのは、
+    // その日に回る場所ではありません。諦めて、理由を残します。
+    const ceil = ctx.dayCeilById?.get(spot.id);
+    if (Number.isFinite(ceil) && dayIndex > ceil) {
+      issues.push({ spotId: spot.id, name: spot.name, reason: REJECT.BASE_MOVED,
+        detail: `${spot.name}は${ceil + 1}日目までのエリアにありますが、`
+          + `${dayIndex + 1}日目には別のエリアへ移っています。` });
+      continue;
+    }
+
     // 食事の時間を、検証の時点で確保します。あとから空きに差し込む方式だと
     // 予定が詰まっている日には食事が消え、逆に押し込むと帰りの便に
     // 間に合わなくなります。最初から時間を取っておけば、どちらも起きません。

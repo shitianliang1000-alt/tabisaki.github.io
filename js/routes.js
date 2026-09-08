@@ -953,9 +953,13 @@ export async function diagnoseYahooTransit(signal) {
     const here = globalThis.location?.origin ?? "";
     return { ok: false, code: "error",
       message: "Yahoo!路線情報に接続できませんでした。" + where
-        + (here ? `\nこのページの出どころは ${here} です。` : "")
-        + "中継（Cloudflare Worker）の ALLOW_ORIGIN に、このアドレスが"
-        + "入っているかご確認ください。"
+        // 返事が1文字も返っていない状態です。中継まで届いていれば、
+        // 断られたとしても番号と本文が返ります。まず、このページと外の
+        // あいだで止められていないかを疑います（拡張機能・社内網・圏外）。
+        + "\n通信そのものが届いていません。広告ブロックなどの拡張機能を"
+        + "切るか、プライベートウインドウでお試しください。"
+        + (here ? `\n（このページの出どころは ${here} です。中継の`
+          + "ALLOW_ORIGIN に入っていない場合も、同じ出かたになります）" : "")
         + `\n詳細: ${String(e?.message ?? e)}` };
   }
 }

@@ -638,3 +638,28 @@ test("待ち時間が無ければ、出発時刻は動かさない", () => {
   });
   assert.equal(built.days[0].items[0].start.getHours(), 4);
 });
+
+test("拠点を移したあとの日に、前のエリアの場所を入れない", () => {
+  // 実際に出ていた旅程:
+  //   2日目 4:00 金沢駅 → 三ノ宮駅（拠点を移します）
+  //         7:20 近江町市場へ移動（247km）  ← 金沢へ戻っている
+  // 下限（何日目以降）しか無かったので、前が押すと拠点を移したあとへ
+  // ずれ込みます。247km戻るのは、その日に回る場所ではありません。
+  const far = { id: "far", name: "遠い市場", category: "市場",
+                lat: 36.5719, lng: 136.6560, fame_tier: "known" };
+  const trip = makeTrip({
+    origin: TOKYO,
+    departAt: d("2026-09-12T09:00"),
+    arriveBy: d("2026-09-13T20:00"),
+  });
+  const v = verifyOrder([far], {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+    nights: 1, day0: trip.departAt,
+    // 1日目までのエリア。2日目は別のエリアにいます。
+    dayFloorById: new Map([["far", 1]]),
+    dayCeilById: new Map([["far", 0]]),
+  });
+  assert.equal(v.visits.length, 0, "移ったあとの日に入れています");
+  assert.equal(v.issues.at(-1)?.reason, "その日はもう別のエリアに移っている");
+});

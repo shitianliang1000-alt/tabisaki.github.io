@@ -24,16 +24,28 @@ export async function searchYahooTransit(from, to, opts = {}) {
   const departAt = Number.isNaN(requested.getTime())
     ? neutralDepartureTime() : requested;
 
-  const res = await fetch(endpointFor("yahoo:transit", {}, cfg), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      from: fromName,
-      to: toName,
-      departAt: departAt.toISOString(),
-    }),
-    signal: opts.signal,
+  const body = JSON.stringify({
+    from: fromName,
+    to: toName,
+    departAt: departAt.toISOString(),
   });
+  const url = endpointFor("yahoo:transit", {}, cfg);
+  // 一度きりの通信の失敗で、区間まるごとを目安に落とさないようにします。
+  // 携帯の電波は途切れます。少し待って、もう一度だけ試します。
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body, signal: opts.signal,
+    });
+  } catch (e) {
+    if (opts.signal?.aborted) throw e;
+    await new Promise((r) => setTimeout(r, 800));
+    res = await fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body, signal: opts.signal,
+    });
+  }
   if (!res.ok) {
     // 番号だけを投げていました。「Yahoo Transit 429」と出ても、
     // 断ったのがYahoo!なのか、中継の回数制限なのかが分かりません。

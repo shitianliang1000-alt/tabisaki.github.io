@@ -208,6 +208,7 @@ export const REJECT = {
   CANNOT_FINISH: "見学を終えると終点に間に合わない",
   DAY_FULL: "その日の行動時間に収まらない",
   UNREACHABLE: "移動時間が長すぎて往復できない",
+  BASE_MOVED: "その日はもう別のエリアに移っている",
 };
 
 /**

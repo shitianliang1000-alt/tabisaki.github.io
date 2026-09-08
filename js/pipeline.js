@@ -596,11 +596,21 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   // 滞在日数で割って、均した日を下限として与えます。上限ではないので、
   // 前が押していれば後ろにずれるだけです。
   const dayFloorById = new Map();
+  // **いつまでに回るか**も決めます。下限しか無かったので、前が押すと
+  // 拠点を移したあとの日へずれ込んでいました。実際に出ていた旅程:
+  //
+  //   2日目 4:00  金沢駅 → 三ノ宮駅（拠点を移します・約200分）
+  //         7:20  近江町市場へ移動（約158分・247km）  ← 金沢へ戻っている
+  //
+  // その日の拠点から247km離れた場所は、もう「その日に回る場所」では
+  // ありません。滞在の最終日を上限にして、越えるなら諦めます。
+  const dayCeilById = new Map();
   for (const s of stays) {
     const list = byRegion.get(s.region.id) ?? [];
     const n = list.length || 1;
     list.forEach((sp, k) => {
       dayFloorById.set(sp.id, s.dayFrom + Math.floor((k * s.days) / n));
+      dayCeilById.set(sp.id, s.dayFrom + Math.max(0, s.days - 1));
     });
   }
 
@@ -670,7 +680,7 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     start: first,
     startAt: new Date(trip.departAt.getTime() + outbound.minutes * 60000),
     end, endBy: trip.arriveBy, pace: trip.pace, travelFn,
-    nights, baseByDay, dayFloorById, day0: trip.departAt,
+    nights, baseByDay, dayFloorById, dayCeilById, day0: trip.departAt,
     // 選んでもらった時間帯を、そのまま2日目以降の枠にします。
     // 渡さないと TUNING の 9:00〜18:30 に固定されたままです。
     dayStartHour: trip.dayStartHour,
