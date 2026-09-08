@@ -73,13 +73,27 @@ import { routesBreakerState } from "../js/routes.js";
 const WAKKANAI = { lat: 45.5228, lng: 141.9368 };
 const NAHA = { lat: 26.2124, lng: 127.6809 };
 
-test("空路になる距離は、経路検索を呼ばない", async () => {
+test("空路になる距離でも、公共交通なら聞きにいく", async () => {
+  // 700kmを超えると聞かずに目安にしていました。Googleの経路APIを想定した
+  // 線引きで、Yahoo!には当てはまりません。Yahoo!は新幹線も飛行機も
+  // 含めて答えます。ここでは通信できないので目安に落ちますが、
+  // 「長すぎるから聞かない」で止めてはいけません。
   resetRoutesBreaker();
   clearRouteCache();
   const r = await computeRoute([TOKYO, NAHA], { mode: "TRANSIT" });
   assert.equal(r.routed, false);
-  assert.match(r.error, /区間が長すぎます/);
+  assert.ok(!/区間が長すぎます/.test(r.error ?? ""),
+    "距離だけを理由に、公共交通の検索をやめています");
   assert.ok(r.legs.length === 1 && r.legs[0].minutes > 0);
+});
+
+test("車の経路は、空路になる距離では呼ばない", async () => {
+  // こちらはGoogleの経路APIの話です。海をまたぐ区間に道路はありません。
+  resetRoutesBreaker();
+  clearRouteCache();
+  const r = await computeRoute([TOKYO, NAHA], { mode: "DRIVE" });
+  assert.equal(r.routed, false);
+  assert.match(r.error ?? "", /区間が長すぎます/);
 });
 
 test("同じ経路は取り直さない（案の作り直しで倍になっていた）", async () => {

@@ -663,3 +663,58 @@ test("拠点を移したあとの日に、前のエリアの場所を入れな�
   assert.equal(v.visits.length, 0, "移ったあとの日に入れています");
   assert.equal(v.issues.at(-1)?.reason, "その日はもう別のエリアに移っている");
 });
+
+test("行き先が散らばらないように選ぶ", async () => {
+  const { coherentRegions } = await import("../js/ai.js");
+  const r = (name, lat, lng, score) =>
+    ({ region: { id: name, name, lat, lng }, score });
+  // 「3大都市の美術館と建築」で、鹿児島市・京都市・箱根が選ばれていました。
+  // 一つひとつは希望に合っていても、並べると移動だけで2日が消えます。
+  const pool = [
+    r("京都市", 35.0116, 135.7681, 9.0),
+    r("鹿児島市", 31.5966, 130.5571, 8.9),
+    r("大阪市", 34.6937, 135.5023, 8.4),
+    r("神戸市", 34.6901, 135.1955, 8.2),
+  ];
+  const chosen = coherentRegions(pool, 3).map((c) => c.region.name);
+  assert.equal(chosen[0], "京都市", "いちばん合う場所は動かしません");
+  assert.ok(!chosen.includes("鹿児島市"),
+    `900km先が入っています: ${chosen.join("・")}`);
+
+  // 「必ず行く」で入ったエリアは動かしません。
+  const pinned = coherentRegions(
+    [r("鹿児島市", 31.5966, 130.5571, 1), ...pool], 2, 1)
+    .map((c) => c.region.name);
+  assert.equal(pinned[0], "鹿児島市");
+});
+
+test("3.1kmを「徒歩」と書かない", () => {
+  // 「徒歩約18分・約3.1km」と出ていました。時速10km、走っています。
+  // 18分という数字は電車・バスの見積もりで、歩きの見積もりではありません。
+  // 徒歩かどうかは、かかる分ではなく距離で決めます。
+  const trip = makeTrip({
+    origin: TOKYO,
+    departAt: d("2026-09-12T09:00"),
+    arriveBy: d("2026-09-12T20:00"),
+  });
+  const far = { id: "f1", name: "遠い館", category: "美術館",
+                lat: 35.3480, lng: 139.5500, fame_tier: "known" };
+  const v = verifyOrder([far], {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+  });
+  const itin = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(),
+    legs: { outbound: { minutes: 60, routed: false },
+            inbound: { minutes: 60, routed: false } },
+  });
+  const moves = itin.days.flatMap((x) => x.items)
+    .filter((i) => i.kind === "transit" && /へ移動$/.test(i.title));
+  assert.ok(moves.length, "移動の行がありません");
+  for (const m of moves) {
+    if (m.km > 1.4) {
+      assert.ok(!/徒歩/.test(m.detail), `${m.km.toFixed(1)}km を徒歩と書いています`);
+      assert.equal(m.walk, false);
+    }
+  }
+});

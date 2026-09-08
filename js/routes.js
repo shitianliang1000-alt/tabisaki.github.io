@@ -460,15 +460,13 @@ export function clearRouteCache() { routeCache.clear(); }
  */
 async function computeViaStations(points, opts) {
   const n = points.length - 1;
-  // 海をまたぐ距離は、駅どうしの移動ではありません。線路が続いていない
-  // ところを「最寄り駅から最寄り駅へ」と書くと、いかにも乗れるように
-  // 読めてしまいます。空路として、距離からの目安に任せます。
-  const longest = longestLegKm(points);
-  if (longest > 700) {
-    return { ...(await estimatedLegs(points)), mode: "TRANSIT",
-             error: `区間が長すぎます（最長 ${Math.round(longest)}km）。`
-               + "空路のため経路検索は行いません" };
-  }
+  // 長い区間でも、まずYahoo!に聞きます。
+  //
+  // 以前は700kmを超えると聞かずに、距離からの目安にしていました。これは
+  // Googleの経路APIを想定した線引きで、Yahoo!には当てはまりません。
+  // Yahoo!は新幹線も飛行機も含めて答えます（東京→鹿児島は約966km。
+  // 目安では「約303分」でしたが、実際の便はもっとかかります）。
+  // 引けなかったときだけ、これまでどおり目安に落ちます。
   // まずYahoo!路線情報に聞きます。**区間ごとに**聞くので、経由地のある
   // 旅程でも公共交通の実際の便が入ります（以前は2地点のときだけでした）。
   // 出発時刻は区間ごとにずらします。1区間目を10時に出るなら、

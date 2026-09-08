@@ -166,10 +166,14 @@ export function buildItinerary(input) {
           start: addMinutes(v.arrive, -(v.travel + v.wait)),
           end: addMinutes(v.arrive, -v.wait),
           title: `${v.spot.name}へ移動`,
-          detail: (v.travel <= 25 ? "徒歩" : "移動") + `約${v.travel}分`
+          // 徒歩かどうかは、かかる分ではなく**距離**で決めます。
+          // 25分以内なら徒歩、としていたので、3.1kmを「徒歩約18分」と
+          // 書いていました（時速10km。走っています）。18分という数字は
+          // 電車・バスの見積もりで、歩きの見積もりではありません。
+          detail: (isWalkLeg(v.km) ? "徒歩" : "移動") + `約${v.travel}分`
             + (v.km ? `・約${v.km.toFixed(1)}km` : ""),
           from: cur, to: v.spot,
-          walk: v.travel <= 25, km: v.km ?? 0,
+          walk: isWalkLeg(v.km), km: v.km ?? 0,
           routed: Boolean(legs?.local?.routed),
           costYen: 0,
           reason: "検証済みの移動時間",
@@ -352,6 +356,11 @@ function boardingTime(from, leg) {
 
 function fmtHm(d) {
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** その区間を歩くか。歩ける距離（既定1.4km）までを徒歩と呼びます。 */
+function isWalkLeg(km) {
+  return Number.isFinite(km) && km > 0 && km <= (TUNING.walkableKm ?? 1.4);
 }
 
 function mealItem(start, end, title, region) {

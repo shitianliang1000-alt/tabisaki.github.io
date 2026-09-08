@@ -17,6 +17,7 @@ import { endpointFor, keyHeaders, proxyStatus, usingProxy } from "./endpoints.js
 import { effectiveConfig } from "./settings.js";
 import { buildSearchText, extractKeywords } from "./keywords.js";
 import { meteredFetch } from "./quota.js";
+import { haversineKm } from "./feasibility.js";
 import { joinAreaNames } from "./stays.js";
 
 /**
@@ -159,6 +160,36 @@ export function noteAiError(e) {
   const message = String(e?.message ?? e ?? "").slice(0, 200);
   if (!lastAiError && message) lastAiError = message;
   return null;
+}
+
+/**
+ * 点の高い順に選ぶだけでは、散らばります。
+ *
+ * 「3大都市の美術館と建築」で、鹿児島市・京都市・箱根が選ばれていました。
+ * 一つひとつは希望に合っていても、並べると move だけで2日が消えます。
+ * すでに選んだ場所からの距離を点から差し引いて、順に選びます
+ * （200kmごとに1点ぶん。よほど良い候補でなければ、遠くへは行きません）。
+ *
+ * 「必ず行く」で入ったエリアは、動かしません。
+ */
+export function coherentRegions(pool, limit, pinned = 0) {
+  const out = pool.slice(0, pinned);
+  const rest = pool.slice(pinned);
+  while (out.length < limit && rest.length) {
+    let bestI = 0;
+    let bestScore = -Infinity;
+    for (let i = 0; i < rest.length; i++) {
+      const c = rest[i];
+      const detour = out.length
+        ? Math.min(...out.map((o) => haversineKm(o.region, c.region)))
+        : 0;
+      const adjusted = (c.score ?? 0) - detour / 200;
+      if (adjusted > bestScore) { bestScore = adjusted; bestI = i; }
+    }
+    out.push(rest[bestI]);
+    rest.splice(bestI, 1);
+  }
+  return out;
 }
 
 export function hasApiKey() {
@@ -604,7 +635,8 @@ export async function proposePlan(candidates, plan, note, maxSpots, tierTargets,
     const mustFirst = candidates.filter((c) =>
       c.spots.some((s) => mustIds.has(s.spot.id)));
     const rest = candidates.filter((c) => !mustFirst.includes(c));
-    const chosen = [...mustFirst, ...rest].slice(0, maxRegions);
+    const chosen = coherentRegions([...mustFirst, ...rest], maxRegions,
+                                   mustFirst.length);
     const perRegion = Math.max(1, Math.ceil(maxSpots / chosen.length));
     const picks = [];
     const taken = new Set();
