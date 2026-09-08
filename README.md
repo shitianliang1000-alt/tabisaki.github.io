@@ -192,11 +192,12 @@ AI                     プログラム
 │   ├── extra_data.py          # 補助データ
 │   └── vendor.sh              # 外部ライブラリ取り込み
 │
+├── wrangler.jsonc             # Cloudflare Worker の設定（一番上に置きます）
+│
 ├── server/
 │   ├── README.md              # APIキーをサーバー側で管理する方法
 │   ├── worker.js              # Cloudflare Worker向けプロキシ
-│   ├── node-proxy.mjs         # Node.js向けプロキシ
-│   └── wrangler.toml          # Cloudflare設定例
+│   └── node-proxy.mjs         # Node.js向けプロキシ
 │
 ├── admin/
 │   ├── index.html             # 管理画面
