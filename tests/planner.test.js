@@ -615,7 +615,7 @@ test("往路は、実際に乗れる便の時刻から始まる", () => {
   assert.match(first.detail, /次に乗れる便/);
 });
 
-test("別の日のダイヤで調べたときは、時刻を動かさない", () => {
+test("待ち時間が無ければ、出発時刻は動かさない", () => {
   const trip = makeTrip({
     origin: TOKYO,
     departAt: d("2026-09-12T04:00"),
@@ -629,14 +629,12 @@ test("別の日のダイヤで調べたときは、時刻を動かさない", ()
     trip, region: REGION, visits: v.visits, reasons: new Map(),
     legs: {
       outbound: {
-        minutes: 235, rideMinutes: 230, waitMinutes: 5, routed: true,
-        line: "3時間50分（9月8日のダイヤで検索）", shifted: true,
-        yahoo: { departure: "14:50", arrival: "18:40" },
+        minutes: 230, rideMinutes: 230, waitMinutes: 0, routed: true,
+        line: "04:00 発→ 07:50 着 3時間50分",
+        yahoo: { departure: "04:00", arrival: "07:50" },
       },
       inbound: { minutes: 60, routed: false },
     },
   });
-  const first = built.days[0].items[0];
-  assert.equal(first.start.getHours(), 4,
-    "その日の時刻でないものを、その日の時刻として置いています");
+  assert.equal(built.days[0].items[0].start.getHours(), 4);
 });

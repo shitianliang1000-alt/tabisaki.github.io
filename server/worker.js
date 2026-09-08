@@ -18,7 +18,10 @@ const MAX_BODY = 512 * 1024;
 const UPSTREAM_TIMEOUT_MS = 30_000;
 const GEMINI_ROOT = "https://generativelanguage.googleapis.com/v1beta";
 const ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
-const YAHOO_TRANSIT_URL = "https://transit.yahoo.co.jp/search/print";
+// 検索結果のページを読みます。印刷用（/search/print）は1本しか載って
+// いません。Yahoo!は候補を3本出す（早い順・安い順・乗換の少ない順）ので、
+// 全部読んで、選べるようにします。
+const YAHOO_TRANSIT_URL = "https://transit.yahoo.co.jp/search/result";
 const ALLOWED_MODELS = new Set([
   "gemini-3.7-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite",
   "gemini-embedding-001",
@@ -118,65 +121,91 @@ async function yahooTransit(request) {
   if (!res.ok) return text(`Yahoo Transit ${res.status}`, 502);
 
   const html = await res.text();
-  const route = firstYahooRoute(html);
-  const summary = parseSummary(route);
-  const detail = parseRouteDetail(route);
-  if (!(summary.departure ?? detail.departure) || !(summary.arrival ?? detail.arrival)) {
-    return json({ routed: false, url: u.toString(), reason: "Yahoo!路線情報の経路詳細を取得できませんでした" });
-  }
-
-  // 時刻は要約を先に見ます。明細から拾った時刻が同じ値になることがあり
-  // （出発も到着も10:00）、そのまま使うと所要0分の区間ができます。
-  const departure = summary.departure ?? detail.departure;
-  const arrival = summary.arrival ?? detail.arrival;
-  const rideMinutes = (departure && arrival && departure !== arrival)
-    ? clockDiff(departure, arrival)
-    : (summary.minutes ?? 0);
   const requestedMinutes = tokyoClockMinutes(requested);
-  const waitMinutes = (clockMinutes(departure) - requestedMinutes + 1440) % 1440;
-  const minutes = waitMinutes + rideMinutes;
 
-  // 0分の経路は返しません。旅程では「移動時間0分」が
-  // 「隣にある」と同じ意味になり、行けない予定が組めてしまいます。
-  if (!(rideMinutes > 0)) {
-    return json({ routed: false, url: u.toString(),
-      reason: "Yahoo!路線情報から所要時間を取り出せませんでした" });
-  }
-
-  return json({
-    routed: true,
-    minutes,
-    rideMinutes,
-    waitMinutes,
-    summary: summary.text,
-    meta: {
-      url: u.toString(),
-      departure,
-      arrival,
-      requestedDeparture: requested.toISOString(),
+  // 候補は全部読みます。1本目だけを見ていたときは、Yahoo!が「早い順」で
+  // 並べた1本しか使えませんでした。
+  const routes = [];
+  for (const block of routeBlocks(html)) {
+    const summary = parseSummary(block);
+    const detail = parseRouteDetail(block);
+    const departure = summary.departure ?? detail.departure;
+    const arrival = summary.arrival ?? detail.arrival;
+    if (!departure || !arrival) continue;
+    const rideMinutes = departure !== arrival
+      ? clockDiff(departure, arrival)
+      : (summary.minutes ?? 0);
+    // 0分の経路は捨てます。旅程では「移動時間0分」が「隣にある」と
+    // 同じ意味になり、行けない予定が組めてしまいます。
+    if (!(rideMinutes > 0)) continue;
+    const waitMinutes = (clockMinutes(departure) - requestedMinutes + 1440) % 1440;
+    routes.push({
+      minutes: waitMinutes + rideMinutes,
+      rideMinutes, waitMinutes, departure, arrival,
+      summary: summary.text,
       transfers: summary.transfers,
       fareYen: summary.fareYen,
       distanceKm: summary.distanceKm,
       legs: detail.legs,
       intermediateStops: detail.intermediateStops,
+    });
+  }
+
+  if (!routes.length) {
+    return json({ routed: false, url: u.toString(),
+      reason: "Yahoo!路線情報から経路を取り出せませんでした" });
+  }
+
+  // 採るのは「その時刻に出て、いちばん早く着く」もの。乗車時間ではなく
+  // **待ち時間を含めた着時刻**で選びます。始発待ちの長い速達より、
+  // すぐ乗れる各駅のほうが早く着くことがあります。
+  const best = routes.reduce((a, b) => (a.minutes <= b.minutes ? a : b));
+
+  return json({
+    routed: true,
+    minutes: best.minutes,
+    rideMinutes: best.rideMinutes,
+    waitMinutes: best.waitMinutes,
+    summary: best.summary,
+    meta: {
+      url: u.toString(),
+      departure: best.departure,
+      arrival: best.arrival,
+      requestedDeparture: requested.toISOString(),
+      transfers: best.transfers,
+      fareYen: best.fareYen,
+      distanceKm: best.distanceKm,
+      legs: best.legs,
+      intermediateStops: best.intermediateStops,
+      // 残りの候補。画面で「ほかの行き方」として出せます。
+      alternatives: routes.filter((r) => r !== best).map((r) => ({
+        departure: r.departure, arrival: r.arrival, minutes: r.minutes,
+        rideMinutes: r.rideMinutes, transfers: r.transfers,
+        fareYen: r.fareYen, distanceKm: r.distanceKm, summary: r.summary,
+      })),
     },
   });
 }
 
-export function firstYahooRoute(html) {
-  const start = html.search(/id=["']route01["']/i);
-  if (start < 0) return html;
-  const rest = html.slice(start);
-  const next = rest.search(/id=["']route02["']/i);
-  return next > 0 ? rest.slice(0, next) : rest.slice(0, 400000);
+/** class に「その名前がそのまま入っている」li の中身。 */
+function liWithClass(html, name) {
+  // `class=[^"]*time` のような書き方は、`icnPriTime`（早・楽の印）にも
+  // 当たります。実際そうなっていて、所要時間の行ではなく「早」の字を
+  // 読んでいました。名前は区切って突き合わせます。
+  const re = /<li[^>]*class=["']([^"']*)["'][^>]*>([\s\S]*?)<\/li>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    if (m[1].split(/\s+/).includes(name)) return cleanText(m[2]);
+  }
+  return "";
 }
 
 export function parseSummary(html) {
   const box = html.match(/class=["'][^"']*routeSummary[^"']*["'][\s\S]{0,20000}/i)?.[0] ?? "";
-  const time = cleanText(firstMatch(box, /class=["'][^"']*time[^"']*["'][^>]*>([\s\S]*?)<\/li>/i));
-  const transferText = cleanText(firstMatch(box, /class=["'][^"']*transfer[^"']*["'][^>]*>([\s\S]*?)<\/li>/i));
-  const fareText = cleanText(firstMatch(box, /class=["'][^"']*fare[^"']*["'][^>]*>([\s\S]*?)<\/li>/i));
-  const distanceText = cleanText(firstMatch(box, /class=["'][^"']*distance[^"']*["'][^>]*>([\s\S]*?)<\/li>/i));
+  const time = liWithClass(box, "time");
+  const transferText = liWithClass(box, "transfer");
+  const fareText = liWithClass(box, "fare");
+  const distanceText = liWithClass(box, "distance");
   const transfers = Number(transferText.match(/(\d+)/)?.[1] ?? 0);
   const fareYen = Number((fareText.match(/([\d,]+)\s*円/)?.[1] ?? "0").replace(/,/g, "")) || null;
   const distanceKm = Number((distanceText.match(/([\d.]+)km/)?.[1] ?? "0")) || null;
@@ -191,6 +220,21 @@ export function parseSummary(html) {
     transfers, fareYen, distanceKm,
     departure: clock[0] ?? null, arrival: clock[1] ?? null, minutes,
   };
+}
+
+/** 候補ごとのHTML。route01, route02, … を切り出します。 */
+export function routeBlocks(html) {
+  const marks = [];
+  const re = /id=["']route(\d{2})["']/gi;
+  let m;
+  while ((m = re.exec(html))) marks.push(m.index);
+  if (!marks.length) return [html];
+  return marks.map((start, i) => html.slice(start, marks[i + 1] ?? html.length));
+}
+
+/** いちばん上の候補だけ。 */
+export function firstYahooRoute(html) {
+  return routeBlocks(html)[0];
 }
 
 /**

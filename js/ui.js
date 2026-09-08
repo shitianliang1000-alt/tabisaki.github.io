@@ -827,6 +827,19 @@ function srcChip(c, extra = "") {
 }
 
 /** 乗換の手順を、開閉できる形で並べます。 */
+function alternativeRoutes(list) {
+  const box = el("details", { class: "transit-steps" });
+  box.append(el("summary", {}, `ほかの行き方（${list.length}件）`));
+  const inner = el("div", { style: "padding:8px 14px 14px" });
+  inner.append(el("ul", { class: "quality" }, list.map((r) => el("li", {},
+    el("span", { class: "q-label" },
+      `${r.departure ?? ""}→${r.arrival ?? ""}`
+      + (r.transfers != null ? ` / 乗換${r.transfers}回` : "")
+      + (r.fareYen ? ` / ¥${r.fareYen.toLocaleString()}` : ""))))));
+  box.append(inner);
+  return box;
+}
+
 function transitSteps(t) {
   const lines = describeTransit(t);
   const box = el("details", { class: "transit-steps" });
@@ -965,6 +978,11 @@ function renderItem(item, index, itin, handlers, sunNote) {
   // 折りたたんで置き、必要なときだけ開けるようにします。
   if (item.transit?.segments?.length) {
     info.append(transitSteps(item.transit));
+  }
+  // ほかの行き方。Yahoo!は候補を3本出します。採ったのは「いちばん早く
+  // 着く」ものですが、安いほうや乗換の少ないほうを選びたいこともあります。
+  if (item.alternatives?.length) {
+    info.append(alternativeRoutes(item.alternatives));
   }
   if (item.kind === "spot" && (item.reason || item.fit)) {
     info.append(el("p", { class: "reason" }, item.fit?.summary ?? item.reason));

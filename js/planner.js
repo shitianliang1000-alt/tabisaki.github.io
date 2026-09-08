@@ -96,8 +96,14 @@ export function buildItinerary(input) {
     title: `${trip.origin.name} → ${firstRegion.station || firstRegion.name}`,
     // 「（推定）」は書きません。実測か推定かは、確からしさの印
     // （confidence.js）が別に出します。二重に書くと読みにくくなります。
-    detail: `${legs?.outbound?.line ? legs.outbound.line + "・" : ""}約${outMin}分`
-      + (board ? `（${fmtHm(trip.departAt)}出発で、次に乗れる便です）` : ""),
+    // Yahoo!の答えには発着時刻も所要時間も入っています。そこへ
+    // 「・約238分」と足すと、数えかたの違う数字が2つ並びます
+    // （待ち時間を含む・含まない）。実際の時刻があるほうを出します。
+    detail: legs?.outbound?.line
+      ? legs.outbound.line
+        + (board ? `（${fmtHm(trip.departAt)}出発で、次に乗れる便です）` : "")
+      : `約${outMin}分`,
+    alternatives: legs?.outbound?.alternatives ?? [],
     from: trip.origin,
     to: stays[0].station,
     routed: Boolean(legs?.outbound?.routed),
@@ -328,13 +334,12 @@ export function buildItinerary(input) {
 /**
  * その区間で実際に乗る便の発車時刻。
  *
- * Yahoo!が返した発車時刻を、旅の当日に当てはめます。別の日のダイヤで
- * 調べたとき（過ぎた日や、時刻表がまだ出ていない先の日）は使いません。
- * その日の時刻ではないものを、その日の時刻として置けないためです。
+ * Yahoo!が返した発車時刻を、旅の当日に当てはめます。頼んだ日時で
+ * 調べているので、返ってくる時刻はその日のものです。
  */
 function boardingTime(from, leg) {
   const hm = leg?.yahoo?.departure;
-  if (!hm || leg?.shifted || !(leg?.waitMinutes > 0)) return null;
+  if (!hm || !(leg?.waitMinutes > 0)) return null;
   const [h, m] = hm.split(":").map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
   const at = new Date(from);
