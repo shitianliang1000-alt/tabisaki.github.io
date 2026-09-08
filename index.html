@@ -89,9 +89,7 @@
 
 <a class="sr-only" href="#form-pane">条件の入力へ移動</a>
 
-<!-- 見出しは非表示にして地図の上のボタンへ移しますが、文書としての
-     h1 は残します（読み上げ・検索エンジン向け）。 -->
-<h1 class="sr-only">旅さき｜行きたいことから旅程をつくる</h1>
+
 
 <main class="layout">
 
@@ -112,6 +110,16 @@
          入った旅程）ではなく **条件** を覚えておいて、押されたら
          その場で組み直します。営業時間も混雑も日ごとに変わるので、
          3か月前の旅程をそのまま出すと閉まっている店へ案内します。 -->
+    <!-- 名前と、この道具が何をするか。
+         見出しを読み上げ用にだけ置いていたころは、開いた人に
+         「何のアプリか」が伝わりませんでした。設定は右上に浮いて
+         いるので、ここには置きません（2か所に同じものを置くと、
+         押した先が違うのではと迷わせます）。 -->
+    <header class="brand">
+      <h1>旅さき</h1>
+      <p>まだ知らない、<br>ちょうどいい旅へ。</p>
+    </header>
+
     <section class="recent" id="recent" hidden aria-labelledby="recent-title">
       <div class="recent-head">
         <h3 id="recent-title">前につくった旅</h3>
@@ -259,6 +267,52 @@
           <button type="button" class="md-chip md-state" data-genre="city" aria-pressed="false"><span>街歩き</span></button>
           <button type="button" class="md-chip md-state" data-genre="view" aria-pressed="false"><span>絶景</span></button>
         </div>
+      </div>
+
+      <!-- 予算と移動手段。
+           どちらも「あとから直せない」たぐいの前提です。特に車が
+           使えるかどうかは、バスが1日3本の土地で旅程が成立するか
+           どうかを分けます。距離からは推し量れません。 -->
+      <div class="tune-group">
+        <span class="tune-label" id="budget-label">予算のめやす（ひとり）</span>
+        <div class="md-segmented" id="budget-choice"
+             role="group" aria-labelledby="budget-label">
+          <button type="button" class="md-state is-selected" data-budget="">
+            <span>おまかせ</span>
+          </button>
+          <button type="button" class="md-state" data-budget="10000">
+            <span>1万円まで</span>
+          </button>
+          <button type="button" class="md-state" data-budget="20000">
+            <span>2万円まで</span>
+          </button>
+          <button type="button" class="md-state" data-budget="30000">
+            <span>3万円まで</span>
+          </button>
+        </div>
+        <p class="md-field-help">超えたぶんを勝手に削りはしません。
+          超えていたら、そう伝えます。</p>
+      </div>
+
+      <div class="tune-group">
+        <span class="tune-label" id="transport-label">おもな移動手段</span>
+        <div class="md-segmented" id="transport-choice"
+             role="group" aria-labelledby="transport-label">
+          <button type="button" class="md-state is-selected" data-transport="any">
+            <span>おまかせ</span>
+          </button>
+          <button type="button" class="md-state" data-transport="transit">
+            <span>電車・バス</span>
+          </button>
+          <button type="button" class="md-state" data-transport="car">
+            <span>車</span>
+          </button>
+          <button type="button" class="md-state" data-transport="walk">
+            <span>徒歩中心</span>
+          </button>
+        </div>
+        <p class="md-field-help">車を選ぶと、バスの少ない土地でも
+          行き先を組めます。</p>
       </div>
 
       <div class="tune-group">

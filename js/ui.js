@@ -164,13 +164,20 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
           : stat(fmtDuration(tripMinutes(itin)), "所要"),
         itin.cost
           ? stat(`¥${itin.cost.total.toLocaleString()}`, "概算費用")
-          : stat(itin.usedRoutesApi ? "実経路" : "推定", "移動時間"))),
+          : stat(itin.usedRoutesApi ? "実経路" : "推定", "移動時間"),
+        // 歩く量は、行けるかどうかを左右します。「約8,400円」と同じ
+        // 高さに置かないと、当日になって気づくことになります。
+        walkSteps(itin) ? stat(`約${walkSteps(itin).toLocaleString()}歩`, "歩く量")
+          : null)),
   ].filter(Boolean));
 
-  // 0. 旅の意味づけ。時刻表の前に、この並びに意味があることを伝えます。
-  //    決まった文しか出しません（AIに書かせると毎回変わります）。
+  // 0. 旅の意味づけ。
+  //
+  //    以前は旅程の**前**に置いていました。最初に知りたいのは
+  //    「どこへ行き、何時に何をするか」で、意味づけはそのあとです。
+  //    畳んで、読みたい人だけが開けるようにします。
   if (itin.story?.length) {
-    container.append(el("section", { class: "panel story" },
+    detail.push(el("section", { class: "panel story" },
       el("h3", {}, "この旅の流れ"),
       el("ul", { class: "panel-list" },
         itin.story.map((t, i) => el("li", {},
@@ -869,6 +876,20 @@ function scoreClass(n) {
  * 通ってから、好みに合うかを見ます。順番を逆にすると、
  * 帰れない旅程に「ご希望との相性 92点」と書くことになります。
  */
+/**
+ * その旅程で歩くおおよその歩数。
+ *
+ * 徒歩と印の付いた移動の距離を足して、1kmあたり1350歩で数えます
+ * （歩幅74cmの見当）。乗り物の移動は数えません。
+ */
+function walkSteps(itin) {
+  const km = (itin.days ?? []).flatMap((d) => d.items)
+    .filter((i) => i.kind === "transit" && i.walk)
+    .reduce((a, i) => a + (i.km ?? 0), 0);
+  if (!(km > 0)) return 0;
+  return Math.round((km * 1350) / 100) * 100;
+}
+
 function summaryVerdict(itin) {
   const total = itin?.score?.total;
   if (!Number.isFinite(total)) return null;

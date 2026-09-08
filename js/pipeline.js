@@ -529,6 +529,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
 
   itin.warnings = [
     ...aiNotes(),
+    ...budgetNotes(itin, trip),
     ...mustNotes,
     ...discoveryNotes,
     ...areaNotes,
@@ -599,7 +600,8 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
 
   if (useRoutes) {
     outRoute = await computeRoute([trip.origin, first],
-      { departAt: trip.departAt, mode: "TRANSIT" });
+      { departAt: trip.departAt,
+        mode: pickMode([trip.origin, first], trip.transport) });
     outbound = outRoute.legs[0];
 
     // 拠点どうしの移動を先に取ります。
@@ -614,13 +616,13 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
       const moveAt = new Date(trip.departAt);
       moveAt.setHours(10, 0, 0, 0);
       stationRoute = await computeRoute(stationPoints,
-        { mode: "TRANSIT", departAt: moveAt });
+        { mode: pickMode(stationPoints, trip.transport), departAt: moveAt });
       entries.push([stationPoints, stationRoute.legs]);
     }
 
     // エリア内の経路
     localRoute = await computeRoute(localPoints, {
-      mode: pickMode(localPoints),
+      mode: pickMode(localPoints, trip.transport),
       departAt: new Date(trip.departAt.getTime() + outbound.minutes * 60000),
     });
     entries.unshift([localPoints, localRoute.legs]);
@@ -790,6 +792,25 @@ export class PlanError extends Error {
  * 成功に見えるので、黙っていると「AIの意見が入っていない気がする」と
  * いう形でしか気づけません。理由まで出します。
  */
+/**
+ * 予算を超えたときの注意書き。
+ *
+ * 超えたぶんを黙って削りません。何を削るか（入場料の高い場所か、宿か、
+ * 特急か）は好みの問題で、こちらが決めると「行きたかった場所が消えた」に
+ * なります。超えていることと、内訳のいちばん大きいところを伝えます。
+ */
+function budgetNotes(itin, trip) {
+  const cap = trip?.budgetYen;
+  const total = itin?.cost?.total ?? itin?.totalCostYen;
+  if (!(cap > 0) || !(total > cap)) return [];
+  const rows = itin?.cost?.rows ?? [];
+  const worst = rows.reduce((a, b) => ((a?.yen ?? 0) >= b.yen ? a : b), null);
+  return [`概算 ¥${total.toLocaleString()} で、決めた上限`
+    + ` ¥${cap.toLocaleString()} を ¥${(total - cap).toLocaleString()} 超えています`
+    + (worst ? `（いちばん大きいのは${worst.label} ¥${worst.yen.toLocaleString()}）` : "")
+    + "。日数を減らすか、上限を上げてください。"];
+}
+
 function aiNotes() {
   const { error } = aiStatus();
   if (!error) return [];

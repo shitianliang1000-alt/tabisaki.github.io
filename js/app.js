@@ -950,6 +950,23 @@ function renderPinned() {
 }
 
 function wireForm() {
+  // 予算と移動手段。押されたものを覚えるだけの、同じ形の切り替えです。
+  const segmented = (sel, key, onPick) => {
+    for (const btn of document.querySelectorAll(`${sel} button`)) {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(`${sel} button`)
+          .forEach((b) => b.classList.toggle("is-selected", b === btn));
+        onPick(btn.dataset[key]);
+      });
+    }
+  };
+  segmented("#budget-choice", "budget", (v) => {
+    state.budgetYen = v ? Number(v) : null;
+  });
+  segmented("#transport-choice", "transport", (v) => {
+    state.transport = v ?? "any";
+  });
+
   for (const btn of document.querySelectorAll("#end-choice button")) {
     btn.addEventListener("click", () => {
       document.querySelectorAll("#end-choice button")
@@ -1064,9 +1081,10 @@ async function readTrip() {
     arriveBy: new Date($("#arrive-by").value),
     note: $("#note").value,
     interests: genres,
-    // 予算と穴場度は画面から外しました。予算はスポットの入場料程度しか
-    // 効かず、実際の判断材料にならなかったためです。内部の既定値のみ使います。
-    budgetYen: 999999,
+    // 予算の上限。決めていなければ null（見ません）。
+    budgetYen: state.budgetYen ?? null,
+    // 何で移動するか。車が使えるかどうかで、組める旅程が変わります。
+    transport: state.transport ?? "any",
     // 定番と穴場のまぜかた。画面では星の粒として出しています。
     hiddenBias: (Number($("#hidden-bias")?.value ?? 40)) / 100,
     // 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。

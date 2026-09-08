@@ -431,3 +431,31 @@ test("指定した時間帯が、そのまま旅の条件になる", () => {
   assert.equal(t.dayStartHour, 7);
   assert.equal(t.dayEndHour, 21);
 });
+
+test("移動手段は、決めた通りに使う", async () => {
+  const { pickMode } = await import("../js/routes.js");
+  const near = [{ lat: 35.68, lng: 139.76 }, { lat: 35.69, lng: 139.77 }];
+  const far = [{ lat: 35.68, lng: 139.76 }, { lat: 34.69, lng: 135.50 }];
+
+  // 決めていなければ、距離から選びます。
+  assert.equal(pickMode(near), "WALK");
+  assert.equal(pickMode(far), "TRANSIT");
+
+  // 車で来ている人に「バスがないので行けません」と言わないために、
+  // 指定があればそちらに従います。
+  assert.equal(pickMode(near, "car"), "DRIVE");
+  assert.equal(pickMode(far, "car"), "DRIVE");
+  assert.equal(pickMode(far, "walk"), "WALK");
+  assert.equal(pickMode(near, "transit"), "TRANSIT");
+});
+
+test("移動手段は、知らない値を受け取らない", () => {
+  assert.equal(makeTrip({ transport: "helicopter" }).transport, "any");
+  assert.equal(makeTrip({ transport: "car" }).transport, "car");
+  assert.equal(makeTrip({}).transport, "any");
+});
+
+test("予算は、決めなければ見ない", () => {
+  assert.equal(makeTrip({}).budgetYen, null);
+  assert.equal(makeTrip({ budgetYen: 20000 }).budgetYen, 20000);
+});

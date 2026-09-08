@@ -178,13 +178,18 @@ function waypoint(p) {
 }
 
 /** 経路全体の移動手段を、点の散らばりから決めます。 */
-export function pickMode(points) {
+export function pickMode(points, transport = "any") {
+  // 指定があれば、そちらに従います。距離から推し量ると、車で来ている
+  // 人にも「バスがないので行けません」と言うことになります。
+  if (transport === "car") return "DRIVE";
+  if (transport === "walk") return "WALK";
   let max = 0;
   for (let i = 0; i < points.length; i++) {
     for (let j = i + 1; j < points.length; j++) {
       max = Math.max(max, haversineKm(points[i], points[j]));
     }
   }
+  if (transport === "transit") return "TRANSIT";
   return max > TUNING.transitThresholdKm ? "TRANSIT" : "WALK";
 }
 
