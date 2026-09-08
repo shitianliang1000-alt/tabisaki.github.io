@@ -424,8 +424,8 @@ function wireKeyPanel() {
     }
   });
 
-  const run = async (btn, fn) => {
-    const out = $("#key-result");
+  const runInto = async (sel, btn, fn) => {
+    const out = $(sel);
     btn.disabled = true;
     out.hidden = false;
     out.textContent = "確認しています…";
@@ -442,20 +442,24 @@ function wireKeyPanel() {
       btn.disabled = false;
     }
   };
+  const run = (btn, fn) => runInto("#key-result", btn, fn);
   $("#test-gemini").addEventListener("click", (e) =>
     run(e.currentTarget, () => diagnoseGeminiKey()));
   // 「確認」は両方見ます。電車・バスはYahoo!路線情報、徒歩はGoogleと、
   // 使う先が分かれているためです。片方だけ通っていることがあります。
-  $("#test-maps").addEventListener("click", (e) =>
-    run(e.currentTarget, async () => {
-      const [maps, yahoo] = await Promise.all([
-        diagnoseMapsKey(), diagnoseYahooTransit(),
-      ]);
-      return {
-        ok: maps.ok && yahoo.ok,
-        message: `【電車・バス】${yahoo.message}\n\n【徒歩・車】${maps.message}`,
-      };
-    }));
+  const bothChecks = async () => {
+    const [maps, yahoo] = await Promise.all([
+      diagnoseMapsKey(), diagnoseYahooTransit(),
+    ]);
+    return {
+      ok: maps.ok && yahoo.ok,
+      message: `【電車・バス】${yahoo.message}\n\n【徒歩・車】${maps.message}`,
+    };
+  };
+  $("#test-maps").addEventListener("click", (e) => run(e.currentTarget, bothChecks));
+  // 開発者向けの欄を閉じていても押せる、同じ確認。
+  $("#test-conn").addEventListener("click", (e) =>
+    runInto("#conn-result", e.currentTarget, bothChecks));
 
   $("#reset-quota").addEventListener("click", () => {
     quota.reset();
@@ -949,6 +953,31 @@ function renderPinned() {
     + "入れられなかった場合は理由を表示します。"));
 }
 
+/**
+ * 開発者向けの欄を出すかどうか。
+ *
+ * APIキー・中継のURLは、公開版の利用者が触るものではありません
+ * （キーは中継側にあります）。出しておくと、直す必要のない場所を
+ * 疑わせます。`?debug=1` を付けたときだけ出します。
+ * 一度付ければ、その端末では覚えます（毎回URLを打たずに済むように）。
+ */
+function wantsDevPanel() {
+  try {
+    const q = new URLSearchParams(globalThis.location?.search ?? "");
+    if (q.get("debug") === "1") {
+      globalThis.localStorage?.setItem("tabisaki.debug", "1");
+      return true;
+    }
+    if (q.get("debug") === "0") {
+      globalThis.localStorage?.removeItem("tabisaki.debug");
+      return false;
+    }
+    return globalThis.localStorage?.getItem("tabisaki.debug") === "1";
+  } catch {
+    return false;
+  }
+}
+
 function wireForm() {
   // 予算と移動手段。押されたものを覚えるだけの、同じ形の切り替えです。
   const segmented = (sel, key, onPick) => {
@@ -999,6 +1028,10 @@ function wireForm() {
   // 「条件」として渡ってしまいます。
   $("#make-plan").addEventListener("click", () => run());
   $("#back-to-form").addEventListener("click", () => showView("form"));
+
+  // 開発者向けの欄は、既定では出しません（?debug=1 で出ます）。
+  const dev = document.getElementById("dev-settings");
+  if (dev) dev.hidden = !wantsDevPanel();
   $("#avoid-crowds").addEventListener("change", saveConditions);
   for (const id of ["#note", "#depart-place", "#end-place", "#depart-at",
                     "#arrive-by"]) {

@@ -51,6 +51,7 @@ export function endpointFor(what, args = {}, cfg = {}) {
                         "gemini:embed": "gemini/embed",
                         "local:generate": "local/generate",
                         "routes": "routes",
+                        "status": "status",
                         "yahoo:transit": "yahoo/transit" }[what] ?? what}`;
   }
   if (what === "local:generate") {
@@ -67,6 +68,26 @@ export function endpointFor(what, args = {}, cfg = {}) {
       + `${encodeURIComponent(args.model ?? "")}:embedContent`;
   }
   return ROUTES_URL;
+}
+
+/**
+ * 中継に鍵が置かれているか。
+ *
+ * 「キーが無効です」と「中継に鍵が置かれていない」は別のことです。
+ * 前者はキーを作り直す話、後者は `wrangler secret put` の話で、直す
+ * 場所が違います。上流に投げる前に、どちらなのかを確かめます。
+ * 中継を使っていない（キーをブラウザに置く）ときは null を返します。
+ */
+export async function proxyStatus(cfg = {}, signal) {
+  if (!usingProxy(cfg)) return null;
+  const res = await fetch(endpointFor("status", {}, cfg), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+    signal,
+  });
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
 }
 
 /**

@@ -13,7 +13,7 @@ import {
   FALLBACK_MODELS, EMBED_DIM, EMBED_MODEL, LOCAL_BASE_URL,
   LOCAL_MODEL, MODEL, MODEL_PROVIDER,
 } from "./config.js";
-import { endpointFor, keyHeaders, usingProxy } from "./endpoints.js";
+import { endpointFor, keyHeaders, proxyStatus, usingProxy } from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
 import { buildSearchText, extractKeywords } from "./keywords.js";
 import { meteredFetch } from "./quota.js";
@@ -81,6 +81,18 @@ export async function diagnoseGeminiKey(signal) {
         + "サーバーが動いているか、LOCAL_BASE_URL が合っているかを"
         + "確認してください。" };
     }
+  }
+  const cfg0 = net();
+  if (usingProxy(cfg0)) {
+    try {
+      const st = await proxyStatus(cfg0, signal);
+      if (st && st.secrets && st.secrets.GEMINI_API_KEY === false) {
+        return { ok: false, message:
+          "中継にAIのキーが設定されていません。"
+          + "\nWorker で次を実行してください:"
+          + "\n  npx wrangler secret put GEMINI_API_KEY" };
+      }
+    } catch { /* 状態を取れなくても、下の実地の確認は行います */ }
   }
   if (!hasApiKey()) {
     return { ok: false, message: "AIのキーが空です。上の欄に Google AI Studio の"

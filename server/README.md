@@ -62,6 +62,24 @@ node server/node-proxy.mjs
 `PROXY_URL` は **https しか受け付けません**。http だと通信の中身が
 途中で読まれ、キーを隠した意味がなくなるためです。
 
+## 鍵が入っているかを確かめる
+
+```bash
+curl -X POST https://<worker>/status \
+  -H "Origin: https://<自分のサイト>" -H "Content-Type: application/json" -d '{}'
+```
+
+```json
+{"ok":true,"secrets":{"MAPS_API_KEY":true,"GEMINI_API_KEY":false}}
+```
+
+**値は返しません。**入っているかどうかだけです。入っていない鍵を上流へ
+投げると、Googleから「API key not valid」が返ります。読んだ人は自分の
+入力を疑いますが、直す場所は中継です。中継はその手前で止めて、そう言います。
+
+なお、電車・バス（Yahoo!路線情報）に鍵は要りません。Routes API の鍵が
+無くても、公共交通の旅程は組めます。
+
 ## 必ずやること
 
 | 設定 | なぜ |

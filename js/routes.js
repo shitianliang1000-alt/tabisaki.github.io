@@ -34,13 +34,14 @@
 //     routed:false を返し、画面に「推定」と出す。
 
 import { TUNING, USE_ROUTES_API } from "./config.js";
-import { endpointFor, keyHeaders, usingProxy } from "./endpoints.js";
+import { endpointFor, keyHeaders, proxyStatus, usingProxy } from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
 import { QuotaBlockedError, meteredFetch } from "./quota.js";
 import { estimateMinutes, haversineKm, isSlowTerrain } from "./feasibility.js";
 import { nearestStop } from "./stops.js";
 import { summarizeTransitLeg, transitFieldMask } from "./transit.js";
-import { searchYahooTransit } from "./yahoo-transit.js";
+import { resetYahooCooldown, searchYahooTransit, yahooCooldown }
+  from "./yahoo-transit.js";
 
 /**
  * どこへ投げるか。
@@ -235,6 +236,7 @@ export function routesBreakerState() {
 export function resetRoutesBreaker() {
   transitBudget.spent = 0;
   yahooBudgetSpent.spent = 0;
+  resetYahooCooldown();
   breaker.fails = 0;
   breaker.open = false;
   breaker.reason = "";
@@ -480,7 +482,8 @@ async function computeViaStations(points, opts) {
   let yahooBudget = Math.max(0,
     (TUNING.maxYahooRequests ?? 40) - yahooBudgetSpent.spent);
   for (let i = 0; i < n; i++) {
-    const hit = yahooBudget > 0
+    // 断られている間は、残りの区間を投げません。投げても全部断られます。
+    const hit = (yahooBudget > 0 && !yahooCooldown().waiting)
       ? await yahooLeg(points[i], points[i + 1], { ...opts, departAt: clock })
       : null;
     if (hit) {
@@ -843,6 +846,23 @@ export function legDetailLookup(entries) {
  * 画面から呼べる形にして、どれなのかをその場で言えるようにしました。
  */
 export async function diagnoseMapsKey(signal) {
+  // 中継を使っているなら、まず**鍵が置かれているか**を確かめます。
+  // 置かれていないまま上流へ投げると、Googleは「API key not valid」と
+  // 返します。読んだ人は自分の入力を疑いますが、直す場所は中継です。
+  const cfg = effectiveConfig();
+  if (usingProxy(cfg)) {
+    try {
+      const st = await proxyStatus(cfg, signal);
+      if (st && st.secrets && st.secrets.MAPS_API_KEY === false) {
+        return { ok: false, code: "no-key",
+          message: "中継に経路APIのキーが設定されていません。"
+            + "\nWorker で次を実行してください:"
+            + "\n  npx wrangler secret put MAPS_API_KEY"
+            + "\n※ 電車・バス（Yahoo!路線情報）はキー不要なので、"
+            + "そちらは設定しなくても動きます。" };
+      }
+    } catch { /* 状態を取れなくても、下の実地の確認は行います */ }
+  }
   if (!hasMapsAccess()) {
     return { ok: false, code: "no-key",
       message: "経路APIのキーが空です。上の欄に Google Maps Platform のキーを"

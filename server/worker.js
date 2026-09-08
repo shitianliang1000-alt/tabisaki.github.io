@@ -54,6 +54,19 @@ export default {
       if (path.endsWith("/gemini/embed")) return cors(await gemini(request, env, "embedContent"), origin, allow);
       if (path.endsWith("/routes")) return cors(await routes(request, env), origin, allow);
       if (path.endsWith("/yahoo/transit")) return cors(await yahooTransit(request), origin, allow);
+      // 鍵が入っているかどうかだけを答えます（値は返しません）。
+      // 「キーが無効です」と「中継に鍵が置かれていない」は別のことで、
+      // 直す場所も違います。画面がそれを言い分けられるようにします。
+      if (path.endsWith("/status")) {
+        return cors(json({
+          ok: true,
+          secrets: {
+            MAPS_API_KEY: hasSecret(env, "MAPS_API_KEY"),
+            GEMINI_API_KEY: hasSecret(env, "GEMINI_API_KEY"),
+          },
+          allowOrigin: allow,
+        }), origin, allow);
+      }
     } catch (e) {
       console.error(e);
       if (e?.code === "TOO_LARGE") return cors(text("本文が大きすぎます", 413), origin, allow);
@@ -65,7 +78,21 @@ export default {
   },
 };
 
+/** 鍵が入っているか（値は見せません）。 */
+function hasSecret(env, name) {
+  return typeof env?.[name] === "string" && env[name].trim().length > 0;
+}
+
+/** 鍵が無いときの返事。無ければ null。 */
+function missingSecret(env, name) {
+  if (hasSecret(env, name)) return null;
+  return text(`中継に ${name} が設定されていません。`
+    + `Worker で \`npx wrangler secret put ${name}\` を実行してください`, 503);
+}
+
 async function gemini(request, env, method) {
+  const missing = missingSecret(env, "GEMINI_API_KEY");
+  if (missing) return missing;
   const body = await readJson(request);
   const model = String(body?.model ?? "");
   if (!ALLOWED_MODELS.has(model)) return text("そのモデルは使えません", 400);
@@ -360,6 +387,11 @@ function clockDiff(from, to) { return (clockMinutes(to) - clockMinutes(from) + 1
 function tokyoClockMinutes(date) { const p = tokyoParts(date); return Number(p.hour) * 60 + Number(p.minute); }
 
 async function routes(request, env) {
+  // 鍵が無いまま投げると、Googleから「API key not valid」が返ります。
+  // 読んだ人は、自分の入力を疑います。**ここに鍵が無いだけ**なので、
+  // 上流へ行く前に、そう言います。
+  const missing = missingSecret(env, "MAPS_API_KEY");
+  if (missing) return missing;
   const body = await readJson(request);
   if (!body?.origin || !body?.destination) return text("経路の起点と終点が必要です", 400);
   const mask = (request.headers.get("X-Goog-FieldMask") ?? "").slice(0, 500);

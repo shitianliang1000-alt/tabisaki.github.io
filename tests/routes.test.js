@@ -490,3 +490,40 @@ test("区間がいくつあっても、全部Yahoo!に聞く", () =>
     assert.ok(r.legs.every((l) => l.routed), "目安のままの区間があります");
     assert.equal(r.routed, true);
   }));
+
+test("断られたら、しばらく聞きに行かない", async () => {
+  const { searchYahooTransit, yahooCooldown, resetYahooCooldown }
+    = await import("../js/yahoo-transit.js");
+  resetYahooCooldown();
+  const real = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return {
+      ok: false, status: 429,
+      headers: { get: () => "1" },
+      text: async () => JSON.stringify({
+        error: { message: "呼び出しが多すぎます" } }),
+    };
+  };
+  try {
+    // 何度も聞き直します（待ち時間はテストでは待たずに済むよう、
+    // 呼び出し回数だけを見ます）。
+    await assert.rejects(
+      searchYahooTransit({ name: "新宿" }, { name: "箱根湯本" },
+                         { retryWaits: [1, 1, 1] }));
+    assert.ok(calls > 1, "一度きりで諦めています");
+
+    // そのあとは、間を置くまで投げません。旅程1つで区間の数だけ聞くので、
+    // 断られた直後に残りを投げても、全部断られるだけです。
+    assert.equal(yahooCooldown().waiting, true);
+    const before = calls;
+    await assert.rejects(
+      searchYahooTransit({ name: "東京" }, { name: "横浜" },
+                         { retryWaits: [1, 1, 1] }));
+    assert.equal(calls, before, "断られている間も投げています");
+  } finally {
+    globalThis.fetch = real;
+    resetYahooCooldown();
+  }
+});

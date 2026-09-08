@@ -424,7 +424,20 @@
        キーは、この端末の localStorage にだけ残します。どこにも送りません。
        公開サイト（GitHub Pages など）では config.js を書き換えられないので、
        使う人が自分のキーをここから入れられるようにしています。 -->
-  <details class="dev-settings" id="dev-settings">
+  <!-- 接続の確認は、開発者向けの欄の外に出します。キーを入れるのは
+       開発者の仕事ですが、「つながっているか」を知りたいのは使う人です。
+       つながっていなければ、電車・バスの時間が目安になります。 -->
+  <div class="tune-group check-conn">
+    <span class="tune-label">接続の確認</span>
+    <button type="button" class="md-btn md-btn--tonal md-state" id="test-conn">
+      <span>いま使えるか確かめる</span>
+    </button>
+    <p id="conn-result" class="key-result" hidden></p>
+    <p class="md-field-help">電車・バスの時間（Yahoo!路線情報）と、
+      徒歩・車の経路（Google）を1回ずつ試します。</p>
+  </div>
+
+  <details class="dev-settings" id="dev-settings" hidden>
     <summary><span>開発者向け（APIキーを入れる）</span></summary>
 
     <p class="dev-lead">
