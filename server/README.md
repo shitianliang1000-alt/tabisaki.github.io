@@ -33,9 +33,13 @@ export const MAPS_API_KEY   = "";   // ← 空のままにします
 
 ### Cloudflare Worker
 
+設定はリポジトリの一番上の `wrangler.jsonc` です（`main` が
+`server/worker.js` を指しています）。**server/ の中には置きません。**
+Cloudflare の Workers Builds はリポジトリの一番上で `wrangler` を
+走らせるので、そこに設定が無いと
+「Missing entry-point to Worker script」で止まります。
+
 ```bash
-npm create cloudflare@latest tabisaki-api
-# src/index.js を server/worker.js の中身に置き換える
 npx wrangler secret put GEMINI_API_KEY
 npx wrangler secret put MAPS_API_KEY
 npx wrangler deploy
@@ -67,16 +71,13 @@ IPごとに **20回/分・200回/時**（既定）で切ります。
 
 ### Cloudflare は Durable Object を使ってください
 
-`wrangler.toml`（雛形を同梱）に、次が要ります。
+一番上の `wrangler.jsonc` に、次が入っています。
 
-```toml
-[[durable_objects.bindings]]
-name = "RATE"
-class_name = "RateLimiter"
-
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["RateLimiter"]
+```jsonc
+"durable_objects": {
+  "bindings": [{ "name": "RATE", "class_name": "RateLimiter" }]
+},
+"migrations": [{ "tag": "v1", "new_sqlite_classes": ["RateLimiter"] }]
 ```
 
 **KV ではいけません。** KV で「読む → +1 → 書く」をすると、
