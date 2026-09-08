@@ -396,23 +396,19 @@ test("Yahoo!で引けない区間だけ、駅の位置からの目安に戻す",
       assert.match(r.modeNote ?? "", /最寄りの駅・バス停/);
     }));
 
-test("別の日のダイヤで調べたら、その時刻は出さない", () =>
+test("頼んだ日時を、そのままYahoo!に渡す", () =>
   withYahoo(STOPS, () => ({
-    routed: true, minutes: 230, rideMinutes: 230, waitMinutes: 0,
-    summary: "14:50 発→ 18:40 着 3時間50分 (乗車 3時間34分 ) / 乗換： 2 回",
-    // 過ぎた日を頼まれたので、今日のダイヤで調べています。
-    shifted: true, searchedAt: "2026-09-08T14:50:00+09:00",
-  }), async () => {
-    const r = await computeRoute([SHINJUKU_ST, HAKONE_YUMOTO], {
-      mode: "TRANSIT", departAt: new Date("2026-09-06T04:00:00+09:00"),
-    });
-    const line = r.legs[0].line;
-    // 旅程は9月6日4:00発。そこに「14:50発→18:40着」と書くと、
-    // 同じ行の中で食い違います。
-    assert.ok(!/14:50|18:40/.test(line), `時刻が残っています: ${line}`);
-    assert.match(line, /3時間50分/);        // 所要時間は残します
-    assert.match(line, /9月8日のダイヤ/);   // いつので調べたかを書きます
-    assert.equal(r.legs[0].shifted, true);
+    routed: true, minutes: 329, rideMinutes: 329, waitMinutes: 13,
+    summary: "04:13 発→ 09:42 着 5時間29分",
+  }), async (asked) => {
+    // 過ぎた日でも、Yahoo!はその日のダイヤで答えます。「いま」に
+    // 寄せていたころは、9月6日4:00発の旅程に、9月8日の便の時刻が
+    // 並んでいました。
+    const departAt = new Date("2026-09-06T04:00:00+09:00");
+    const r = await computeRoute([SHINJUKU_ST, HAKONE_YUMOTO],
+      { mode: "TRANSIT", departAt });
+    assert.equal(asked[0].departAt, departAt.toISOString());
+    assert.match(r.legs[0].line, /04:13/);
   }));
 
 test("同じ日なら、実際に乗る便の時刻を返す", () =>
@@ -423,7 +419,6 @@ test("同じ日なら、実際に乗る便の時刻を返す", () =>
     const r = await computeRoute([SHINJUKU_ST, HAKONE_YUMOTO], {
       mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
     });
-    assert.equal(r.legs[0].shifted, false);
     assert.equal(r.legs[0].waitMinutes, 8);
     assert.match(r.legs[0].line, /10:08/);
   }));

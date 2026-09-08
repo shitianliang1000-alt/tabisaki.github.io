@@ -106,10 +106,39 @@ p, li { text-wrap: pretty; }
 /* 設定ボタン。地図がどの状態（案内前の地図／結果の地図）でも、
    常にこの右上に浮きます。 */
 .settings-fab {
-  position: absolute; top: 12px; right: 12px; z-index: 600;
+  position: fixed; top: 12px; right: 12px; z-index: 600;
   background: var(--md-sys-color-surface-container-high);
   box-shadow: var(--md-sys-elevation-1);
   color: var(--md-sys-color-on-surface);
+}
+
+/* 4つ並ぶ切り替え（予算・移動手段）。
+   携帯では「1万円ま/で」のように折り返して読みにくいので、
+   字を少し詰めて、途中で折らないようにします。 */
+#budget-choice button, #transport-choice button { padding-inline: 8px; }
+#budget-choice span, #transport-choice span { white-space: nowrap; }
+@media (max-width: 480px) {
+  #budget-choice span, #transport-choice span { font-size: 13px; }
+  #budget-choice button, #transport-choice button { padding-inline: 4px; }
+}
+
+/* ---------------------------------------------------------- 名前 --- */
+/* 開いた人に、まず「何をする道具か」を伝えます。 */
+
+.brand { margin: 4px 0 18px; }
+.brand h1 {
+  margin: 0;
+  font-size: 30px; font-weight: 700; letter-spacing: .04em;
+  color: var(--md-sys-color-on-surface);
+}
+.brand p {
+  margin: 6px 0 0;
+  font-size: 15px; line-height: 1.5;
+  color: var(--md-sys-color-on-surface-variant);
+}
+@media (max-width: 860px) {
+  /* 右上の設定ボタンに、名前がぶつからないようにします。 */
+  .brand { margin-right: 56px; }
 }
 
 /* ------------------------------------------------------ 希望の入力 --- */
@@ -1578,8 +1607,23 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   .layout { grid-template-columns: minmax(320px, 380px) 1fr; }
 }
 
+/* 携帯の「条件を変更する」。広い画面では左右に並ぶので出しません。 */
+.back-to-form { display: none; }
+
 @media (max-width: 860px) {
   body { overflow: auto; }
+
+  /* 条件・生成中・結果を、別の画面にします。
+     縦に積んでいたころは、旅程ができても画面には条件が映っていて、
+     結果まで自分でスクロールしないと読めませんでした。作成中の帯も
+     結果の上に残ります。data-view で、いま見せる面を1つに決めます。 */
+  body[data-view="result"] .pane-form { display: none; }
+  body[data-view="result"] .make { display: none; }
+  body[data-view="result"] { padding-bottom: env(safe-area-inset-bottom); }
+  body[data-view="form"] .pane-result { display: none; }
+  body[data-view="result"] .back-to-form {
+    display: inline-flex; position: absolute; top: 12px; left: 12px; z-index: 12;
+  }
   .layout { grid-template-columns: 1fr; height: auto; }
   .pane { overflow: visible; }
   .pane-form {

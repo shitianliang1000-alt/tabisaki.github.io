@@ -950,6 +950,23 @@ function renderPinned() {
 }
 
 function wireForm() {
+  // 予算と移動手段。押されたものを覚えるだけの、同じ形の切り替えです。
+  const segmented = (sel, key, onPick) => {
+    for (const btn of document.querySelectorAll(`${sel} button`)) {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(`${sel} button`)
+          .forEach((b) => b.classList.toggle("is-selected", b === btn));
+        onPick(btn.dataset[key]);
+      });
+    }
+  };
+  segmented("#budget-choice", "budget", (v) => {
+    state.budgetYen = v ? Number(v) : null;
+  });
+  segmented("#transport-choice", "transport", (v) => {
+    state.transport = v ?? "any";
+  });
+
   for (const btn of document.querySelectorAll("#end-choice button")) {
     btn.addEventListener("click", () => {
       document.querySelectorAll("#end-choice button")
@@ -981,6 +998,7 @@ function wireForm() {
   // 引数なしで呼びます。そのまま渡すと、クリックイベントが
   // 「条件」として渡ってしまいます。
   $("#make-plan").addEventListener("click", () => run());
+  $("#back-to-form").addEventListener("click", () => showView("form"));
   $("#avoid-crowds").addEventListener("change", saveConditions);
   for (const id of ["#note", "#depart-place", "#end-place", "#depart-at",
                     "#arrive-by"]) {
@@ -1063,9 +1081,10 @@ async function readTrip() {
     arriveBy: new Date($("#arrive-by").value),
     note: $("#note").value,
     interests: genres,
-    // 予算と穴場度は画面から外しました。予算はスポットの入場料程度しか
-    // 効かず、実際の判断材料にならなかったためです。内部の既定値のみ使います。
-    budgetYen: 999999,
+    // 予算の上限。決めていなければ null（見ません）。
+    budgetYen: state.budgetYen ?? null,
+    // 何で移動するか。車が使えるかどうかで、組める旅程が変わります。
+    transport: state.transport ?? "any",
     // 定番と穴場のまぜかた。画面では星の粒として出しています。
     hiddenBias: (Number($("#hidden-bias")?.value ?? 40)) / 100,
     // 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
@@ -1223,6 +1242,18 @@ function showRoutesUsage() {
  * 知りたいのは「それで、旅程は作れるのか」の一点です。
  * 元のエラーは「技術的な詳細」を開いた人だけが見ます。
  */
+/**
+ * いま見せる面（携帯だけ）。条件 → 生成中 → 結果。
+ *
+ * 広い画面では左右に並んでいるので、この値は使われません（css の
+ * 媒体条件の中だけで効きます）。切り替えたら先頭へ戻します。
+ * 前の画面のスクロール位置のままだと、切り替わったことに気づけません。
+ */
+function showView(view) {
+  document.body.dataset.view = view;
+  globalThis.scrollTo?.({ top: 0, behavior: "smooth" });
+}
+
 function showError(text, suggestions = [], kind = "plan") {
   const box = $("#form-error");
   box.textContent = "";
@@ -1400,6 +1431,10 @@ async function run(override) {
   if (!state.kb) { showError("データを読み込めていません。"); return; }
 
   state.trip = trip;
+  // 携帯では、ここから結果の画面に移ります（css の data-view）。
+  // 条件のページに留まったままだと、旅程ができても自分でスクロール
+  // して探すことになります。
+  showView("result");
   $("#placeholder").hidden = true;
   $("#result").hidden = true;
   $("#progress").hidden = false;
@@ -1418,6 +1453,9 @@ async function run(override) {
   } catch (e) {
     $("#progress").hidden = true;
     $("#placeholder").hidden = false;
+    // うまくいかなかったときは、条件の画面へ戻します。理由は
+    // 条件の下に出るので、結果の画面に残すと読めません。
+    showView("form");
     showError(e.message ?? String(e), e.suggestions ?? []);
   } finally {
     fab.disabled = false;

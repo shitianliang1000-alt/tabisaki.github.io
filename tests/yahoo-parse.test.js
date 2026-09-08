@@ -60,3 +60,41 @@ test("所要0分の区間を作らない", () => {
     assert.ok(leg.minutes > 0, `${leg.from}→${leg.to} が ${leg.minutes} 分です`);
   }
 });
+
+// --- 候補は3本 --------------------------------------------------------------
+//
+// Yahoo!は候補を3本出します（早い順・安い順・乗換の少ない順）。1本目だけを
+// 読んでいたので、ほかの行き方は捨てていました。
+
+const many = await readFile(
+  new URL("./fixtures/yahoo-matsumoto-kamakura-3routes.html", import.meta.url),
+  "utf8");
+
+test("候補を3本とも読む", async () => {
+  const { routeBlocks } = await import("../server/worker.js");
+  const blocks = routeBlocks(many);
+  assert.equal(blocks.length, 3);
+  const summaries = blocks.map(parseSummary);
+  assert.deepEqual(summaries.map((s) => s.departure), ["04:13", "06:30", "06:30"]);
+  assert.deepEqual(summaries.map((s) => s.fareYen), [5334, 6860, 7930]);
+});
+
+test("「早」の印を、所要時間の行と読み違えない", () => {
+  // 1本目には「早」「楽」の印（icnPriTime）が付いています。
+  // class を部分一致で見ていたころは、そちらを所要時間の行として読み、
+  // 時刻が取れずに null になっていました。
+  const s = parseSummary(many);
+  assert.equal(s.departure, "04:13");
+  assert.equal(s.arrival, "09:42");
+  assert.equal(s.minutes, 5 * 60 + 29);
+});
+
+test("高速バスの区間も、乗り物として読む", async () => {
+  const { routeBlocks } = await import("../server/worker.js");
+  const d = parseRouteDetail(routeBlocks(many)[0]);
+  assert.equal(d.legs.length, 4);
+  assert.match(d.legs[1].line, /高速バス/);
+  assert.equal(d.legs[1].from, "松本ＢＴ(高速・連絡バス)");
+  // 徒歩の乗り継ぎも区間として並びます。抜かすと時刻が合いません。
+  assert.match(d.legs[0].line, /徒歩/);
+});

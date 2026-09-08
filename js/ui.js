@@ -164,13 +164,20 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
           : stat(fmtDuration(tripMinutes(itin)), "所要"),
         itin.cost
           ? stat(`¥${itin.cost.total.toLocaleString()}`, "概算費用")
-          : stat(itin.usedRoutesApi ? "実経路" : "推定", "移動時間"))),
+          : stat(itin.usedRoutesApi ? "実経路" : "推定", "移動時間"),
+        // 歩く量は、行けるかどうかを左右します。「約8,400円」と同じ
+        // 高さに置かないと、当日になって気づくことになります。
+        walkSteps(itin) ? stat(`約${walkSteps(itin).toLocaleString()}歩`, "歩く量")
+          : null)),
   ].filter(Boolean));
 
-  // 0. 旅の意味づけ。時刻表の前に、この並びに意味があることを伝えます。
-  //    決まった文しか出しません（AIに書かせると毎回変わります）。
+  // 0. 旅の意味づけ。
+  //
+  //    以前は旅程の**前**に置いていました。最初に知りたいのは
+  //    「どこへ行き、何時に何をするか」で、意味づけはそのあとです。
+  //    畳んで、読みたい人だけが開けるようにします。
   if (itin.story?.length) {
-    container.append(el("section", { class: "panel story" },
+    detail.push(el("section", { class: "panel story" },
       el("h3", {}, "この旅の流れ"),
       el("ul", { class: "panel-list" },
         itin.story.map((t, i) => el("li", {},
@@ -827,6 +834,19 @@ function srcChip(c, extra = "") {
 }
 
 /** 乗換の手順を、開閉できる形で並べます。 */
+function alternativeRoutes(list) {
+  const box = el("details", { class: "transit-steps" });
+  box.append(el("summary", {}, `ほかの行き方（${list.length}件）`));
+  const inner = el("div", { style: "padding:8px 14px 14px" });
+  inner.append(el("ul", { class: "quality" }, list.map((r) => el("li", {},
+    el("span", { class: "q-label" },
+      `${r.departure ?? ""}→${r.arrival ?? ""}`
+      + (r.transfers != null ? ` / 乗換${r.transfers}回` : "")
+      + (r.fareYen ? ` / ¥${r.fareYen.toLocaleString()}` : ""))))));
+  box.append(inner);
+  return box;
+}
+
 function transitSteps(t) {
   const lines = describeTransit(t);
   const box = el("details", { class: "transit-steps" });
@@ -856,6 +876,20 @@ function scoreClass(n) {
  * 通ってから、好みに合うかを見ます。順番を逆にすると、
  * 帰れない旅程に「ご希望との相性 92点」と書くことになります。
  */
+/**
+ * その旅程で歩くおおよその歩数。
+ *
+ * 徒歩と印の付いた移動の距離を足して、1kmあたり1350歩で数えます
+ * （歩幅74cmの見当）。乗り物の移動は数えません。
+ */
+function walkSteps(itin) {
+  const km = (itin.days ?? []).flatMap((d) => d.items)
+    .filter((i) => i.kind === "transit" && i.walk)
+    .reduce((a, i) => a + (i.km ?? 0), 0);
+  if (!(km > 0)) return 0;
+  return Math.round((km * 1350) / 100) * 100;
+}
+
 function summaryVerdict(itin) {
   const total = itin?.score?.total;
   if (!Number.isFinite(total)) return null;
@@ -965,6 +999,11 @@ function renderItem(item, index, itin, handlers, sunNote) {
   // 折りたたんで置き、必要なときだけ開けるようにします。
   if (item.transit?.segments?.length) {
     info.append(transitSteps(item.transit));
+  }
+  // ほかの行き方。Yahoo!は候補を3本出します。採ったのは「いちばん早く
+  // 着く」ものですが、安いほうや乗換の少ないほうを選びたいこともあります。
+  if (item.alternatives?.length) {
+    info.append(alternativeRoutes(item.alternatives));
   }
   if (item.kind === "spot" && (item.reason || item.fit)) {
     info.append(el("p", { class: "reason" }, item.fit?.summary ?? item.reason));

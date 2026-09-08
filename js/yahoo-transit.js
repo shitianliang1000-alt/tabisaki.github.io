@@ -1,15 +1,11 @@
 import { endpointFor } from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
 
-const TRANSIT_HORIZON_DAYS = 45;
-
 /**
  * Yahoo!路線情報の検索をバックエンド経由で実行します。
  *
- * Tabisakiの旅程で実際に使うのは「この時刻に出発地を出たら、
- * 次に乗れる公共交通で何時に到着するか」です。そのため、Yahoo!には
- * 旅程側から渡された出発時刻をそのまま渡し、先の日付だけ同じ曜日・
- * 同じ時刻の直近の日へ寄せます。
+ * 旅程で使うのは「この日、この時刻に出発地を出たら、次に乗れる
+ * 公共交通で何時に到着するか」です。日時はそのまま渡します。
  */
 export async function searchYahooTransit(from, to, opts = {}) {
   const cfg = effectiveConfig();
@@ -17,10 +13,16 @@ export async function searchYahooTransit(from, to, opts = {}) {
   const toName = String(to?.name ?? to ?? "").trim();
   if (!fromName || !toName) return null;
 
+  // **頼まれた日時で調べます。**
+  //
+  // 以前は、過ぎた日なら「いま」、先すぎる日なら「同じ曜日の来週」に
+  // 寄せていました。返ってくるのは別の日の便なので、旅程の時刻と
+  // 食い違います（9月6日4:00発の旅程に「14:50発→18:40着」）。
+  // Yahoo!は過ぎた日でもその日のダイヤで答えるので、寄せる必要は
+  // ありませんでした。答えられない日はYahoo!がそう言います。
   const requested = opts.departAt ? new Date(opts.departAt) : neutralDepartureTime();
   const departAt = Number.isNaN(requested.getTime())
-    ? neutralDepartureTime()
-    : transitSearchDate(requested);
+    ? neutralDepartureTime() : requested;
 
   const res = await fetch(endpointFor("yahoo:transit", {}, cfg), {
     method: "POST",
@@ -34,15 +36,7 @@ export async function searchYahooTransit(from, to, opts = {}) {
   });
   if (!res.ok) throw new Error(`Yahoo Transit ${res.status}`);
   const doc = await res.json();
-  // **いつのダイヤで調べたか**を返します。過ぎた日や、時刻表がまだ出て
-  // いない先の日は、そのままでは調べられないので別の日時に寄せています。
-  // それを黙っていると、旅程の時刻と、画面に出る「14:50発→18:40着」が
-  // 食い違います（実際にそう出ていました）。
-  return {
-    ...doc,
-    searchedAt: departAt.toISOString(),
-    shifted: departAt.getTime() !== requested.getTime(),
-  };
+  return { ...doc, searchedAt: departAt.toISOString() };
 }
 
 function neutralDepartureTime(now = new Date()) {
@@ -51,18 +45,4 @@ function neutralDepartureTime(now = new Date()) {
   while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
   d.setHours(10, 0, 0, 0);
   return d;
-}
-
-function transitSearchDate(date, now = new Date()) {
-  const ahead = (date - now) / 86400000;
-  if (ahead >= 0 && ahead <= TRANSIT_HORIZON_DAYS) return new Date(date);
-
-  if (ahead < 0) return new Date(now.getTime() + 60000);
-
-  const target = new Date(now);
-  target.setDate(target.getDate() + 7);
-  const diff = (date.getDay() - target.getDay() + 7) % 7;
-  target.setDate(target.getDate() + diff);
-  target.setHours(date.getHours(), date.getMinutes(), 0, 0);
-  return target;
 }

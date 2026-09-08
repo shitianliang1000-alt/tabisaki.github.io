@@ -81,7 +81,24 @@ export function makeTrip(init = {}) {
     },
     note: init.note ?? "",
     interests: init.interests ?? [],
-    budgetYen: init.budgetYen ?? 15000,
+    /**
+     * 費用の上限（円・ひとり）。null なら決めない。
+     *
+     * 上限を超えた旅程を黙って出しません。**削りもしません。**
+     * 何を削るか（入場料の高い場所か、宿か、特急か）は好みの問題で、
+     * こちらが勝手に決めると「行きたかった場所が消えた」になります。
+     * 超えていることと、内訳のいちばん大きいところを伝えます。
+     */
+    budgetYen: init.budgetYen ?? null,
+    /**
+     * 何で移動するか。"any" | "transit" | "car" | "walk"。
+     *
+     * 「車が使えるか」は、地方では旅程が成立するかどうかを分けます。
+     * バスが1日3本の土地では、車があれば回れる場所が、なければ
+     * 回れません。距離だけから推し量れないので、聞きます。
+     */
+    transport: ["any", "transit", "car", "walk"].includes(init.transport)
+      ? init.transport : "any",
     hiddenBias: init.hiddenBias ?? 0.5,
     /**
      * 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
