@@ -981,6 +981,7 @@ function wireForm() {
   // 引数なしで呼びます。そのまま渡すと、クリックイベントが
   // 「条件」として渡ってしまいます。
   $("#make-plan").addEventListener("click", () => run());
+  $("#back-to-form").addEventListener("click", () => showView("form"));
   $("#avoid-crowds").addEventListener("change", saveConditions);
   for (const id of ["#note", "#depart-place", "#end-place", "#depart-at",
                     "#arrive-by"]) {
@@ -1223,6 +1224,18 @@ function showRoutesUsage() {
  * 知りたいのは「それで、旅程は作れるのか」の一点です。
  * 元のエラーは「技術的な詳細」を開いた人だけが見ます。
  */
+/**
+ * いま見せる面（携帯だけ）。条件 → 生成中 → 結果。
+ *
+ * 広い画面では左右に並んでいるので、この値は使われません（css の
+ * 媒体条件の中だけで効きます）。切り替えたら先頭へ戻します。
+ * 前の画面のスクロール位置のままだと、切り替わったことに気づけません。
+ */
+function showView(view) {
+  document.body.dataset.view = view;
+  globalThis.scrollTo?.({ top: 0, behavior: "smooth" });
+}
+
 function showError(text, suggestions = [], kind = "plan") {
   const box = $("#form-error");
   box.textContent = "";
@@ -1400,6 +1413,10 @@ async function run(override) {
   if (!state.kb) { showError("データを読み込めていません。"); return; }
 
   state.trip = trip;
+  // 携帯では、ここから結果の画面に移ります（css の data-view）。
+  // 条件のページに留まったままだと、旅程ができても自分でスクロール
+  // して探すことになります。
+  showView("result");
   $("#placeholder").hidden = true;
   $("#result").hidden = true;
   $("#progress").hidden = false;
@@ -1418,6 +1435,9 @@ async function run(override) {
   } catch (e) {
     $("#progress").hidden = true;
     $("#placeholder").hidden = false;
+    // うまくいかなかったときは、条件の画面へ戻します。理由は
+    // 条件の下に出るので、結果の画面に残すと読めません。
+    showView("form");
     showError(e.message ?? String(e), e.suggestions ?? []);
   } finally {
     fab.disabled = false;

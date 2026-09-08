@@ -85,7 +85,7 @@
 <link rel="stylesheet" href="css/hig.css">
 <link rel="stylesheet" href="css/app.css">
 </head>
-<body>
+<body data-view="form">
 
 <a class="sr-only" href="#form-pane">条件の入力へ移動</a>
 
@@ -94,6 +94,15 @@
 <h1 class="sr-only">旅さき｜行きたいことから旅程をつくる</h1>
 
 <main class="layout">
+
+  <!-- 設定は、上のバーではなく地図の上に浮かせます。結果が出る前も
+       出たあとも、地図はこの位置に必ずあるためです。
+       **pane の外に置きます。**携帯では条件と結果を別画面にするので、
+       結果の中に置くと、条件の画面から設定へ入れなくなります。 -->
+  <button type="button" class="md-icon-btn md-state settings-fab" id="open-settings"
+          aria-label="設定" title="設定">
+    <span aria-hidden="true">⚙</span>
+  </button>
 
   <!-- ===================== 左: 条件 ===================== -->
   <section class="pane pane-form" id="form-pane">
@@ -164,23 +173,6 @@
       </div>
       <p class="md-field-help" id="window-help"></p>
 
-      <!-- 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
-           長さ（9時間）だけでは「いつ動くのか」が決まりません。同じ9時間
-           でも、7時発と10時発では開いている施設が変わります。 -->
-      <div class="tune-group day-hours" id="day-hours-group">
-        <span class="tune-label" id="day-hours-label">1日のうち、動く時間帯</span>
-        <div class="day-window">
-          <label class="md-field">
-            <span class="md-field-label">朝は何時から</span>
-            <input type="time" id="day-start" value="09:00" step="1800">
-          </label>
-          <label class="md-field">
-            <span class="md-field-label">夜は何時まで</span>
-            <input type="time" id="day-end" value="18:30" step="1800">
-          </label>
-        </div>
-        <p class="md-field-help" id="day-hours-help"></p>
-      </div>
     </section>
 
     <!-- ③ 旅の好み。畳まずに出します。
@@ -216,6 +208,32 @@
         <p class="md-field-help" id="hidden-bias-help">定番より</p>
       </div>
 
+    </section>
+
+    <!-- ここから下は「決めたい人だけ」。
+         初めての人に9項目を並べると、埋めること自体が目的になります。
+         最初に出すのは「どんな旅・どこから・いつ・定番と穴場」の4つで、
+         残りはここへ畳みます。触らなくても旅程は組めます。 -->
+    <details class="tune" id="tune">
+      <summary><span>こだわりを追加する</span></summary>
+
+      <!-- 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
+           長さ（9時間）だけでは「いつ動くのか」が決まりません。同じ9時間
+           でも、7時発と10時発では開いている施設が変わります。 -->
+      <div class="tune-group day-hours" id="day-hours-group">
+        <span class="tune-label" id="day-hours-label">1日のうち、動く時間帯</span>
+        <div class="day-window">
+          <label class="md-field">
+            <span class="md-field-label">朝は何時から</span>
+            <input type="time" id="day-start" value="09:00" step="1800">
+          </label>
+          <label class="md-field">
+            <span class="md-field-label">夜は何時まで</span>
+            <input type="time" id="day-end" value="18:30" step="1800">
+          </label>
+        </div>
+        <p class="md-field-help" id="day-hours-help"></p>
+      </div>
       <div class="tune-group">
         <label class="switch-row" for="avoid-crowds">
           <span class="md-switch">
@@ -242,10 +260,6 @@
           <button type="button" class="md-chip md-state" data-genre="view" aria-pressed="false"><span>絶景</span></button>
         </div>
       </div>
-    </section>
-
-    <details class="tune" id="tune">
-      <summary><span>旅の終わりかたを変える</span></summary>
 
       <div class="tune-group">
         <span class="tune-label">旅の終わり</span>
@@ -287,11 +301,13 @@
   <!-- ===================== 右: 結果 ===================== -->
   <section class="pane pane-result">
 
-    <!-- 設定は、上のバーではなく地図の上に浮かせます。
-         結果が出る前も出たあとも、地図はこの位置に必ずあるためです。 -->
-    <button type="button" class="md-icon-btn md-state settings-fab" id="open-settings"
-            aria-label="設定" title="設定">
-      <span aria-hidden="true">⚙</span>
+    <!-- 携帯では、条件と結果を別の画面にします（css の data-view）。
+         同じ画面に縦に並べていたころは、旅程が出てもまず条件が見えていて、
+         結果まで自分でスクロールしないと読めませんでした。戻る道はここ。
+         広い画面では左右に並ぶので、このボタンは出しません。 -->
+    <button type="button" class="md-btn md-btn--tonal md-state back-to-form"
+            id="back-to-form">
+      <span aria-hidden="true">←</span><span>条件を変更する</span>
     </button>
 
     <div id="placeholder" class="placeholder">
