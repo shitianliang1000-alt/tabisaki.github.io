@@ -39,7 +39,12 @@ Cloudflare の Workers Builds はリポジトリの一番上で `wrangler` を
 走らせるので、そこに設定が無いと
 「Missing entry-point to Worker script」で止まります。
 
+公開先のアドレスは変数で渡します（カンマ区切りで複数書けます）。
+コードを書き換える必要はありません。
+
 ```bash
+npx wrangler secret put ALLOW_ORIGIN
+# https://example.github.io,http://localhost:8000
 npx wrangler secret put GEMINI_API_KEY
 npx wrangler secret put MAPS_API_KEY
 npx wrangler deploy
@@ -62,6 +67,7 @@ node server/node-proxy.mjs
 | 設定 | なぜ |
 |---|---|
 | `ALLOW_ORIGIN` を自分のサイトに絞る | `*` のままだと誰のページからでも呼べ、キーを隠した意味がなくなります |
+| 公開先が増えたら `ALLOW_ORIGIN` に足す | 許していない出どころからは、ブラウザに「Load failed」としか出ません |
 | 呼べるモデルを絞る（`ALLOWED_MODELS`） | 高いモデルを勝手に呼ばれるのを防ぎます |
 | Google 側でもキーを制限する | 万一漏れたときの被害を小さくします |
 

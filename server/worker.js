@@ -1,4 +1,17 @@
-const ALLOW_ORIGIN = "https://shitianliang1000-alt.github.io";
+// 呼び出しを許すページの出どころ。
+//
+// Worker の変数 ALLOW_ORIGIN で上書きできます（カンマ区切りで複数）。
+// ここを直に書き換えると、公開先を増やすたびに Worker を作り直すことに
+// なります。手元で開発するときは、次のように足してください。
+//
+//   npx wrangler secret put ALLOW_ORIGIN
+//   https://shitianliang1000-alt.github.io,http://localhost:8000
+const DEFAULT_ALLOW_ORIGIN = "https://shitianliang1000-alt.github.io";
+
+function allowList(env) {
+  const raw = String(env?.ALLOW_ORIGIN ?? "").trim();
+  return (raw || DEFAULT_ALLOW_ORIGIN).split(/[,\s]+/).filter(Boolean);
+}
 const PER_MINUTE = 20;
 const PER_HOUR = 200;
 const MAX_BODY = 512 * 1024;
@@ -14,31 +27,38 @@ const ALLOWED_MODELS = new Set([
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") ?? "";
-    if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }), origin);
-    if (request.method !== "POST") return cors(text("POST のみです", 405), origin);
-    if (ALLOW_ORIGIN !== "*" && origin !== ALLOW_ORIGIN) {
-      return cors(text("このサイトからは呼べません", 403), origin);
+    const allow = allowList(env);
+    if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }), origin, allow);
+    if (request.method !== "POST") return cors(text("POST のみです", 405), origin, allow);
+    if (!allow.includes("*") && !allow.includes(origin)) {
+      // 断るときも、返事は読めるようにします。CORSの見出しを付けないと、
+      // ブラウザは中身を捨てて「Load failed」とだけ言います。何が起きたか
+      // 分からないまま「中継の設定を確認してください」と出ていました。
+      // 中身は断り文句だけなので、出どころをそのまま返して差し支えありません。
+      return cors(text(`このサイト（${origin || "出どころ不明"}）からは呼べません。`
+        + "Worker の ALLOW_ORIGIN に、このアドレスを足してください", 403),
+        origin, ["*"]);
     }
     const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
     const gate = await rateCheck(env, ip);
     if (!gate.ok) return cors(text("呼び出しが多すぎます。しばらく待ってからお試しください。", 429,
-      { "Retry-After": String(gate.retryAfter) }), origin);
+      { "Retry-After": String(gate.retryAfter) }), origin, allow);
     const declared = Number(request.headers.get("Content-Length") ?? 0);
-    if (declared > MAX_BODY) return cors(text("本文が大きすぎます", 413), origin);
+    if (declared > MAX_BODY) return cors(text("本文が大きすぎます", 413), origin, allow);
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
     try {
-      if (path.endsWith("/gemini/generate")) return cors(await gemini(request, env, "generateContent"), origin);
-      if (path.endsWith("/gemini/embed")) return cors(await gemini(request, env, "embedContent"), origin);
-      if (path.endsWith("/routes")) return cors(await routes(request, env), origin);
-      if (path.endsWith("/yahoo/transit")) return cors(await yahooTransit(request), origin);
+      if (path.endsWith("/gemini/generate")) return cors(await gemini(request, env, "generateContent"), origin, allow);
+      if (path.endsWith("/gemini/embed")) return cors(await gemini(request, env, "embedContent"), origin, allow);
+      if (path.endsWith("/routes")) return cors(await routes(request, env), origin, allow);
+      if (path.endsWith("/yahoo/transit")) return cors(await yahooTransit(request), origin, allow);
     } catch (e) {
       console.error(e);
-      if (e?.code === "TOO_LARGE") return cors(text("本文が大きすぎます", 413), origin);
-      if (e?.code === "BAD_BODY") return cors(text("本文を読めません", 400), origin);
+      if (e?.code === "TOO_LARGE") return cors(text("本文が大きすぎます", 413), origin, allow);
+      if (e?.code === "BAD_BODY") return cors(text("本文を読めません", 400), origin, allow);
       const timedOut = e?.name === "AbortError" || e?.name === "TimeoutError";
-      return cors(text(timedOut ? "上流の応答がありませんでした" : "処理できませんでした", timedOut ? 504 : 502), origin);
+      return cors(text(timedOut ? "上流の応答がありませんでした" : "処理できませんでした", timedOut ? 504 : 502), origin, allow);
     }
-    return cors(text("その入口はありません", 404), origin);
+    return cors(text("その入口はありません", 404), origin, allow);
   },
 };
 
@@ -307,9 +327,13 @@ export class RateLimiter {
 function json(obj) { return new Response(JSON.stringify(obj), { headers: { "Content-Type": "application/json" } }); }
 async function passthrough(res) { return new Response(await res.text(), { status: res.status, headers: { "Content-Type": "application/json" } }); }
 function text(message, status, extra = {}) { return new Response(JSON.stringify({ error: { message } }), { status, headers: { "Content-Type": "application/json", ...extra } }); }
-function cors(res, origin) {
+export function cors(res, origin, allow = [DEFAULT_ALLOW_ORIGIN]) {
   const h = new Headers(res.headers);
-  h.set("Access-Control-Allow-Origin", ALLOW_ORIGIN === "*" ? (origin || "*") : ALLOW_ORIGIN);
+  // 許した出どころには、その出どころをそのまま返します。固定の1つを
+  // 返していたので、公開先が2つあると片方が必ず「Load failed」でした。
+  const ok = allow.includes("*") ? (origin || "*")
+    : (allow.includes(origin) ? origin : allow[0]);
+  h.set("Access-Control-Allow-Origin", ok);
   h.set("Access-Control-Allow-Methods", "POST, OPTIONS"); h.set("Access-Control-Allow-Headers", "Content-Type, X-Goog-FieldMask");
   h.set("X-Content-Type-Options", "nosniff"); h.set("X-Frame-Options", "DENY"); h.set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
   h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains"); h.set("Vary", "Origin");

@@ -87,13 +87,28 @@ export async function diagnoseGeminiKey(signal) {
       + "キーを貼ってください。未設定でも語句検索で動きますが、AIによる"
       + "選定は行われません。" };
   }
+  // どこへ投げたのかを出します。中継の入口は設定画面と js/config.js の
+  // 2か所から決まり、**設定画面のほうが勝ちます**。古い入口が残っていると
+  // config.js を直しても効かないので、そこで気づけるようにします。
+  const cfg = net();
+  const where = (() => {
+    try {
+      const url = endpointFor("gemini:generate", { model: MODEL }, cfg);
+      const from = cfg.from?.proxyUrl === "settings" ? "設定画面"
+        : cfg.from?.proxyUrl === "config" ? "js/config.js" : "中継なし（直接）";
+      return `\n投げ先: ${url}（${from}）`;
+    } catch (e) {
+      return `\n投げ先を決められません: ${String(e?.message ?? e)}`;
+    }
+  })();
+
   const errors = [];
   for (const model of modelCandidates()) {
     try {
       await callOnce(model, "OKとだけ返してください。", { temperature: 0, signal });
       resolved = model;
       return { ok: true, model,
-        message: `${model} に接続できました。` };
+        message: `${model} に接続できました。` + where };
     } catch (e) {
       errors.push(`${model}: ${e.message}`);
       if (e.status === 403 || e.status === 401) break;
@@ -107,7 +122,31 @@ export async function diagnoseGeminiKey(signal) {
       ? "指定のモデルが見つかりません。config.js の MODEL を、"
         + "利用できるモデルIDに変えてください。"
       : "接続できませんでした。";
-  return { ok: false, message: `${hint}\n詳細: ${errors.join(" / ")}` };
+  return { ok: false, message: `${hint}${where}\n詳細: ${errors.join(" / ")}` };
+}
+
+// --- AIに聞けたかどうか ------------------------------------------------------
+//
+// AIが答えられないとき、このアプリは黙って「収録から機械的に選ぶ」ほうへ
+// 落ちます。旅程は出るので、画面からは成功に見えます。**これが厄介です。**
+// CSPで通信が止められていたときも、利用者には「AIの意見が入っていない
+// 気がする」としか分かりませんでした。
+//
+// 落ちた理由をここに残し、旅程の注意書きとして出します。
+let lastAiError = null;
+
+/** 直近でAIに聞けなかった理由。聞けていれば null。 */
+export function aiStatus() {
+  return { error: lastAiError };
+}
+
+export function resetAiStatus() { lastAiError = null; }
+
+/** 呼び出し側の catch から使います。最初の理由だけを残します。 */
+export function noteAiError(e) {
+  const message = String(e?.message ?? e ?? "").slice(0, 200);
+  if (!lastAiError && message) lastAiError = message;
+  return null;
 }
 
 export function hasApiKey() {
@@ -424,7 +463,8 @@ export async function understandRequest(note, interests, hours, opts = {}) {
       keywords: Array.isArray(p.keywords) ? p.keywords : [],
       avoid: Array.isArray(p.avoid) ? p.avoid : [],
     };
-  } catch {
+  } catch (e) {
+    noteAiError(e);
     return keywordFallback(text, interests);
   }
 }
@@ -470,8 +510,8 @@ export async function embedQuery(text, opts = {}) {
     const data = await res.json();
     const values = data?.embedding?.values ?? data?.embeddings?.[0]?.values;
     return values?.length ? Float64Array.from(values) : null;
-  } catch {
-    return null;
+  } catch (e) {
+    return noteAiError(e);
   }
 }
 
@@ -644,7 +684,8 @@ export async function proposePlan(candidates, plan, note, maxSpots, tierTargets,
     // 「候補にある id」を書き崩すことがありました。
     raw = await callModelJson(prompt,
       { temperature: 0.35, topP: 0.9, schema: PLAN_SCHEMA, thinking: 2048, ...opts });
-  } catch {
+  } catch (e) {
+    noteAiError(e);
     return fallback();
   }
 
@@ -732,7 +773,8 @@ export async function describeSpot(spot, opts = {}) {
   try {
     return (await callModel(prompt, { temperature: 0.7, ...opts }))
       || spot.description || "";
-  } catch {
+  } catch (e) {
+    noteAiError(e);
     return spot.description ?? "";
   }
 }

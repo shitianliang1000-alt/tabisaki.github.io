@@ -564,3 +564,23 @@ test("宿泊だけの日は作らず、前の晩に連泊としてまとめる",
     .filter((i) => i.kind === "lodging");
   assert.equal(lodgings.reduce((n, i) => n + i.nights, 0), 4);
 });
+
+// --- AIに聞けなかったとき ---------------------------------------------------
+
+test("AIに聞けなかったら、そう言う", async () => {
+  const { aiStatus, noteAiError, resetAiStatus } = await import("../js/ai.js");
+  resetAiStatus();
+  assert.equal(aiStatus().error, null);
+
+  // 通信が止められたときに来る形（CSPで塞がれると Load failed になります）。
+  noteAiError(new Error("Load failed"));
+  assert.match(aiStatus().error, /Load failed/);
+
+  // 最初の理由だけを残します。あとから来た理由で上書きすると、
+  // 「本当に最初に何が起きたか」が分からなくなります。
+  noteAiError(new Error("あとから来た別の理由"));
+  assert.match(aiStatus().error, /Load failed/);
+
+  resetAiStatus();
+  assert.equal(aiStatus().error, null);
+});
