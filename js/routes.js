@@ -544,9 +544,13 @@ async function yahooLeg(a, b, opts) {
     if (!yahoo?.routed || !(yahoo.minutes > 0)) return null;
     return {
       minutes: yahoo.minutes,
+      rideMinutes: yahoo.rideMinutes ?? yahoo.minutes,
+      waitMinutes: yahoo.waitMinutes ?? 0,
       meters: Math.round(haversineKm(a, b) * 1000),
-      line: yahoo.summary ?? "Yahoo!路線情報",
+      line: summaryLine(yahoo),
       routed: true,
+      shifted: Boolean(yahoo.shifted),
+      searchedAt: yahoo.searchedAt ?? null,
       stations: { from: from.name, to: to.name, walkMeasured: false },
       yahoo: yahoo.meta ?? null,
     };
@@ -554,6 +558,26 @@ async function yahooLeg(a, b, opts) {
     usage.lastError = `Yahoo Transit: ${String(e?.message ?? e).slice(0, 200)}`;
     return null;
   }
+}
+
+/**
+ * 区間の説明文。
+ *
+ * 別の日で調べたときは、**時刻を出しません**。旅程は9月6日4:00発なのに、
+ * 説明だけ「14:50発→18:40着」と出ていました。数字が具体的なぶん、
+ * 見た人はそちらを信じます。所要時間と運賃は別の日でもおおむね同じなので、
+ * そこは残し、いつのダイヤで調べたかを書き添えます。
+ */
+function summaryLine(yahoo) {
+  const text = yahoo.summary ?? "Yahoo!路線情報";
+  if (!yahoo.shifted) return text;
+  const when = yahoo.searchedAt ? new Date(yahoo.searchedAt) : null;
+  const day = when
+    ? `${when.getMonth() + 1}月${when.getDate()}日のダイヤで検索`
+    : "別の日のダイヤで検索";
+  // 「10:00 発→ 11:27 着 」の部分だけを落とします。
+  const withoutClock = text.replace(/^\s*\d{1,2}:\d{2}\s*発[^\d]*\d{1,2}:\d{2}\s*着\s*/, "");
+  return `${withoutClock}（${day}）`;
 }
 
 /** 1区間ぶんの組み立て（まだ経路APIは呼びません）。 */

@@ -82,14 +82,22 @@ export function buildItinerary(input) {
   // --- 往路 ---
   const outMin = legs?.outbound?.minutes
     ?? travelFn(trip.origin, stays[0].station);
+  // 実際に乗る便の時刻に合わせます。
+  //
+  // これまでは「出発できる時刻」から所要時間を足しているだけでした。
+  // 4:00に家を出ることにすると、旅程は 4:00発・3時間55分。ところが
+  // 説明には「14:50発→18:40着」と出ます。**同じ行の中で食い違います。**
+  // 実際に乗れるのは次の便なので、そちらに合わせて時刻を動かします。
+  const board = boardingTime(trip.departAt, legs?.outbound);
   const arriveStation = addMinutes(trip.departAt, outMin);
   items.push(withTransit({
     id: nextId(), kind: "transit",
-    start: trip.departAt, end: arriveStation,
+    start: board ?? trip.departAt, end: arriveStation,
     title: `${trip.origin.name} → ${firstRegion.station || firstRegion.name}`,
     // 「（推定）」は書きません。実測か推定かは、確からしさの印
     // （confidence.js）が別に出します。二重に書くと読みにくくなります。
-    detail: `${legs?.outbound?.line ? legs.outbound.line + "・" : ""}約${outMin}分`,
+    detail: `${legs?.outbound?.line ? legs.outbound.line + "・" : ""}約${outMin}分`
+      + (board ? `（${fmtHm(trip.departAt)}出発で、次に乗れる便です）` : ""),
     from: trip.origin,
     to: stays[0].station,
     routed: Boolean(legs?.outbound?.routed),
@@ -315,6 +323,30 @@ export function buildItinerary(input) {
     endMode: trip.endMode,
     usedRoutesApi: Boolean(legs?.outbound?.routed || legs?.local?.routed),
   };
+}
+
+/**
+ * その区間で実際に乗る便の発車時刻。
+ *
+ * Yahoo!が返した発車時刻を、旅の当日に当てはめます。別の日のダイヤで
+ * 調べたとき（過ぎた日や、時刻表がまだ出ていない先の日）は使いません。
+ * その日の時刻ではないものを、その日の時刻として置けないためです。
+ */
+function boardingTime(from, leg) {
+  const hm = leg?.yahoo?.departure;
+  if (!hm || leg?.shifted || !(leg?.waitMinutes > 0)) return null;
+  const [h, m] = hm.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  const at = new Date(from);
+  at.setHours(h, m, 0, 0);
+  // 日をまたぐ便（23:50発など）は、翌日にはしません。待ち時間ぶん
+  // 進めた時刻と大きく食い違うなら、置かないほうが安全です。
+  if (at < from) return null;
+  return at;
+}
+
+function fmtHm(d) {
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function mealItem(start, end, title, region) {
