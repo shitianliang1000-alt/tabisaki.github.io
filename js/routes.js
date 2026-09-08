@@ -901,8 +901,16 @@ export async function diagnoseYahooTransit(signal) {
       message: "Yahoo!路線情報は応答しましたが、経路を取り出せませんでした。"
         + (r?.reason ? `\n詳細: ${r.reason}` : "") };
   } catch (e) {
+    // 「Load failed」は、ブラウザが返事の中身を捨てたときの言い方です。
+    // たいていは、このページの出どころが中継側で許されていない場合です
+    // （中継は断り文句を返していますが、CORSの見出しが合わないと
+    // ブラウザはそれを読ませません）。何を直せばいいのかを書きます。
+    const here = globalThis.location?.origin ?? "";
     return { ok: false, code: "error",
-      message: "Yahoo!路線情報に接続できませんでした。中継（PROXY_URL）の設定を"
-        + `ご確認ください。\n詳細: ${String(e?.message ?? e)}` };
+      message: "Yahoo!路線情報に接続できませんでした。"
+        + (here ? `\nこのページの出どころは ${here} です。` : "")
+        + "中継（Cloudflare Worker）の ALLOW_ORIGIN に、このアドレスが"
+        + "入っているかご確認ください。"
+        + `\n詳細: ${String(e?.message ?? e)}` };
   }
 }
