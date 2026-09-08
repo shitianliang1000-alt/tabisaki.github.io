@@ -13,7 +13,8 @@
 //   7. 希望に応えられたかを確かめて、応えられていなければそう伝える
 
 import {
-  embedQuery, hasApiKey, proposePlan, resolvedModel, understandRequest,
+  aiStatus, embedQuery, hasApiKey, proposePlan, resetAiStatus, resolvedModel,
+  understandRequest,
 } from "./ai.js";
 import { areaNote, areaScope, detectAreas, unknownPlaceTerms } from "./areas.js";
 import { discoverArea, resolveDestination } from "./discover.js";
@@ -53,6 +54,9 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     const hours = (trip.arriveBy - trip.departAt) / 3600000;
 
   onProgress(0);
+  // 前回の失敗を持ち越さないようにします（3案を作るときは
+  // 読み取りを使い回すので、最初の1回だけ数え直します）。
+  if (!opts.query) resetAiStatus();
   // 希望文の読み取りと検索用ベクトルは、3案を作るときに使い回します。
   // 案ごとに読み取り直すと、同じ文をモデルに3回投げることになります
   // （変わるのはペースと穴場の割合だけで、希望文は同じです）。
@@ -524,6 +528,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   itin.suggestions = relaxForItinerary({ trip, checked });
 
   itin.warnings = [
+    ...aiNotes(),
     ...mustNotes,
     ...discoveryNotes,
     ...areaNotes,
@@ -778,6 +783,21 @@ export class PlanError extends Error {
 
 /** 出典の重複を落とします（同じ記事が何度も返ることがあります）。 */
 /** その日数を埋めるのに要る、おおよその立ち寄り件数。 */
+/**
+ * AIに聞けなかったときの注意書き。
+ *
+ * 聞けなくても旅程は出ます（収録から機械的に選びます）。画面からは
+ * 成功に見えるので、黙っていると「AIの意見が入っていない気がする」と
+ * いう形でしか気づけません。理由まで出します。
+ */
+function aiNotes() {
+  const { error } = aiStatus();
+  if (!error) return [];
+  return ["AIに聞けなかったため、収録データから機械的に選びました"
+    + `（${error}）。行き先は選べていますが、希望文の読み取りと並べ方は`
+    + "簡易なものです。"];
+}
+
 export function spotsNeededFor(days) {
   return Math.max(3, days * 4);
 }
