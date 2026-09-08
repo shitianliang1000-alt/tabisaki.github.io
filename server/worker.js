@@ -101,16 +101,27 @@ async function yahooTransit(request) {
   const route = firstYahooRoute(html);
   const summary = parseSummary(route);
   const detail = parseRouteDetail(route);
-  if (!detail.departure || !detail.arrival) {
+  if (!(summary.departure ?? detail.departure) || !(summary.arrival ?? detail.arrival)) {
     return json({ routed: false, url: u.toString(), reason: "Yahoo!路線情報の経路詳細を取得できませんでした" });
   }
 
-  const departure = detail.departure;
-  const arrival = detail.arrival;
-  const rideMinutes = clockDiff(departure, arrival);
+  // 時刻は要約を先に見ます。明細から拾った時刻が同じ値になることがあり
+  // （出発も到着も10:00）、そのまま使うと所要0分の区間ができます。
+  const departure = summary.departure ?? detail.departure;
+  const arrival = summary.arrival ?? detail.arrival;
+  const rideMinutes = (departure && arrival && departure !== arrival)
+    ? clockDiff(departure, arrival)
+    : (summary.minutes ?? 0);
   const requestedMinutes = tokyoClockMinutes(requested);
   const waitMinutes = (clockMinutes(departure) - requestedMinutes + 1440) % 1440;
   const minutes = waitMinutes + rideMinutes;
+
+  // 0分の経路は返しません。旅程では「移動時間0分」が
+  // 「隣にある」と同じ意味になり、行けない予定が組めてしまいます。
+  if (!(rideMinutes > 0)) {
+    return json({ routed: false, url: u.toString(),
+      reason: "Yahoo!路線情報から所要時間を取り出せませんでした" });
+  }
 
   return json({
     routed: true,
@@ -132,7 +143,7 @@ async function yahooTransit(request) {
   });
 }
 
-function firstYahooRoute(html) {
+export function firstYahooRoute(html) {
   const start = html.search(/id=["']route01["']/i);
   if (start < 0) return html;
   const rest = html.slice(start);
@@ -140,7 +151,7 @@ function firstYahooRoute(html) {
   return next > 0 ? rest.slice(0, next) : rest.slice(0, 400000);
 }
 
-function parseSummary(html) {
+export function parseSummary(html) {
   const box = html.match(/class=["'][^"']*routeSummary[^"']*["'][\s\S]{0,20000}/i)?.[0] ?? "";
   const time = cleanText(firstMatch(box, /class=["'][^"']*time[^"']*["'][^>]*>([\s\S]*?)<\/li>/i));
   const transferText = cleanText(firstMatch(box, /class=["'][^"']*transfer[^"']*["'][^>]*>([\s\S]*?)<\/li>/i));
@@ -149,18 +160,57 @@ function parseSummary(html) {
   const transfers = Number(transferText.match(/(\d+)/)?.[1] ?? 0);
   const fareYen = Number((fareText.match(/([\d,]+)\s*円/)?.[1] ?? "0").replace(/,/g, "")) || null;
   const distanceKm = Number((distanceText.match(/([\d.]+)km/)?.[1] ?? "0")) || null;
-  return { text: [time, transferText, fareText, distanceText].filter(Boolean).join(" / "), transfers, fareYen, distanceKm };
+  // 「10:00発→11:27着 1時間27分(乗車1時間27分)」から時刻と所要時間を取ります。
+  // ここが**いちばん確かな出どころ**です。下の明細はHTMLの作りが変わると
+  // 空になりますが、この行は要約として必ず出ます。
+  const clock = [...time.matchAll(/(\d{1,2}:\d{2})/g)].map((m) => m[1]);
+  const dur = time.match(/(?:(\d+)\s*時間)?\s*(\d+)\s*分/);
+  const minutes = dur ? Number(dur[1] ?? 0) * 60 + Number(dur[2]) : null;
+  return {
+    text: [time, transferText, fareText, distanceText].filter(Boolean).join(" / "),
+    transfers, fareYen, distanceKm,
+    departure: clock[0] ?? null, arrival: clock[1] ?? null, minutes,
+  };
 }
 
-function parseRouteDetail(html) {
-  const detail = html.match(/<div[^>]*class=["'][^"']*routeDetail[^"']*["'][^>]*>([\s\S]*?)(?=<div[^>]*class=["'][^"']*routeDetail|<\/div>\s*<\/div>\s*<\/div>)/i)?.[1] ?? html;
+/**
+ * class に「その名前がそのまま入っている」div の位置。
+ *
+ * `class=[^"]*routeDetail` のような書き方だと、外側の
+ * `class="elmRouteDetail"` にも当たります。実際そうなっていて、
+ * 明細ではなく要約の部分だけを見ていたため、駅が1件も取れず
+ * 所要時間が0分になっていました。名前は区切って突き合わせます。
+ */
+export function divsWithClass(html, name) {
+  const re = /<div[^>]*class=["']([^"']*)["'][^>]*>/gi;
+  const out = [];
+  let m;
+  while ((m = re.exec(html))) {
+    if (m[1].split(/\s+/).includes(name)) out.push({ start: m.index, end: re.lastIndex });
+  }
+  return out;
+}
+
+export function parseRouteDetail(html) {
+  const blocks = divsWithClass(html, "routeDetail");
+  const detail = blocks.length
+    ? html.slice(blocks[0].end, blocks[1]?.start ?? html.length)
+    : html;
+
+  // 駅の区切りは「次の駅ブロックが始まるまで」です。あいだには
+  // 運賃や路線の欄が挟まります（駅 → fareSection → 駅）。
+  const marks = divsWithClass(detail, "station");
   const stations = [];
-  const stationRe = /<div[^>]*class=["'][^"']*station[^"']*["'][^>]*>([\s\S]*?)<\/div>\s*(?=<div[^>]*class=["'][^"']*station|<div[^>]*class=["'][^"']*transport|$)/gi;
-  let sm;
-  while ((sm = stationRe.exec(detail))) {
-    const block = sm[1];
-    const name = cleanText(firstMatch(block, /<dt[^>]*>([\s\S]*?)<\/dt>/i));
-    const times = [...block.matchAll(/<li[^>]*>(\d{1,2}:\d{2})<\/li>/gi)].map((m) => m[1]);
+  for (let i = 0; i < marks.length; i++) {
+    const chunk = detail.slice(marks[i].end, marks[i + 1]?.start ?? detail.length);
+    const name = cleanText(firstMatch(chunk, /<dt[^>]*>([\s\S]*?)<\/dt>/i));
+    const head = chunk.slice(0, chunk.search(/<dl[^>]*>/i) + 1 || chunk.length);
+    // 乗換駅は「10:39着 / 10:48発」のように、時刻のうしろに文字が付きます。
+    // 時刻だけの行にしか当てていなかったので、乗換駅の時刻が
+    // 取れていませんでした。中身から時刻を拾います。
+    const times = [...head.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)]
+      .map((m) => cleanText(m[1]).match(/(\d{1,2}:\d{2})/)?.[1])
+      .filter(Boolean);
     if (name) stations.push({ name, times });
   }
 
@@ -169,11 +219,9 @@ function parseRouteDetail(html) {
   let tm;
   while ((tm = transportRe.exec(detail))) {
     const text = cleanText(tm[1]);
-    if (text) transports.push(text.replace(/^\[?train\]?\s*/i, ""));
+    if (text) transports.push(text.replace(/^\[?(?:train|line)\]?\s*/i, ""));
   }
 
-  // 現行Yahoo!のHTMLでは station / transport が交互に並ぶため、
-  // station数とtransport数から各乗車区間を組み立てます。
   const legs = [];
   for (let i = 0; i < transports.length && i + 1 < stations.length; i++) {
     const from = stations[i];
@@ -191,10 +239,8 @@ function parseRouteDetail(html) {
     });
   }
 
-  const allTimes = [...html.matchAll(/(?:^|[^0-9])([01]?\d|2[0-3]):([0-5]\d)(?![0-9])/g)]
-    .map((m) => `${m[1].padStart(2, "0")}:${m[2]}`);
-  const departure = stations[0]?.times[0] ?? allTimes[0] ?? null;
-  const arrival = stations.at(-1)?.times.at(-1) ?? allTimes.at(-1) ?? null;
+  const departure = stations[0]?.times[0] ?? null;
+  const arrival = stations.at(-1)?.times.at(-1) ?? null;
   const intermediateStops = stations.slice(1, -1).map((s) => ({
     station: s.name,
     arrival: s.times[0] ?? null,
