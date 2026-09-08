@@ -927,6 +927,19 @@ export async function diagnoseYahooTransit(signal) {
       message: "Yahoo!路線情報は応答しましたが、経路を取り出せませんでした。"
         + where + (r?.reason ? `\n詳細: ${r.reason}` : "") };
   } catch (e) {
+    // 返事が返ってきているなら、出どころ（ALLOW_ORIGIN）の話ではありません。
+    // 429 は「回数が多い」なので、設定を疑わせても直りません。
+    if (e?.status) {
+      return { ok: false, code: e.status,
+        message: (e.status === 429
+          ? "呼び出しが多すぎて、いま断られています。"
+            + (e.retryAfter ? `${e.retryAfter}秒ほど` : "少し")
+            + "待ってからもう一度お試しください。"
+            + "\n※ 旅程は組めます。この間の電車・バスの時間は、"
+            + "駅の位置からの目安になります。"
+          : "Yahoo!路線情報に接続できませんでした。")
+          + where + `\n詳細: ${String(e?.message ?? e)}` };
+    }
     // 「Load failed」は、ブラウザが返事の中身を捨てたときの言い方です。
     // たいていは、このページの出どころが中継側で許されていない場合です
     // （中継は断り文句を返していますが、CORSの見出しが合わないと

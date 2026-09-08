@@ -422,3 +422,42 @@ test("同じ日なら、実際に乗る便の時刻を返す", () =>
     assert.equal(r.legs[0].waitMinutes, 8);
     assert.match(r.legs[0].line, /10:08/);
   }));
+
+test("回数制限で断られたら、設定のせいにしない", () =>
+  withYahoo(STOPS, () => ({}), async () => {
+    // 中継が429を返す形。以前は本文を捨てて「Yahoo Transit 429」とだけ
+    // 出していたので、Yahoo!に断られたのか、こちらの回数制限なのかが
+    // 分かりませんでした。しかも「ALLOW_ORIGIN を確認してください」と
+    // 案内していて、待てば直るものを設定の問題に見せていました。
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("stops-rail")) {
+        return { ok: true, json: async () => ({ year: 2008, stops: STOPS }) };
+      }
+      if (u.includes("stops-bus")) {
+        return { ok: true, json: async () => ({ year: 2012, stops: [] }) };
+      }
+      return {
+        ok: false, status: 429,
+        headers: { get: (k) => (k === "Retry-After" ? "60" : null) },
+        text: async () => JSON.stringify({
+          error: { message: "呼び出しが多すぎます。しばらく待ってからお試しください。" },
+        }),
+      };
+    };
+    try {
+      const { diagnoseYahooTransit } = await import("../js/routes.js");
+      const r = await diagnoseYahooTransit();
+      assert.equal(r.ok, false);
+      assert.equal(r.code, 429);
+      assert.match(r.message, /待って/);
+      assert.match(r.message, /呼び出しが多すぎます/);
+      assert.ok(!/ALLOW_ORIGIN/.test(r.message),
+        "待てば直るものを、設定の問題に見せています");
+      // 旅程が組めなくなるわけではないことも伝えます。
+      assert.match(r.message, /目安/);
+    } finally {
+      globalThis.fetch = real;
+    }
+  }));
