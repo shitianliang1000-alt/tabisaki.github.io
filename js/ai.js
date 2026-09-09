@@ -408,7 +408,15 @@ async function callCloudflare(model, prompt, opts = {}) {
   const data = await res.json();
   // 検索をしないので、出典はありません。前回の出典が残らないよう空にします。
   lastSources = { sources: [], queries: [] };
-  return String(data?.text ?? "").trim();
+  const out = String(data?.text ?? "").trim();
+  if (!out && data?.shape) {
+    // 中継までは通っていて、返事の入れ物が想定と違う場合です。
+    // 「空でした」だけだと直しようがないので、鍵の名前を渡します。
+    const err = new Error(`返事が空でした（形: ${data.shape.join(", ")}）`);
+    err.status = 502;
+    throw err;
+  }
+  return out;
 }
 
 async function callOnce(model, prompt, opts = {}) {
