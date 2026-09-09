@@ -22,7 +22,23 @@ export const MAPS_API_KEY = "";
 export const USE_ROUTES_API = true;
 
 // --- 3. どのモデルを、どこで動かすか ---------------------------------------
-export const MODEL_PROVIDER = "gemini";
+/**
+ * どこでAIを動かすか。
+ *
+ *   "cloudflare" … 中継（Cloudflare Worker）の中で動かす。**キー不要**
+ *   "gemini"     … Google AI Studio のキーで呼ぶ
+ *   "local"      … 手元のOllamaなど（LOCAL_BASE_URL）
+ *
+ * 既定は "cloudflare" です。鍵を置き忘れて「API key not valid」になる
+ * 道がそもそもありません。料金は Cloudflare のアカウント側（無料枠あり）。
+ */
+export const MODEL_PROVIDER = "cloudflare";
+
+// Workers AI で動かすモデル。E2B は Workers AI には無いので、Gemma 4 の
+// うち配信されているものを使います（26B-A4B は実際に動く4Bぶんの重みで、
+// 端末向けのE2Bより素直に賢いはずです）。
+export const CF_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+export const CF_FALLBACK_MODELS = ["@cf/google/gemma-3-12b-it"];
 
 // 手元で動かす場合（Ollama など）。E2B は端末で動かす前提の大きさです。
 export const LOCAL_MODEL = "gemma4:e2b";

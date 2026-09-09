@@ -36,8 +36,9 @@ test("中継は、使うモデルを通す", async () => {
   const { readFile } = await import("node:fs/promises");
   const worker = await readFile(new URL("../server/worker.js", import.meta.url),
                                 "utf8");
-  const { MODEL, FALLBACK_MODELS } = await import("../js/config.js");
-  for (const m of [MODEL, ...FALLBACK_MODELS]) {
+  const { MODEL, FALLBACK_MODELS, CF_MODEL, CF_FALLBACK_MODELS }
+    = await import("../js/config.js");
+  for (const m of [MODEL, ...FALLBACK_MODELS, CF_MODEL, ...CF_FALLBACK_MODELS]) {
     assert.ok(worker.includes(`"${m}"`),
       `中継の ALLOWED_MODELS に ${m} がありません（400 で弾かれます）`);
   }
