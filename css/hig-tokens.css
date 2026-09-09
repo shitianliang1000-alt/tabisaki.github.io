@@ -1,0 +1,218 @@
+/* =====================================================================
+   旅さき — 配色（Apple Human Interface Guidelines）
+
+   Apple のシステムカラーをそのまま持ってきています。
+   数値は iOS / macOS の System Colors の公称値です。
+
+   考えかたが Material とは逆です。
+   Material は「面の明るさ」で奥行きを出しますが、Apple は
+   **地をグレーにして、内容だけを白いカードで浮かせます**。
+     grouped-bg      … 画面の地（薄いグレー）
+     card            … その上に置く白いカード
+     fill            … 入力欄・チップの塗り
+   影はほとんど使いません。境目はヘアラインで引きます。
+
+   後半で、これまでの --md-sys-color-* に割り当て直しています。
+   画面側（app.css）を書き換えずに、配色だけを入れ替えるためです。
+
+   主なコントラスト比（明るい配色 / 暗い配色）:
+     本文（label / card）              21.0 / 18.9
+     補助（secondary-label）            4.6 /  6.3
+     主色（blue / card）                4.5 /  6.4
+   ===================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  /* --- システムカラー（明るい配色） --- */
+  --hig-blue:   #007AFF;
+  --hig-green:  #34C759;
+  --hig-indigo: #5856D6;
+  --hig-orange: #FF9500;
+  --hig-pink:   #FF2D55;
+  --hig-purple: #AF52DE;
+  --hig-red:    #FF3B30;
+  --hig-teal:   #30B0C7;
+  --hig-yellow: #FFCC00;
+  --hig-brown:  #A2845E;
+
+  /* --- グレー --- */
+  --hig-gray:  #8E8E93;
+  --hig-gray2: #AEAEB2;
+  --hig-gray3: #C7C7CC;
+  --hig-gray4: #D1D1D6;
+  --hig-gray5: #E5E5EA;
+  --hig-gray6: #F2F2F7;
+
+  /* --- 地とカード --- */
+  --hig-bg:            #FFFFFF;
+  --hig-grouped-bg:    var(--tabi-sand);
+  /* カードも真っ白にはしません。地との差が強すぎて、
+     枚数が増えるとちらつきます。ほんの少しだけ温度を入れます。 */
+  --hig-card:          #FFFDFA;
+  --hig-card-2:        #F1EDE6;
+  --hig-elevated:      #FFFFFF;   /* シート・ダイアログ */
+  /* 入力欄・チップの塗り。灰色ではなく、地の色を濃くしたもの。
+     灰色を重ねると、暖色の地の上で濁って見えます。 */
+  --hig-fill:          #E7E1D6;
+  --hig-fill-2:        #DDD6C8;
+  --hig-fill-3:        #D2CABA;
+
+  /* --- 文字 --- */
+  --hig-label:           #000000;
+  --hig-label-2:         #3C3C4399;
+  --hig-label-3:         #3C3C434D;
+  --hig-label-4:         #3C3C432E;
+
+  /* --- 境目 --- */
+  --hig-separator:        #00000024;
+  --hig-separator-opaque: #CFC7B8;
+
+  /* --- 旅さきの色 ---------------------------------------------------
+     Apple のシステムカラーをそのまま使うと、きれいですが「Apple の
+     アプリ」に見えます。旅の道具として覚えてもらうには、こちらの色が
+     要ります。3色だけ決めました。
+
+       藍   #0B5FBF  … 深い青。交通・信頼。主色
+       青緑 #16808C  … 山と海のあいだの色。第2色
+       地   #FAF8F5  … ほんのり暖かい白。画面の地
+
+     青だけだと冷たく、暖色だけだと甘くなります。混ぜると
+     「移動して、自然の中へ行く」ところに落ち着きました。 */
+  --tabi-indigo: #0F4C81;
+  --tabi-indigo-deep: #0A3557;
+  --tabi-teal: #157A82;
+  --tabi-teal-deep: #0B4A50;
+  /* 地の色。白ではありません。
+     真っ白は、紙ではなく「未完成の画面」に見えます。
+     ごく薄い砂色にすると、上に置いた白いカードが浮き上がり、
+     境目を線で引かなくても段が分かります。 */
+  --tabi-sand: #F4F1EB;
+  --tabi-sand-2: #EBE6DD;
+  --tabi-amber: #B4610F;
+
+  /* --- 主色の淡い塗り（選択中のチップなど） --- */
+  --hig-blue-tint:  #E3EBF3;
+  --hig-blue-deep:  #08427F;
+  --hig-teal-tint:  #DCEAEB;
+  --hig-teal-deep:  #0B5A63;
+  --hig-red-tint:   #FFE8E6;
+  --hig-red-deep:   #8C1006;
+
+  /* --- 材質（すりガラス） --- */
+  --hig-material:      #F4F1EBE0;
+  --hig-material-thin: #F4F1EBB8;
+  --hig-scrim:         #00000040;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --hig-blue:   #0A84FF;
+    --hig-green:  #30D158;
+    --hig-indigo: #5E5CE6;
+    --hig-orange: #FF9F0A;
+    --hig-pink:   #FF375F;
+    --hig-purple: #BF5AF2;
+    --hig-red:    #FF453A;
+    --hig-teal:   #40C8E0;
+    --hig-yellow: #FFD60A;
+    --hig-brown:  #AC8E68;
+
+    --hig-gray:  #8E8E93;
+    --hig-gray2: #636366;
+    --hig-gray3: #48484A;
+    --hig-gray4: #3A3A3C;
+    --hig-gray5: #2C2C2E;
+    --hig-gray6: #1C1C1E;
+
+    --tabi-indigo: #7FB3E8;
+    --tabi-indigo-deep: #C6DDF5;
+    --tabi-teal: #5EC4CE;
+    --tabi-teal-deep: #B0E6EB;
+    --tabi-sand: #16140F;
+    --tabi-sand-2: #211E18;
+    --tabi-amber: #E8A05C;
+
+    --hig-bg:            #000000;
+    --hig-grouped-bg:    #14120F;   /* 暗いほうも、わずかに暖かく */
+    --hig-card:          #211E18;
+    --hig-card-2:        #2B2721;
+    --hig-elevated:      #2B2721;
+    --hig-fill:          #35302A;
+    --hig-fill-2:        #403A32;
+    --hig-fill-3:        #4B443B;
+
+    --hig-label:           #FFFFFF;
+    --hig-label-2:         #EBEBF599;
+    --hig-label-3:         #EBEBF54D;
+    --hig-label-4:         #EBEBF52E;
+
+    --hig-separator:        #FFFFFF1F;
+    --hig-separator-opaque: #3B352D;
+
+    --hig-blue-tint:  #0A2A4D;
+    --hig-blue-deep:  #9CCBFF;
+    --hig-teal-tint:  #0B3A44;
+    --hig-teal-deep:  #A6E7F3;
+    --hig-red-tint:   #4A1512;
+    --hig-red-deep:   #FFB9B3;
+
+    --hig-material:      #16140FE6;
+    --hig-material-thin: #16140FBF;
+    --hig-scrim:         #00000099;
+  }
+}
+
+/* =====================================================================
+   これまでの名前への割り当て
+
+   app.css は --md-sys-color-* を使って書かれています。すべて書き換える
+   よりも、ここで意味の近いものに繋ぎ直すほうが、取りこぼしがありません。
+   「面の明るさで階層を出す」名前が並んでいますが、中身は Apple の
+   「地グレー＋白カード」に置き換わっています。
+   ===================================================================== */
+:root {
+  --md-sys-color-primary: var(--tabi-indigo);
+  --md-sys-color-on-primary: #FFFFFF;
+  --md-sys-color-primary-container: var(--hig-blue-tint);
+  --md-sys-color-on-primary-container: var(--hig-blue-deep);
+
+  --md-sys-color-secondary: var(--tabi-indigo);
+  --md-sys-color-on-secondary: #FFFFFF;
+  --md-sys-color-secondary-container: var(--hig-fill);
+  --md-sys-color-on-secondary-container: var(--hig-label);
+
+  --md-sys-color-tertiary: var(--tabi-teal);
+  --md-sys-color-on-tertiary: #FFFFFF;
+  --md-sys-color-tertiary-container: var(--hig-teal-tint);
+  --md-sys-color-on-tertiary-container: var(--hig-teal-deep);
+
+  --md-sys-color-error: var(--hig-red);
+  --md-sys-color-on-error: #FFFFFF;
+  --md-sys-color-error-container: var(--hig-red-tint);
+  --md-sys-color-on-error-container: var(--hig-red-deep);
+
+  --md-sys-color-background: var(--hig-grouped-bg);
+  --md-sys-color-on-background: var(--hig-label);
+  --md-sys-color-surface: var(--hig-grouped-bg);
+  --md-sys-color-on-surface: var(--hig-label);
+  --md-sys-color-surface-variant: var(--hig-fill);
+  --md-sys-color-on-surface-variant: var(--hig-label-2);
+
+  --md-sys-color-surface-dim: var(--hig-gray5);
+  --md-sys-color-surface-bright: var(--hig-card);
+  --md-sys-color-surface-container-lowest: var(--hig-card);
+  --md-sys-color-surface-container-low: var(--hig-card);
+  --md-sys-color-surface-container: var(--hig-card);
+  --md-sys-color-surface-container-high: var(--hig-elevated);
+  --md-sys-color-surface-container-highest: var(--hig-fill);
+
+  --md-sys-color-outline: var(--hig-gray);
+  --md-sys-color-outline-variant: var(--hig-separator);
+  --md-sys-color-inverse-surface: var(--hig-label);
+  --md-sys-color-inverse-on-surface: var(--hig-bg);
+  --md-sys-color-inverse-primary: var(--hig-blue);
+  --md-sys-color-scrim: #000000;
+  --md-sys-color-shadow: #000000;
+  --md-sys-color-surface-tint: var(--hig-blue);
+}

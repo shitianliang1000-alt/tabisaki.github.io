@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630"
+     viewBox="0 0 1200 630">
+  <!-- 共有したときに出る絵。1200×630 は OGP の標準です。
+       文字は画像に焼き込みます（受け取り側でフォントは選べません）。 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F4F1EB"/>
+      <stop offset="1" stop-color="#E4EAEC"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#157A82"/>
+      <stop offset="1" stop-color="#0F4C81"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <!-- 遠景の山なみ。旅の気配だけ置きます。 -->
+  <path fill="#0F4C81" opacity=".10"
+        d="M0 470 L170 320 L300 430 L470 250 L640 430 L800 330 L980 470
+           L1200 360 L1200 630 L0 630 Z"/>
+  <path fill="#157A82" opacity=".14"
+        d="M0 540 L220 430 L400 530 L600 410 L820 530 L1020 450 L1200 540
+           L1200 630 L0 630 Z"/>
+  <g transform="translate(96 150) scale(2.2)">
+    <path fill="url(#mark)"
+          d="M32 3c-11.6 0-21 9.4-21 21 0 15.2 18.1 34.4 18.9 35.2a3 3 0 0 0 4.2 0
+             C34.9 58.4 53 39.2 53 24 53 12.4 43.6 3 32 3z"/>
+    <path fill="#FFFDFA"
+          d="M32 10.5c.5 0 .9.3 1 .8l2.1 7.9 7.9 2.1c.9.2.9 1.5 0 1.8l-7.9 2.1
+             -2.1 7.9c-.2.9-1.5.9-1.8 0l-2.1-7.9-7.9-2.1c-.9-.2-.9-1.5 0-1.8
+             l7.9-2.1 2.1-7.9c.1-.5.5-.8 1-.8z"/>
+  </g>
+  <text x="260" y="258" font-size="76" font-weight="700" fill="#1A1712"
+        font-family="Hiragino Sans, Yu Gothic, Noto Sans JP, sans-serif">旅さき</text>
+  <text x="260" y="340" font-size="46" font-weight="700" fill="#0F4C81"
+        font-family="Hiragino Sans, Yu Gothic, Noto Sans JP, sans-serif">行きたい、から旅程をつくる。</text>
+  <text x="260" y="404" font-size="27" fill="#5A5348"
+        font-family="Hiragino Sans, Yu Gothic, Noto Sans JP, sans-serif">「温泉と海をゆっくり楽しみたい」の一言から、</text>
+  <text x="260" y="446" font-size="27" fill="#5A5348"
+        font-family="Hiragino Sans, Yu Gothic, Noto Sans JP, sans-serif">行き先・まわる順・移動時間まで組み立てます。</text>
+</svg>

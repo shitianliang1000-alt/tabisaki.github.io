@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- いまは1ページだけです。
+     エリア別のページ（「箱根 日帰り モデルコース」など）を
+     kb/ から作るようになったら、ここに足してください。 -->
+<urlset xmlns="http://www.sitemap.org/schemas/sitemap/0.9">
+  <url>
+    <loc>/index.html</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
