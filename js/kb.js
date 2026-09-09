@@ -17,12 +17,41 @@ const FAME_SCORE = { major: 82, known: 55, hidden: 26 };
  * 決まるもの」を1件ずつ持たせるだけでMB単位になります。ファイルには
  * 入れず、読み込んだここで埋めます。
  */
+/**
+ * 説明が住所だけのときは、説明として出しません。
+ *
+ * 収録13,569件のうち9,792件は、説明の欄に住所が入っています。
+ *
+ *   鹿児島市立美術館（美術館）。城山町4-36
+ *   大平山ロープウェイ        大字牟礼138-4
+ *
+ * カードの説明としては何も言っていません。読んだ人は「この道具は
+ * 場所のことを何も知らない」と受け取ります。住所は住所として残し
+ * （地図で使えます）、説明は分類と土地から組み立てます。
+ */
+const ADDRESS_LIKE = /^[^。！？]{0,40}$/;
+const ADDRESS_MARK = /[0-9０-９]|丁目|番地|大字|字[ぁ-んァ-ヶ一-龠]/;
+
+export function describeIfAddress(spot) {
+  const text = String(spot.description ?? "").trim();
+  if (!text) return spot;
+  // 文になっていない（句点が無い）うえ、番地や大字を含むなら住所です。
+  if (!ADDRESS_LIKE.test(text) || !ADDRESS_MARK.test(text)) return spot;
+  spot.address ??= text;
+  const where = spot.region || spot.prefecture || "";
+  spot.description = where && spot.category
+    ? `${where}の${spot.category}`
+    : (spot.category || "");
+  return spot;
+}
+
 function hydrate(spot, region) {
   spot.region ??= region?.name ?? "";
   spot.prefecture ??= region?.prefecture ?? "";
   spot.prefectureId ??= spot.regionId;
   spot.country ??= region?.country ?? "日本";
   spot.genres ??= genresForCategory(spot.category);
+  describeIfAddress(spot);
   spot.wikipedia ??= spot.name;
   spot.fame_score ??= FAME_SCORE[spot.fame_tier] ?? 50;
   if (spot.src) {

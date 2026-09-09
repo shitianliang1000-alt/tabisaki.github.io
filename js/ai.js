@@ -172,9 +172,11 @@ export function noteAiError(e) {
  *
  * 「必ず行く」で入ったエリアは、動かしません。
  */
-export function coherentRegions(pool, limit, pinned = 0) {
+export function coherentRegions(pool, limit, pinned = 0, groupById = null) {
   const out = pool.slice(0, pinned);
   const rest = pool.slice(pinned);
+  const usedGroups = new Set(
+    out.map((c) => groupById?.get(c.region.id)).filter(Boolean));
   while (out.length < limit && rest.length) {
     let bestI = 0;
     let bestScore = -Infinity;
@@ -183,10 +185,18 @@ export function coherentRegions(pool, limit, pinned = 0) {
       const detour = out.length
         ? Math.min(...out.map((o) => haversineKm(o.region, c.region)))
         : 0;
-      const adjusted = (c.score ?? 0) - detour / 200;
+      // 「3大都市」のように街を名指しされたときは、まだ行っていない街を
+      // 先に選びます。距離だけで選ぶと、いちばん近い1つの街に3エリアとも
+      // 固まり、名指しされた意味が消えます。
+      const group = groupById?.get(c.region.id);
+      const fresh = group && !usedGroups.has(group) ? 8 : 0;
+      const adjusted = (c.score ?? 0) + fresh - detour / 200;
       if (adjusted > bestScore) { bestScore = adjusted; bestI = i; }
     }
-    out.push(rest[bestI]);
+    const picked = rest[bestI];
+    const g = groupById?.get(picked.region.id);
+    if (g) usedGroups.add(g);
+    out.push(picked);
     rest.splice(bestI, 1);
   }
   return out;
@@ -636,7 +646,7 @@ export async function proposePlan(candidates, plan, note, maxSpots, tierTargets,
       c.spots.some((s) => mustIds.has(s.spot.id)));
     const rest = candidates.filter((c) => !mustFirst.includes(c));
     const chosen = coherentRegions([...mustFirst, ...rest], maxRegions,
-                                   mustFirst.length);
+                                   mustFirst.length, opts.groupById);
     const perRegion = Math.max(1, Math.ceil(maxSpots / chosen.length));
     const picks = [];
     const taken = new Set();

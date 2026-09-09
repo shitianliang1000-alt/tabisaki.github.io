@@ -718,3 +718,43 @@ test("3.1kmを「徒歩」と書かない", () => {
     }
   }
 });
+
+test("「3大都市」のような言い回しを、言葉として分かる", async () => {
+  const { detectAreas, areaScope } = await import("../js/areas.js");
+  const kb = { regions: [
+    { id: "tokyo", name: "東京・浅草", prefecture: "東京都" },
+    { id: "osaka", name: "大阪市", prefecture: "大阪府" },
+    { id: "nagoya", name: "名古屋", prefecture: "愛知県" },
+    { id: "kagoshima", name: "鹿児島市", prefecture: "鹿児島県" },
+  ] };
+  const areas = detectAreas("3大都市の美術館と建築をめぐりたい", kb);
+  assert.equal(areas.length, 1, `拾いすぎ/拾えず: ${areas.map((a) => a.term)}`);
+  const scope = areaScope(areas);
+  assert.deepEqual([...scope.regionIds].sort(), ["nagoya", "osaka", "tokyo"]);
+  // どのエリアがどの街に属するかも返します（1つずつ回るため）。
+  assert.equal(scope.groupById.get("osaka"), "大阪");
+
+  // 「3大都市」を拾ったあとで「大都市」も拾うと、指定が広がって消えます。
+  assert.equal(detectAreas("大都市を回りたい", kb).length, 1);
+});
+
+test("名指しされた街は、1つずつ回る", async () => {
+  const { coherentRegions } = await import("../js/ai.js");
+  const r = (id, name, lat, lng, score) =>
+    ({ region: { id, name, lat, lng }, score });
+  // 大阪の中に高い点が並んでいると、距離だけで選べば3つとも大阪になります。
+  const pool = [
+    r("osaka1", "大阪・ミナミ", 34.66, 135.50, 9.0),
+    r("osaka2", "大阪市", 34.69, 135.50, 8.9),
+    r("osaka3", "東大阪市", 34.68, 135.60, 8.8),
+    r("nagoya", "名古屋", 35.17, 136.88, 8.0),
+    r("tokyo", "東京・浅草", 35.71, 139.79, 7.9),
+  ];
+  const groups = new Map([["osaka1", "大阪"], ["osaka2", "大阪"],
+                          ["osaka3", "大阪"], ["nagoya", "名古屋"],
+                          ["tokyo", "東京"]]);
+  const names = coherentRegions(pool, 3, 0, groups).map((c) => c.region.name);
+  assert.equal(new Set(names.map((n) => groups.get(
+    pool.find((p) => p.region.name === n).region.id))).size, 3,
+    `1つの街に固まっています: ${names.join("・")}`);
+});

@@ -18,6 +18,9 @@ import { END_MODES, dayEnd, nightsOf, returnsToStart } from "./trip.js";
 let seq = 0;
 const nextId = () => `it-${++seq}`;
 
+/** これより短い待ちは、「自由時間」の行として立てません。 */
+const MIN_FREE_MIN = 20;
+
 /**
  * 移動の項目に、公共交通の中身（路線・乗換・待ち時間）を足します。
  *
@@ -180,7 +183,10 @@ export function buildItinerary(input) {
         }, legDetail(cur, v.spot)?.transit));
       }
       cur = v.spot;
-      if (v.wait > 0) {
+      // 待ち時間を「自由時間」として立てるのは、それが**予定として意味を持つ**
+      // ときだけです。「9分の自由時間」と書かれても、できることはありません。
+      // 数分の待ちは、旅程の行を増やすだけで、読む手間が増えます。
+      if (v.wait >= MIN_FREE_MIN) {
         items.push({
           id: nextId(), kind: "free",
           start: addMinutes(v.arrive, -v.wait), end: v.arrive,
@@ -358,9 +364,9 @@ function fmtHm(d) {
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/** その区間を歩くか。歩ける距離（既定1.4km）までを徒歩と呼びます。 */
+/** その区間を歩くか。歩ける距離（既定1km）までを徒歩と呼びます。 */
 function isWalkLeg(km) {
-  return Number.isFinite(km) && km > 0 && km <= (TUNING.walkableKm ?? 1.4);
+  return Number.isFinite(km) && km > 0 && km <= (TUNING.walkableKm ?? 1.0);
 }
 
 function mealItem(start, end, title, region) {

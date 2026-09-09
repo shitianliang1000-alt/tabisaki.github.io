@@ -49,7 +49,9 @@ export const TUNING = {
   mealYen: 1500,
   lodgingYen: 12000,
   transitThresholdKm: 2.5,
-  walkableKm: 1.4,
+  // ここまでは歩く、という距離。1.4kmにしていましたが、旅先で荷物を
+  // 持って歩くと、1kmを超えたあたりからつらくなります。
+  walkableKm: 1.0,
   // 徒歩の実測（Googleの経路API）に使う回数。ここは課金対象なので絞ります。
   maxTransitRequests: 8,
   // Yahoo!路線情報に聞く回数。こちらは課金されず、中継側で1時間控える

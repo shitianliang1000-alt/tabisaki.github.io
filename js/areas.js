@@ -34,6 +34,32 @@ export const MACRO_AREAS = {
   瀬戸内: ["香川県", "愛媛県", "岡山県", "広島県", "兵庫県"],
 };
 
+/**
+ * 決まった言い回し。
+ *
+ * 「3大都市の美術館をめぐりたい」と書いても、「3大都市」という語は
+ * どのスポット名にも入っていません。一致ゼロのまま点の高い順に選ぶので、
+ * 鹿児島市・京都市・箱根のような並びが出ていました。**日本語として
+ * 分かっている言葉は、分かっているものとして扱います。**
+ *
+ * ここに入れるのは、指す先が決まっているものだけです。「絶景」や
+ * 「映え」のような、人によって指す先が変わる言葉は入れません。
+ */
+export const NAMED_SETS = {
+  三大都市: ["東京", "大阪", "名古屋"],
+  "3大都市": ["東京", "大阪", "名古屋"],
+  三大都市圏: ["東京", "大阪", "名古屋"],
+  五大都市: ["東京", "大阪", "名古屋", "横浜", "京都"],
+  大都市: ["東京", "大阪", "名古屋", "横浜", "札幌", "福岡"],
+  日本三景: ["松島", "天橋立", "宮島"],
+  三名園: ["金沢", "岡山", "水戸"],
+  日本三名園: ["金沢", "岡山", "水戸"],
+  三名泉: ["草津", "下呂", "有馬"],
+  日本三名泉: ["草津", "下呂", "有馬"],
+  三古湯: ["道後", "有馬", "白浜"],
+  三大祭: ["京都", "大阪", "東京"],
+};
+
 export const PREFECTURES = [
   "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
   "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
@@ -60,10 +86,10 @@ export function detectAreas(text, kb) {
   const found = [];
   const seen = new Set();
 
-  const push = (term, kind, prefectures, regionIds) => {
+  const push = (term, kind, prefectures, regionIds, groups = null) => {
     if (seen.has(term)) return;
     seen.add(term);
-    found.push({ term, kind, prefectures, regionIds });
+    found.push({ term, kind, prefectures, regionIds, groups });
   };
 
   // 収録エリア名（「箱根」「道後」など）がいちばん具体的なので先に見る
@@ -74,6 +100,33 @@ export function detectAreas(text, kb) {
         break;
       }
     }
+  }
+  // 決まった言い回し（「3大都市」「日本三景」）は、指す先が決まっています。
+  // 広い地方名より先に見ます。「三大都市」を「都市」の一般語として
+  // 扱うと、結局は点の高い順に戻ってしまいます。
+  // 長い言い回しから順に見ます。「3大都市」を拾ったあとで「大都市」も
+  // 拾うと、6エリアの指定が13エリアに広がって、指定した意味が消えます。
+  const namedHits = [];
+  for (const [term, names] of Object.entries(NAMED_SETS)
+    .sort((a, b) => b[0].length - a[0].length)) {
+    if (!s.includes(term)) continue;
+    if (namedHits.some((t) => t.includes(term))) continue;
+    namedHits.push(term);
+    const ids = [];
+    const prefs = new Set();
+    // どのエリアが、どの地名（東京・大阪・名古屋）に属するか。
+    // 「3大都市」は3つとも回るのが自然なので、あとで1つずつ選びます。
+    const groups = new Map();
+    for (const name of names) {
+      for (const r of kb?.regions ?? []) {
+        if (r.name.includes(name) || name.includes(r.name)) {
+          ids.push(r.id);
+          groups.set(r.id, name);
+          if (r.prefecture) prefs.add(r.prefecture);
+        }
+      }
+    }
+    if (ids.length) push(term, "region", [...prefs], ids, groups);
   }
   for (const [term, prefs] of Object.entries(MACRO_AREAS)) {
     if (s.includes(term)) push(term, "macro", prefs, regionsIn(kb, prefs));
@@ -106,8 +159,15 @@ export function areaScope(areas) {
   const missing = areas.filter((a) => !a.regionIds.length);
   if (!matched.length) return { regionIds: null, matched, missing };
   const ids = new Set();
-  for (const a of matched) for (const id of a.regionIds) ids.add(id);
-  return { regionIds: ids, matched, missing };
+  // 「3大都市」のように、複数の地名を並べた言い方のときは、その内訳も
+  // 返します。1つの街に固まらず、名指しされた街を1つずつ回るためです。
+  const groupById = new Map();
+  for (const a of matched) {
+    for (const id of a.regionIds) ids.add(id);
+    if (a.groups) for (const [id, name] of a.groups) groupById.set(id, name);
+  }
+  return { regionIds: ids, matched, missing,
+           groupById: groupById.size ? groupById : null };
 }
 
 /**

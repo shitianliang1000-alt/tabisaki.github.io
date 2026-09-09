@@ -347,7 +347,8 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   });
 
   onProgress(2);
-  const planOpts = { maxRegions, days, mustSpotIds, avoidSpotIds };
+  const planOpts = { maxRegions, days, mustSpotIds, avoidSpotIds,
+                     groupById: scope.groupById ?? null };
   let proposal = await proposePlan(candidates, query, trip.note,
                                    maxSpots, targets, "", planOpts);
 

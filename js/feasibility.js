@@ -170,7 +170,8 @@ export function isSlowTerrain(spot) {
 export function estimateMinutes(a, b, opts = {}) {
   const km = haversineKm(a, b);
   if (opts.slow) return Math.max(10, Math.round((km / 2.2) * 60) + 10);
-  if (km <= 1.4) return Math.max(5, Math.round((km / 4.2) * 60) + 4);
+  // 歩く速さは時速4.2km。ここを超えると、乗り物を使う前提の見積もりです。
+  if (km <= 1.0) return Math.max(5, Math.round((km / 4.2) * 60) + 4);
   if (km <= 40) return Math.round((km / 22) * 60) + 10;
   // 40km を超えると鉄道が現実的な手段になります。直線距離あたりの実効速度は
   // 在来線で 50km/h 前後、新幹線区間では 120km/h 前後まで上がるため、
