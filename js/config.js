@@ -23,12 +23,23 @@ export const USE_ROUTES_API = true;
 
 // --- 3. どのモデルを、どこで動かすか ---------------------------------------
 export const MODEL_PROVIDER = "gemini";
-export const LOCAL_MODEL = "gemma3n:e2b";
+
+// 手元で動かす場合（Ollama など）。E2B は端末で動かす前提の大きさです。
+export const LOCAL_MODEL = "gemma4:e2b";
 export const LOCAL_BASE_URL = "http://localhost:11434";
-export const MODEL = "gemini-3.7-flash";
+
+// Gemini API 経由で呼ぶモデル。
+//
+// **E2B は Gemini API では配信されていません。**Gemma 4 は E2B / E4B /
+// 26B-A4B / 31B の4つですが、API で呼べるのは 26B-A4B と 31B です
+// （E2B は端末側＝LiteRT・Ollama 向け）。ここには E2B を先頭に置き、
+// 呼べなければ下へ落ちるようにしています。ai.js は 400/404 を受けると
+// 次の候補へ進むので、配信が始まればそのまま E2B が使われます。
+// 手元の E2B を使いたい場合は MODEL_PROVIDER を "local" にしてください。
+export const MODEL = "gemma-4-e2b-it";
 export const FALLBACK_MODELS = [
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
+  "gemma-4-26b-a4b-it",
+  "gemma-4-31b-it",
 ];
 export const EMBED_MODEL = "gemini-embedding-001";
 export const EMBED_DIM = 768;

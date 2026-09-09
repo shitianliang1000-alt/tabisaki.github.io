@@ -112,7 +112,7 @@ export const GEMINI_API_KEY = "AIza...";
 ### モデル
 
 ```js
-export const MODEL = "gemini-3.7-flash";
+export const MODEL = "gemma-4-e2b-it";
 export const FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
 ```
 

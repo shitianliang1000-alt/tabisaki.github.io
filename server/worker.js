@@ -22,7 +22,10 @@ const ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
 // いません。Yahoo!は候補を3本出す（早い順・安い順・乗換の少ない順）ので、
 // 全部読んで、選べるようにします。
 const YAHOO_TRANSIT_URL = "https://transit.yahoo.co.jp/search/result";
+// 中継が通すモデル。ここに無いものは 400 で返します（高いモデルを
+// 勝手に呼ばれないため）。埋め込みは Gemma に無いので Gemini のままです。
 const ALLOWED_MODELS = new Set([
+  "gemma-4-e2b-it", "gemma-4-26b-a4b-it", "gemma-4-31b-it",
   "gemini-3.7-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite",
   "gemini-embedding-001",
 ]);

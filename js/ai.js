@@ -246,10 +246,17 @@ const SYSTEM = [
  */
 export function buildModelRequest(prompt, {
   temperature = 0.4, search = false, schema = null, topP, thinking,
+  model = MODEL,
 } = {}) {
+  // Gemma には構造化出力（responseSchema）がありません。付けて投げると
+  // 400 が返り、モデルの候補を1つ落として次へ行ってしまいます。
+  // かわりに「JSONだけを返してください」と本文で頼み、返事から JSON を
+  // 拾います（extractJson）。もともと、切り詰められた応答のために
+  // その道は用意してあります。
+  const gemma = /^gemma/i.test(String(model ?? ""));
   const generationConfig = { temperature };
   if (Number.isFinite(topP)) generationConfig.topP = topP;
-  if (schema && !search) {
+  if (schema && !search && !gemma) {
     generationConfig.responseMimeType = "application/json";
     generationConfig.responseSchema = schema;
   }
@@ -258,8 +265,11 @@ export function buildModelRequest(prompt, {
   if (Number.isFinite(thinking)) {
     generationConfig.thinkingConfig = { thinkingBudget: thinking };
   }
+  const text = schema && !search && gemma
+    ? `${prompt}\n\n出力は JSON だけにしてください。説明文や \`\`\` は付けないでください。`
+    : prompt;
   const body = {
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    contents: [{ role: "user", parts: [{ text }] }],
     systemInstruction: { parts: [{ text: SYSTEM }] },
     generationConfig,
   };
@@ -347,7 +357,7 @@ async function callOnce(model, prompt, opts = {}) {
       "Content-Type": "application/json",
       ...keyHeaders("gemini", cfg),
     },
-    body: JSON.stringify(buildModelRequest(prompt, opts)),
+    body: JSON.stringify(buildModelRequest(prompt, { ...opts, model })),
     signal,
   });
   if (!res.ok) {
