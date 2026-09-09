@@ -62,6 +62,26 @@ node server/node-proxy.mjs
 `PROXY_URL` は **https しか受け付けません**。http だと通信の中身が
 途中で読まれ、キーを隠した意味がなくなるためです。
 
+## AIは、この中継の中で動かせます（キー不要）
+
+Cloudflare の Workers AI に Gemma 4 があります。`wrangler.jsonc` の
+
+```jsonc
+"ai": { "binding": "AI" }
+```
+
+を入れて配備すると、`POST /cf/generate` が使えます。**Googleのキーは
+要りません。**アプリ側は `js/config.js` の
+
+```js
+export const MODEL_PROVIDER = "cloudflare";   // 既定
+export const CF_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+```
+
+で、こちらを使います。料金は Cloudflare のアカウント側（無料枠あり）。
+Google AI Studio のキーを使いたい場合は `MODEL_PROVIDER = "gemini"` に
+戻し、`GEMINI_API_KEY` を置いてください。
+
 ## 鍵が入っているかを確かめる
 
 ```bash

@@ -22,7 +22,18 @@ const ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
 // いません。Yahoo!は候補を3本出す（早い順・安い順・乗換の少ない順）ので、
 // 全部読んで、選べるようにします。
 const YAHOO_TRANSIT_URL = "https://transit.yahoo.co.jp/search/result";
+// 中継が通すモデル。ここに無いものは 400 で返します（高いモデルを
+// 勝手に呼ばれないため）。埋め込みは Gemma に無いので Gemini のままです。
+// Cloudflare の Workers AI で動かすモデル。**Googleのキーは要りません。**
+// 中継（このWorker）の中で走ります。E2B は Workers AI には無いので、
+// Gemma 4 のうち配信されているものを使います。
+const ALLOWED_CF_MODELS = new Set([
+  "@cf/google/gemma-4-26b-a4b-it",
+  "@cf/google/gemma-3-12b-it",
+]);
+
 const ALLOWED_MODELS = new Set([
+  "gemma-4-e2b-it", "gemma-4-26b-a4b-it", "gemma-4-31b-it",
   "gemini-3.7-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite",
   "gemini-embedding-001",
 ]);
@@ -53,6 +64,7 @@ export default {
       if (path.endsWith("/gemini/generate")) return cors(await gemini(request, env, "generateContent"), origin, allow);
       if (path.endsWith("/gemini/embed")) return cors(await gemini(request, env, "embedContent"), origin, allow);
       if (path.endsWith("/routes")) return cors(await routes(request, env), origin, allow);
+      if (path.endsWith("/cf/generate")) return cors(await cfGenerate(request, env), origin, allow);
       if (path.endsWith("/yahoo/transit")) return cors(await yahooTransit(request), origin, allow);
       // 鍵が入っているかどうかだけを答えます（値は返しません）。
       // 「キーが無効です」と「中継に鍵が置かれていない」は別のことで、
@@ -64,6 +76,8 @@ export default {
             MAPS_API_KEY: hasSecret(env, "MAPS_API_KEY"),
             GEMINI_API_KEY: hasSecret(env, "GEMINI_API_KEY"),
           },
+          // Workers AI が使えるなら、AIのキーは要りません。
+          workersAi: Boolean(env.AI),
           allowOrigin: allow,
         }), origin, allow);
       }
@@ -88,6 +102,31 @@ function missingSecret(env, name) {
   if (hasSecret(env, name)) return null;
   return text(`中継に ${name} が設定されていません。`
     + `Worker で \`npx wrangler secret put ${name}\` を実行してください`, 503);
+}
+
+/**
+ * Cloudflare の Workers AI で答えさせます。
+ *
+ * Googleのキーは要りません。Cloudflare のアカウントの中で走るので、
+ * 鍵を置き忘れて「API key not valid」になることもありません。
+ * かわりに、wrangler.jsonc の ai バインディングが要ります。
+ */
+async function cfGenerate(request, env) {
+  if (!env.AI) {
+    return text("この中継では Workers AI が有効になっていません。"
+      + "wrangler.jsonc の \"ai\" バインディングを入れて配備し直してください", 503);
+  }
+  const body = await readJson(request);
+  const model = String(body?.model ?? "");
+  if (!ALLOWED_CF_MODELS.has(model)) return text("そのモデルは使えません", 400);
+  const messages = Array.isArray(body?.messages) ? body.messages.slice(0, 8) : null;
+  if (!messages?.length) return text("messages が要ります", 400);
+  const out = await env.AI.run(model, {
+    messages,
+    temperature: Number.isFinite(body?.temperature) ? body.temperature : 0.4,
+    max_tokens: Math.min(4096, Number(body?.max_tokens) || 2048),
+  });
+  return json({ text: String(out?.response ?? "") });
 }
 
 async function gemini(request, env, method) {

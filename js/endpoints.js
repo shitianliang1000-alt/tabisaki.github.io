@@ -50,6 +50,7 @@ export function endpointFor(what, args = {}, cfg = {}) {
     return `${base}/${{ "gemini:generate": "gemini/generate",
                         "gemini:embed": "gemini/embed",
                         "local:generate": "local/generate",
+                        "cf:generate": "cf/generate",
                         "routes": "routes",
                         "status": "status",
                         "yahoo:transit": "yahoo/transit" }[what] ?? what}`;

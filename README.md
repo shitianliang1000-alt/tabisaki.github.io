@@ -283,10 +283,10 @@ AI用APIキーを設定しなくても、アプリ自体は動作します。
 
 ```js
 export const MODEL_PROVIDER = "gemini";
-export const MODEL = "gemini-3.7-flash";
+export const MODEL = "gemma-4-e2b-it";
 export const FALLBACK_MODELS = [
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
+  "gemma-4-26b-a4b-it",
+  "gemma-4-31b-it",
 ];
 ```
 

@@ -11,7 +11,7 @@
 
 import {
   FALLBACK_MODELS, EMBED_DIM, EMBED_MODEL, LOCAL_BASE_URL,
-  LOCAL_MODEL, MODEL, MODEL_PROVIDER,
+  CF_FALLBACK_MODELS, CF_MODEL, LOCAL_MODEL, MODEL, MODEL_PROVIDER,
 } from "./config.js";
 import { endpointFor, keyHeaders, proxyStatus, usingProxy } from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
@@ -53,9 +53,14 @@ export function usingLocalModel() {
   return MODEL_PROVIDER === "local";
 }
 
+/** 中継（Cloudflare Worker）の中で動かすか。Googleのキーは要りません。 */
+export function usingCloudflare() {
+  return MODEL_PROVIDER === "cloudflare";
+}
+
 /** そのモデルで、Google 検索による裏取りができるか。 */
 export function canGround() {
-  return !usingLocalModel();
+  return !usingLocalModel() && !usingCloudflare();
 }
 
 let resolved = null;      // 実際に使えたモデルID
@@ -70,6 +75,22 @@ export function resolvedModel() {
  * どのモデルで通ったかも返すので、モデル名の指定違いもここで分かります。
  */
 export async function diagnoseGeminiKey(signal) {
+  if (usingCloudflare()) {
+    try {
+      const out = await callCloudflare(CF_MODEL, "OKとだけ返してください。",
+                                       { temperature: 0, signal });
+      return { ok: true, model: CF_MODEL,
+        message: `${CF_MODEL} に接続できました（Cloudflare Workers AI）。`
+          + "\nAIのキーは要りません。中継の中で動いています。"
+          + `\n返事: ${out.slice(0, 40)}` };
+    } catch (e) {
+      return { ok: false, message:
+        "Workers AI に接続できませんでした。"
+        + "\nwrangler.jsonc の \"ai\" バインディングを入れて、配備し直して"
+        + "ください（npx wrangler deploy）。"
+        + `\n詳細: ${String(e?.message ?? e)}` };
+    }
+  }
   if (usingLocalModel()) {
     try {
       await callLocal("OKとだけ返してください。", { temperature: 0, signal });
@@ -204,7 +225,7 @@ export function coherentRegions(pool, limit, pinned = 0, groupById = null) {
 
 export function hasApiKey() {
   // 自分で立てたモデルは、キーという概念がありません。
-  if (usingLocalModel()) return true;
+  if (usingLocalModel() || usingCloudflare()) return true;
   // プロキシ経由なら、キーはサーバーが持っています。
   // ブラウザ側が空なのは正常なので、それで「使えない」とは判断しません。
   const c = net();
@@ -246,10 +267,17 @@ const SYSTEM = [
  */
 export function buildModelRequest(prompt, {
   temperature = 0.4, search = false, schema = null, topP, thinking,
+  model = MODEL,
 } = {}) {
+  // Gemma には構造化出力（responseSchema）がありません。付けて投げると
+  // 400 が返り、モデルの候補を1つ落として次へ行ってしまいます。
+  // かわりに「JSONだけを返してください」と本文で頼み、返事から JSON を
+  // 拾います（extractJson）。もともと、切り詰められた応答のために
+  // その道は用意してあります。
+  const gemma = /^gemma/i.test(String(model ?? ""));
   const generationConfig = { temperature };
   if (Number.isFinite(topP)) generationConfig.topP = topP;
-  if (schema && !search) {
+  if (schema && !search && !gemma) {
     generationConfig.responseMimeType = "application/json";
     generationConfig.responseSchema = schema;
   }
@@ -258,8 +286,11 @@ export function buildModelRequest(prompt, {
   if (Number.isFinite(thinking)) {
     generationConfig.thinkingConfig = { thinkingBudget: thinking };
   }
+  const text = schema && !search && gemma
+    ? `${prompt}\n\n出力は JSON だけにしてください。説明文や \`\`\` は付けないでください。`
+    : prompt;
   const body = {
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    contents: [{ role: "user", parts: [{ text }] }],
     systemInstruction: { parts: [{ text: SYSTEM }] },
     generationConfig,
   };
@@ -337,6 +368,49 @@ async function callLocal(prompt, opts = {}) {
   return String(data?.choices?.[0]?.message?.content ?? "").trim();
 }
 
+/**
+ * Cloudflare の Workers AI で答えさせます。
+ *
+ * 中継の中で走るので、Googleのキーは要りません。構造化出力は無いので、
+ * 本文で「JSONだけ」と頼み、返事から拾います（extractJson）。
+ */
+async function callCloudflare(model, prompt, opts = {}) {
+  const { signal, temperature = 0.4, schema } = opts;
+  const cfg = net();
+  // Workers AI は中継の中で動きます。中継が無ければ、行き先がありません。
+  if (!usingProxy(cfg)) {
+    throw new Error("Workers AI を使うには PROXY_URL（Cloudflare Worker）が"
+      + "要ります。js/config.js をご確認ください");
+  }
+  const url = endpointFor("cf:generate", {}, cfg);
+  const text = schema
+    ? `${prompt}\n\n出力は JSON だけにしてください。説明文や \`\`\` は付けないでください。`
+    : prompt;
+  const res = await meteredFetch("gemini", url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      temperature,
+      messages: [
+        { role: "system", content: SYSTEM },
+        { role: "user", content: text },
+      ],
+    }),
+    signal,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    const err = new Error(`${res.status} ${body.slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  // 検索をしないので、出典はありません。前回の出典が残らないよう空にします。
+  lastSources = { sources: [], queries: [] };
+  return String(data?.text ?? "").trim();
+}
+
 async function callOnce(model, prompt, opts = {}) {
   const { signal } = opts;
   const cfg = net();
@@ -347,7 +421,7 @@ async function callOnce(model, prompt, opts = {}) {
       "Content-Type": "application/json",
       ...keyHeaders("gemini", cfg),
     },
-    body: JSON.stringify(buildModelRequest(prompt, opts)),
+    body: JSON.stringify(buildModelRequest(prompt, { ...opts, model })),
     signal,
   });
   if (!res.ok) {
@@ -395,6 +469,24 @@ export async function callModelJson(prompt, opts = {}) {
  * 次の候補へ進みます。それ以外のエラーはそのまま投げます。
  */
 export async function callModel(prompt, opts = {}) {
+  if (usingCloudflare()) {
+    // 検索は使えません。呼び出し側が search を渡してきても外します。
+    const { search: _drop, ...rest } = opts;
+    let lastErr = null;
+    for (const model of [CF_MODEL, ...CF_FALLBACK_MODELS]) {
+      try {
+        const out = await callCloudflare(model, prompt, rest);
+        resolved = model;
+        return out;
+      } catch (e) {
+        lastErr = e;
+        // そのモデルが無い／使えないときだけ、次を試します。
+        if (e.status === 404 || e.status === 400) continue;
+        throw e;
+      }
+    }
+    throw lastErr ?? new Error("利用できるモデルがありません");
+  }
   if (usingLocalModel()) {
     // 検索は使えません。呼び出し側が search を渡してきても外します。
     // 黙って無視すると、「調べたつもりの推測」が返ります。
