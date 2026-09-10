@@ -626,7 +626,13 @@ function transitLine(yahoo) {
   const m = yahoo?.meta ?? {};
   if (!m.departure || !m.arrival) return null;
   const parts = [`${m.departure}発→${m.arrival}着`];
-  if (yahoo.minutes > 0) parts[0] += `（${fmtMinutes(yahoo.minutes)}）`;
+  // 出す所要時間は、**その便に乗っている時間**です。
+  //
+  // yahoo.minutes は「頼んだ時刻から着くまで」で、便を待つ時間を含みます。
+  // それをここに出すと「06:28発→08:49着（4時間49分）」になり、同じ行の
+  // 中で計算が合いません（引き算すると2時間21分です）。
+  const ride = yahoo.rideMinutes ?? yahoo.minutes;
+  if (ride > 0) parts[0] += `（${fmtMinutes(ride)}）`;
   if (Number.isFinite(m.transfers)) {
     parts.push(m.transfers > 0 ? `乗換${m.transfers}回` : "乗換なし");
   }

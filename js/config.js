@@ -59,11 +59,18 @@ export const LOCAL_BASE_URL = "http://localhost:11434";
 // 呼べなければ下へ落ちるようにしています。ai.js は 400/404 を受けると
 // 次の候補へ進むので、配信が始まればそのまま E2B が使われます。
 // 手元の E2B を使いたい場合は MODEL_PROVIDER を "local" にしてください。
-export const MODEL = "gemma-4-26b-a4b-it";
+// 先頭は **1日14,400回** の枠がある Gemma 3 27B にします。
+//
+// gemma-4-* を先頭にしていましたが、Gemini API で配信されているかは
+// 時期によります。存在しないIDは404で落ち、そのぶん最初の呼び出しが
+// 遅くなります（候補を順に試すため）。確実に呼べるものを先頭に置き、
+// 新しいものは後ろで拾います。ai.js は404を受けると次の候補へ進むので、
+// 配信が始まればそのまま使われます。
+export const MODEL = "gemma-3-27b-it";
 export const FALLBACK_MODELS = [
-  "gemma-3-27b-it",
+  "gemma-4-26b-a4b-it",
   "gemma-3-12b-it",
-  "gemma-4-31b-it",
+  "gemma-3-4b-it",
 ];
 export const EMBED_MODEL = "gemini-embedding-001";
 export const EMBED_DIM = 768;

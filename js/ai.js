@@ -58,9 +58,21 @@ export function usingCloudflare() {
   return MODEL_PROVIDER === "cloudflare";
 }
 
-/** そのモデルで、Google 検索による裏取りができるか。 */
+/** そのモデルは Gemma か。Gemini とは、できることが違います。 */
+export function isGemma(model = MODEL) {
+  return /gemma/i.test(String(model ?? ""));
+}
+
+/**
+ * そのモデルで、Google 検索による裏取りができるか。
+ *
+ * **Gemma にはできません。** ツール（google_search）を受け取らないので、
+ * 付けて投げると 400 が返ります。ここが true のままだと、収録に無い
+ * 土地を調べる discover.js が毎回400を食らい、そのたびに「AIに聞け
+ * ませんでした」に落ちていました。
+ */
 export function canGround() {
-  return !usingLocalModel() && !usingCloudflare();
+  return !usingLocalModel() && !usingCloudflare() && !isGemma();
 }
 
 let resolved = null;      // 実際に使えたモデルID
@@ -274,7 +286,7 @@ export function buildModelRequest(prompt, {
   // かわりに「JSONだけを返してください」と本文で頼み、返事から JSON を
   // 拾います（extractJson）。もともと、切り詰められた応答のために
   // その道は用意してあります。
-  const gemma = /^gemma/i.test(String(model ?? ""));
+  const gemma = isGemma(model);
   const generationConfig = { temperature };
   if (Number.isFinite(topP)) generationConfig.topP = topP;
   if (schema && !search && !gemma) {
@@ -286,15 +298,25 @@ export function buildModelRequest(prompt, {
   if (Number.isFinite(thinking)) {
     generationConfig.thinkingConfig = { thinkingBudget: thinking };
   }
-  const text = schema && !search && gemma
+  let text = schema && !search && gemma
     ? `${prompt}\n\n出力は JSON だけにしてください。説明文や \`\`\` は付けないでください。`
     : prompt;
-  const body = {
-    contents: [{ role: "user", parts: [{ text }] }],
-    systemInstruction: { parts: [{ text: SYSTEM }] },
-    generationConfig,
-  };
-  if (search) body.tools = [{ google_search: {} }];
+  const body = { contents: [], generationConfig };
+  // Gemma には systemInstruction がありません。
+  //
+  // 付けて投げると 400（Developer instruction is not enabled）が返ります。
+  // モデルの候補を順に落として、最後は「AIに聞けませんでした」になる——
+  // Gemma に切り替えたのに使われていなかったのは、これです。
+  // 役割の指示は、本文の先頭に置きます。
+  if (gemma) {
+    text = `${SYSTEM}\n\n---\n\n${text}`;
+  } else {
+    body.systemInstruction = { parts: [{ text: SYSTEM }] };
+  }
+  body.contents.push({ role: "user", parts: [{ text }] });
+  // 検索の道具も Gemma は受け取りません。付けずに投げます
+  // （そのぶん、裏取りはできません。canGround() が false を返します）。
+  if (search && !gemma) body.tools = [{ google_search: {} }];
   return body;
 }
 

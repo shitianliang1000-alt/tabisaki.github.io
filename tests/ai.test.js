@@ -23,6 +23,28 @@ test("Gemma には responseSchema を付けない", async () => {
   assert.match(r.contents[0].parts[0].text, /JSON だけ/);
 });
 
+test("Gemma には systemInstruction を付けない（本文の先頭に置く）", async () => {
+  // Gemma は systemInstruction を受け取りません。付けて投げると 400 が
+  // 返り、候補を順に落として最後は「AIに聞けませんでした」になります。
+  // Gemma に切り替えたのに使われていなかったのは、これです。
+  const { buildModelRequest } = await import("../js/ai.js");
+  const r = buildModelRequest("旅程を作って", { model: "gemma-3-27b-it" });
+  assert.ok(!("systemInstruction" in r), "Gemma に systemInstruction を"
+    + "送っています");
+  // 役割の指示そのものは、消さずに本文へ移します。
+  assert.match(r.contents[0].parts[0].text, /旅程を作って/);
+  assert.ok(r.contents[0].parts[0].text.length > "旅程を作って".length + 50,
+    "役割の指示が本文に入っていません");
+});
+
+test("Gemma には検索の道具を付けない", async () => {
+  const { buildModelRequest, canGround } = await import("../js/ai.js");
+  const r = buildModelRequest("調べて", { search: true, model: "gemma-3-27b-it" });
+  assert.ok(!("tools" in r), "Gemma に google_search を送っています");
+  // 裏取りができないことは、呼ぶ前に分かるようにしておきます。
+  assert.equal(canGround(), false);
+});
+
 test("Gemini には、これまでどおり構造化出力を送る", async () => {
   const { buildModelRequest } = await import("../js/ai.js");
   const schema = { type: "OBJECT", properties: {} };
@@ -30,6 +52,7 @@ test("Gemini には、これまでどおり構造化出力を送る", async () =
   assert.equal(r.generationConfig.responseSchema, schema);
   assert.equal(r.generationConfig.responseMimeType, "application/json");
   assert.ok(!/JSON だけ/.test(r.contents[0].parts[0].text));
+  assert.ok(r.systemInstruction, "Gemini には systemInstruction を送ります");
 });
 
 test("中継は、使うモデルを通す", async () => {
