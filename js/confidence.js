@@ -45,14 +45,23 @@ export function confidenceOf(kind, subject, opts = {}) {
   const age = ageOf(s.fetchedAt, opts.now ?? new Date());
 
   if (kind === "travel") {
+    // 出どころの名前まで出します。「確認済み」とだけ書かれても、
+    // 何で確かめたのかが分かりません。時刻表から取ったのか、地図の
+    // 経路検索なのかで、当日ずれたときに疑う先が変わります。
     const routed = s.routed === true;
-    return build(routed ? "verified" : "estimated",
-      routed
-        ? (s.transit
-            ? "経路検索で確認した所要時間です（乗換・待ち時間を含みます）"
-            : "経路検索で確認した所要時間です")
-        : "距離からの推定です。実際の便やダイヤは反映していません",
+    const out = build(routed ? "verified" : "estimated",
+      s.yahoo
+        ? "Yahoo!路線情報の時刻です（乗換・待ち時間を含みます）"
+        : routed
+          ? (s.transit
+              ? "経路検索で確認した所要時間です（乗換・待ち時間を含みます）"
+              : "経路検索で確認した所要時間です")
+          : "距離からの推定です。実際の便やダイヤは反映していません",
       checkedAt, age);
+    out.source = s.yahoo ? "Yahoo!路線情報"
+      : routed ? "Googleの経路" : "距離からの推定";
+    if (s.yahoo) out.label = "時刻表";
+    return out;
   }
 
   // 場所そのもの、営業時間、料金は、出どころが同じなので同じ判定です。

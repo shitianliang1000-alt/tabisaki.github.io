@@ -127,6 +127,40 @@ p, li { text-wrap: pretty; }
   #budget-choice button, #transport-choice button { padding-inline: 4px; }
 }
 
+/* ------------------------------------------------ 確かめたこと --- */
+/* 「AIが作った旅行プラン」と「実際に行けるか確かめた旅行プラン」の
+   違いは、ここが見えるかどうかです。目立たせすぎず、必ず見える形に。 */
+
+.panel.checked .panel-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px;
+}
+.checked-stars { font-size: 15px; letter-spacing: .08em; white-space: nowrap; }
+.checked-stars b { color: var(--md-sys-color-primary); font-weight: 600; }
+.checked-stars i { color: var(--hig-separator-opaque); font-style: normal; }
+.panel.checked.lv-low .checked-stars b { color: var(--hig-orange, #c46a1b); }
+
+.check-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.check-list li {
+  display: grid;
+  grid-template-columns: 20px 5.5em 1fr;
+  gap: 4px 8px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-top: .5px solid var(--hig-separator);
+  font-size: 13px;
+}
+.check-list li:first-child { border-top: none; }
+.check-list .ck-ic { text-align: center; }
+.check-list li.ok .ck-ic { color: var(--md-sys-color-primary); }
+.check-list li.warn .ck-ic { color: var(--hig-orange, #c46a1b); }
+.check-list .ck-label { color: var(--hig-label); font-weight: 600; }
+.check-list .ck-detail { color: var(--hig-label-2, var(--hig-label)); }
+@media (max-width: 480px) {
+  .check-list li { grid-template-columns: 20px 1fr; }
+  .check-list .ck-detail { grid-column: 2; }
+}
+
 /* ------------------------------------------------------ 希望の入力 --- */
 
 
