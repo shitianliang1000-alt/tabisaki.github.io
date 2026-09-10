@@ -8,12 +8,17 @@
 //
 // 何を覚えるか
 // ------------
-// 旅程そのもの（時刻の入った全部）ではなく、**作り直せるだけの条件**と、
-// 一覧に出す見出しだけを持ちます。旅程は毎回組み直します。
+// **できあがった旅程そのもの**と、作り直せるだけの条件の両方です。
 //
-//   ・営業時間も混雑も、日が変われば変わります。3か月前に作った旅程を
-//     そのまま出すと、閉まっている場所へ案内することになります。
-//   ・条件だけなら小さいので、10件持っても数十KBです。
+// はじめは条件だけにして、開くたびに組み直していました。営業時間も混雑も
+// 日が変われば変わるので、そのほうが正しいと考えたためです。けれど、
+// 作った人にとっては違いました。**同じ条件でも、組み直すと別の旅程が
+// 出ます**（AIの選び方も、調べた便も、そのときのものです）。気に入った
+// 旅程をもう一度見ようとして開いたら、知らない場所が並んでいる——
+// これでは「保存」とは言えません。
+//
+// そこで、旅程はそのまま出します。ただし**いつ作ったものか**を添えて、
+// 「いまの条件で作り直す」も残します。古い営業時間で案内しないためです。
 
 const KEY = "tabisaki.history";
 /** 覚えておく件数。多すぎると、探すほうが面倒になります。 */
@@ -60,11 +65,60 @@ export function addHistory(entry, storage, now = new Date()) {
     when: String(entry.when ?? "").slice(0, 40),
     savedAt: now.getTime(),
     state: entry.state,
+    itin: entry.itin ? freezeItinerary(entry.itin) : null,
+    // 旅程を開くときに、地図や外部リンクが「どこから来てどこへ帰るか」を
+    // 使います。条件（state）は入力欄の文字なので、こちらも要ります。
+    trip: entry.trip ? freezeItinerary(entry.trip) : null,
   };
   const rest = loadHistory(storage).filter((x) => x.id !== id);
   const list = [item, ...rest].slice(0, MAX);
   write(list, storage);
   return list;
+}
+
+/**
+ * 旅程を、しまえる形にします。
+ *
+ * localStorage は文字列しか持てないので、日時は文字列になります。ここで
+ * 落とすのは、開き直すのに要らないものだけです。地図と外部リンクは
+ * 座標が要るので、立ち寄りの場所（place）は残します。
+ */
+export function freezeItinerary(itin) {
+  return JSON.parse(JSON.stringify(itin, (key, value) => {
+    // 収録データまるごと（候補の一覧など）は持ちません。開いたときに
+    // 使うのは、旅程に入っているぶんだけです。
+    if (key === "replan" || key === "variants" || key === "candidates") {
+      return undefined;
+    }
+    return value;
+  }));
+}
+
+/**
+ * しまった旅程を、使える形に戻します（文字列の日時を Date へ）。
+ *
+ * どの項目が日時かは名前で決めます。中身を見て「日時っぽい文字列」を
+ * 探すと、説明文の中の「2026-09-10」まで日時にしてしまいます。
+ */
+const TIME_KEYS = new Set(["start", "end", "departAt", "arriveBy", "at",
+                           "checkIn", "checkOut", "savedAt", "sunrise",
+                           "sunset"]);
+
+export function thawItinerary(itin) {
+  const walk = (value, key) => {
+    if (Array.isArray(value)) return value.map((v) => walk(v, key));
+    if (value && typeof value === "object") {
+      const out = {};
+      for (const [k, v] of Object.entries(value)) out[k] = walk(v, k);
+      return out;
+    }
+    if (typeof value === "string" && TIME_KEYS.has(key)) {
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? value : d;
+    }
+    return value;
+  };
+  return walk(itin, "");
 }
 
 /**
@@ -92,9 +146,30 @@ export function clearHistory(storage) {
 }
 
 function write(list, storage) {
-  try {
-    store(storage)?.setItem(KEY, JSON.stringify(list));
-  } catch { /* 保存できなくても、旅程は作れます */ }
+  // 旅程まで持つと、1件が数十KBになります。localStorage がいっぱいなら、
+  // **古いものから落として**、新しいぶんだけでも残します。何も残らない
+  // よりはましです。
+  let keep = [...list];
+  if (!keep.length) {
+    try { store(storage)?.setItem(KEY, "[]"); } catch { /* 消せなくても続けます */ }
+    return;
+  }
+  while (keep.length) {
+    try {
+      store(storage)?.setItem(KEY, JSON.stringify(keep));
+      return;
+    } catch {
+      if (keep.length === 1) {
+        // 1件でも入らないなら、旅程を落として条件だけにします。
+        try {
+          store(storage)?.setItem(KEY,
+            JSON.stringify(keep.map((x) => ({ ...x, itin: null }))));
+        } catch { /* 保存できなくても、旅程は作れます */ }
+        return;
+      }
+      keep = keep.slice(0, keep.length - 1);
+    }
+  }
 }
 
 /**

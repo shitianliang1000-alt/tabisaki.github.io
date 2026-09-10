@@ -95,10 +95,21 @@ export function buildItinerary(input) {
   // 実際に乗れるのは次の便なので、そちらに合わせて時刻を動かします。
   const board = boardingTime(trip.departAt, legs?.outbound);
   const arriveStation = addMinutes(trip.departAt, outMin);
-  items.push(withTransit({
+  // 着く先の名前は、**その滞在の拠点**から取ります。エリアの station 欄
+  // ではありません。出発地が拠点そのものになることがあり（東京駅発で
+  // 1日目が千代田区なら、拠点は東京駅です）、そのときエリアの欄を見ると
+  // 「東京駅 → 竹橋駅」と、行きもしない駅が1行目に出ます。
+  const firstStation = stays[0].station ?? {
+    name: firstRegion.station || firstRegion.name,
+    lat: firstRegion.stationLat, lng: firstRegion.stationLng,
+  };
+  // 出発地がもう拠点なら、この行は要りません。0分の移動を1行目に置くと、
+  // 「東京駅から東京駅へ移動」を読ませることになります。
+  const alreadyThere = haversineKm(trip.origin, firstStation) < 0.3;
+  if (!alreadyThere) items.push(withTransit({
     id: nextId(), kind: "transit",
     start: board ?? trip.departAt, end: arriveStation,
-    title: `${trip.origin.name} → ${firstRegion.station || firstRegion.name}`,
+    title: `${trip.origin.name} → ${firstStation.name ?? firstRegion.name}`,
     // 「（推定）」は書きません。実測か推定かは、確からしさの印
     // （confidence.js）が別に出します。二重に書くと読みにくくなります。
     // Yahoo!の答えには発着時刻も所要時間も入っています。そこへ
@@ -110,9 +121,9 @@ export function buildItinerary(input) {
       : `約${outMin}分`,
     alternatives: legs?.outbound?.alternatives ?? [],
     from: trip.origin,
-    to: stays[0].station,
+    to: firstStation,
     routed: Boolean(legs?.outbound?.routed),
-    km: haversineKm(trip.origin, stays[0].station),
+    km: haversineKm(trip.origin, firstStation),
     costYen: 0,
     reason: legs?.outbound?.routed
       ? "Google マップの経路検索による所要時間"

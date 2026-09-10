@@ -38,7 +38,7 @@ import { endpointFor, keyHeaders, proxyStatus, usingProxy } from "./endpoints.js
 import { effectiveConfig } from "./settings.js";
 import { QuotaBlockedError, meteredFetch } from "./quota.js";
 import { estimateMinutes, haversineKm, isSlowTerrain } from "./feasibility.js";
-import { nearestStop } from "./stops.js";
+import { findStop, nearestStop } from "./stops.js";
 import { summarizeTransitLeg, transitFieldMask } from "./transit.js";
 import { resetYahooCooldown, searchYahooTransit, yahooCooldown }
   from "./yahoo-transit.js";
@@ -552,11 +552,7 @@ async function computeViaStations(points, opts) {
  */
 async function yahooLeg(a, b, opts) {
   try {
-    const [fromStop, toStop] = await Promise.all([
-      nearestStop(a, 5), nearestStop(b, 5),
-    ]);
-    const from = fromStop ?? a;
-    const to = toStop ?? b;
+    const [from, to] = await Promise.all([stopNameFor(a), stopNameFor(b)]);
     if (!from?.name || !to?.name || from.name === to.name) return null;
     const yahoo = await searchYahooTransit(from, to, opts);
     if (!yahoo?.routed || !(yahoo.minutes > 0)) return null;
@@ -576,6 +572,30 @@ async function yahooLeg(a, b, opts) {
     usage.lastError = `Yahoo Transit: ${String(e?.message ?? e).slice(0, 200)}`;
     return null;
   }
+}
+
+/**
+ * Yahoo!に渡す駅・バス停の名前を決めます。
+ *
+ * ここは、いつでも「その地点にいちばん近い停留所」を引いていました。
+ * けれど出発地が **すでに駅** のときは、それが答えです。東京駅の
+ * 半径5kmには何十もの停留所があるので、たまたま近い「呉服橋」や
+ * 「丸の内南口」が選ばれます。すると
+ *
+ *   ・旅程には「東京駅 →」と書いてあるのに、調べたのは別の場所
+ *   ・Yahoo!が名前を解決できず、時刻が取れないことがある
+ *
+ * の両方が起きます。**自分の名前で通るなら、そのまま使います。**
+ */
+async function stopNameFor(point) {
+  const name = String(point?.name ?? "").trim();
+  if (name) {
+    if (/(駅|港|空港|バス停|停留所)$/.test(name)) return point;
+    // 収録の停留所に同じ名前があるなら、それも「駅として通る名前」です。
+    const exact = await findStop(name);
+    if (exact) return exact;
+  }
+  return (await nearestStop(point, 5)) ?? point;
 }
 
 /** 1区間ぶんの組み立て（まだ経路APIは呼びません）。 */

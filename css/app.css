@@ -1766,3 +1766,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .today .transit-steps { margin-top: 12px;
   background: var(--md-sys-color-surface-container-low);
   color: var(--md-sys-color-on-surface); }
+
+/* 保存した旅程を開いたときの断り書き。日付と、作り直す入口だけです。 */
+.panel.saved-note {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  margin-bottom: 12px;
+}
+.panel.saved-note .fine { margin: 0; flex: 1 1 240px; }

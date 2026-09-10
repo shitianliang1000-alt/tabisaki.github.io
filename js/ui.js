@@ -131,6 +131,26 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
   const sub = itin.headline && !itin.headline.startsWith(title)
     ? itin.headline : itin.prefecture;
 
+  // 保存した旅程を開いているとき。
+  //
+  // そのまま出すのは、そのほうが「保存した」と言えるからです。ただし
+  // 営業時間も混雑も日が変われば変わるので、**いつ作ったものか**は
+  // 添えます。作り直したくなったときの入口も、ここに置きます。
+  if (itin.savedAt) {
+    const when = new Date(itin.savedAt);
+    const line = el("p", { class: "fine" },
+      `${when.getFullYear()}年${when.getMonth() + 1}月${when.getDate()}日`
+      + "に保存した旅程です。営業時間や混雑は、そのときのものです。");
+    const box = el("section", { class: "panel saved-note" }, line);
+    if (itin.onRebuild) {
+      const go = el("button", { type: "button", class: "adjust-chip" },
+                    "いまの条件で作り直す");
+      go.addEventListener("click", () => itin.onRebuild());
+      box.append(go);
+    }
+    container.append(box);
+  }
+
   container.append(...[
     el("header", { class: "itin-head" },
       el("h2", {}, title),

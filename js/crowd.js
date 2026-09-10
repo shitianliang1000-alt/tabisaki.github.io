@@ -133,7 +133,7 @@ export function quietWindow(prof) {
  * @returns {Array} 並べ替えた訪問順
  */
 export function spreadCrowds(spots, opts = {}) {
-  const { dayFloorById, start, travelFn } = opts;
+  const { dayFloorById, start, travelFn, baseByDay } = opts;
   const groups = new Map();
   for (const s of spots) {
     const day = dayFloorById?.get(s.id) ?? 0;
@@ -143,7 +143,14 @@ export function spreadCrowds(spots, opts = {}) {
   const out = [];
   let from = start ?? null;
   for (const day of [...groups.keys()].sort((a, b) => a - b)) {
-    const ordered = orderByRoute(groups.get(day), from, travelFn, opts);
+    // その日の起点は、**その日の拠点**です。
+    //
+    // ここは前の日の最後の立ち寄りから続けていました。同じ街に居続ける
+    // なら、それで合っています。けれど拠点を移した日は、300km離れた
+    // 昨日の場所から近い順に並べることになります。新しい街に着いて
+    // いちばん遠い場所から回りはじめる旅程は、こうして出ていました。
+    const base = baseByDay?.[day] ?? null;
+    const ordered = orderByRoute(groups.get(day), base ?? from, travelFn, opts);
     out.push(...ordered);
     from = ordered.at(-1) ?? from;
   }
@@ -255,6 +262,13 @@ export function orderByRoute(spots, start = null, travelFn = null, opts = {}) {
   const crowd = (s) => urgency(s, pinned, useCrowd);
   // travelFn は分、無ければ km。どちらでも「少しだけ」の幅で見ます。
   const allow = travelFn ? EXTRA_KM * 2 : EXTRA_KM;
+  // **1回ごとの上限だけでは足りませんでした。**
+  //
+  // 「1回につき6kmまで」を何度も通せば、いくらでも遠回りできます。実際に
+  // 出ていたのが、拠点のすぐ隣に4か所あるのに、7.3km先の寺から始めて
+  // また6.6km戻ってくる1日です。1回ぶんはどれも上限の中でした。
+  // 道順そのものからどれだけ離れたかも、まとめて見ます。
+  const routeCost = total(path);
   let moved = true;
   let pass = 0;
   while (moved && pass++ < path.length) {
@@ -265,7 +279,8 @@ export function orderByRoute(spots, start = null, travelFn = null, opts = {}) {
       if (crowd(b) <= crowd(a) + 8) continue;    // 入れ替える理由が薄い
       const swapped = [...path];
       swapped[i] = b; swapped[i + 1] = a;
-      if (total(swapped) - total(path) <= allow) {
+      const after = total(swapped);
+      if (after - total(path) <= allow && after - routeCost <= allow) {
         path.splice(0, path.length, ...swapped);
         moved = true;
       }

@@ -39,8 +39,8 @@ import { VARIANTS, distinguishOf, recommendOf, summaryOf, tripsFor }
 import { $, el, openSheet, renderItinerary, renderProgress, renderToday,
          suggestionButton } from "./ui.js";
 import { catchUp } from "./today.js";
-import { addHistory, clearHistory, loadHistory, removeHistory, savedLabel }
-  from "./history.js";
+import { addHistory, clearHistory, loadHistory, removeHistory, savedLabel,
+         thawItinerary } from "./history.js";
 
 const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
                 endMode: "origin", mode: "plan",
@@ -149,9 +149,11 @@ function registerServiceWorker() {
 /**
  * 一覧を描きます。
  *
- * 覚えているのは条件だけなので、押されたら入力欄に戻して組み直します
- * （js/history.js に理由を書いています）。旅程そのものを保存して
- * そのまま出すと、営業時間の変わった店へ案内することになります。
+ * 押されたら、**保存したその旅程を、そのまま開きます**。組み直しません。
+ * 同じ条件でも、組み直せば別の旅程になります（AIの選び方も、調べた便も
+ * そのときのものです）。気に入って保存したのに知らない場所が並ぶのでは、
+ * 保存とは言えません。作り直したいときのために、条件も一緒に残して
+ * あります（旅程の上の「いまの条件で作り直す」）。
  */
 function renderRecent() {
   const box = $("#recent");
@@ -165,8 +167,8 @@ function renderRecent() {
   for (const item of items) {
     const row = el("button", {
       type: "button", class: "recent-row",
-      title: "この条件でもう一度つくる",
-      onclick: () => replayHistory(item),
+      title: item.itin ? "保存した旅程を開く" : "この条件でもう一度つくる",
+      onclick: () => openHistory(item),
     },
       el("span", { class: "r-body" },
         el("span", { class: "r-title" }, item.title),
@@ -183,7 +185,25 @@ function renderRecent() {
   }
 }
 
-/** 一覧の1件を押したとき。条件を入力欄に戻して、そのまま組み直します。 */
+/**
+ * 一覧の1件を押したとき。
+ *
+ * 旅程が入っていれば、それを開きます。入っていない（古い保存や、
+ * 端末の空きが足りなくて条件だけ残ったもの）ときだけ組み直します。
+ */
+function openHistory(item) {
+  if (!item.itin) { replayHistory(item); return; }
+  applyFormState(item.state);
+  saveConditions();
+  const itin = thawItinerary(item.itin);
+  const trip = thawItinerary(item.trip ?? null) ?? state.trip;
+  itin.savedAt = item.savedAt;
+  itin.onRebuild = () => replayHistory(item);
+  state.trip = trip ?? state.trip;
+  show(itin, trip ?? state.trip);
+}
+
+/** 条件を入力欄に戻して、そのまま組み直します。 */
 function replayHistory(item) {
   applyFormState(item.state);
   // 日付だけは、そのままだと過去になっていることがあります。
@@ -228,6 +248,10 @@ function rememberTrip(itin, trip) {
       .filter(Boolean).join("・"),
     when: `${d.getMonth() + 1}/${d.getDate()}から${days}日`,
     state: formState(),
+    // できあがった旅程そのものも残します。開き直したときに、同じものが
+    // 出るようにするためです。
+    itin,
+    trip,
   });
   renderRecent();
 }

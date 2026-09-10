@@ -669,6 +669,9 @@ export function assignToStays(spots, stays) {
   return byStay;
 }
 
+// 出発地がこれより近ければ、最初の拠点は出発地そのものにします。
+const ORIGIN_IS_BASE_KM = 3;
+
 // 拠点から、その日のうちに往復できる距離。これを超える立ち寄りは、
 // どの拠点にも紐づけません（片道1時間半ほどが目安です）。
 const STAY_REACH_KM = 80;
@@ -693,6 +696,22 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   const { stays, baseByDay } = planStays(chosen, {
     days, origin: trip.origin, end, pace: trip.pace,
   });
+
+  // 出発地がもう最初の拠点の中にいるなら、そこが拠点です。
+  //
+  // 東京駅発で1日目が千代田区だと、こう出ていました。
+  //
+  //   8:00 東京駅 → 竹橋駅（1.3km）
+  //   8:15 貨幣博物館へ移動（1.2km）   ← 東京駅の隣です
+  //
+  // 出発地から1.3km動いて、また戻ってきています。旅程の1行目が
+  // これでは、「東京駅から始まる旅」には見えません。
+  if (haversineKm(trip.origin, stays[0].station) < ORIGIN_IS_BASE_KM) {
+    stays[0].station = trip.origin;
+    if (baseByDay.length) {
+      for (let i = 0; i <= stays[0].dayTo; i++) baseByDay[i] = trip.origin;
+    }
+  }
 
   // 立ち寄りを滞在の順に並べ替える（同じ拠点のぶんは続けて回る）
   const byStay = assignToStays(
@@ -799,6 +818,8 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   spots = spreadCrowds(spots, {
     dayFloorById,
     start: first,
+    // その日の拠点。拠点を移した日は、そこから近い順に回ります。
+    baseByDay,
     travelFn,
     // 早く閉まる場所と「必ず行く」場所は、先に回さないと間に合いません。
     pinnedIds: trip.must?.spotIds ?? [],
