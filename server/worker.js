@@ -29,7 +29,7 @@ const YAHOO_TRANSIT_URL = "https://transit.yahoo.co.jp/search/result";
 // Gemma 4 のうち配信されているものを使います。
 const ALLOWED_CF_MODELS = new Set([
   "@cf/google/gemma-4-26b-a4b-it",
-  "@cf/google/gemma-3-12b-it",
+  "@cf/zai-org/glm-4.7-flash",
 ]);
 
 const ALLOWED_MODELS = new Set([

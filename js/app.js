@@ -9,7 +9,7 @@
 import { KB_INDEX_URL, TILE_ATTRIBUTION, TILE_URL } from "./config.js";
 import { clearSettings, cspAllows, effectiveConfig, loadSettings, maskKey,
          saveSettings } from "./settings.js";
-import { callModel, describeSpot, diagnoseGeminiKey, hasApiKey }
+import { callModel, canGround, describeSpot, diagnoseGeminiKey, hasApiKey }
   from "./ai.js";
 import { discoverArea } from "./discover.js";
 import { loadKnowledgeBase, mergeIntoKb } from "./kb.js";
@@ -61,7 +61,11 @@ async function boot() {
   state.map = new TripMap("map");
   state.map.configure({ tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION });
   startBackgroundMap();
-  startHomeMap();
+  // 携帯では、条件の画面に地図は出ていません（3画面に分けています）。
+  // 見えていない地図のために Leaflet を待ち、地図のタイルを何枚も
+  // 落とすのは、移動中の回線ではただの負担です。結果の画面に移った
+  // ときに作ります。
+  if (!isNarrow()) startHomeMap();
 
   configureQuota({ ask: askQuota, onChange: showQuota });
 
@@ -507,6 +511,22 @@ function askQuota({ used, byKind, next }) {
     + (parts.length ? `（内訳: ${parts.join("・")}）` : "")
     + "。";
   $("#quota-go").querySelector("span").textContent = "詳しく調べる";
+  // できないことを「します」と書かない。
+  //
+  // 「収録に無い場所をAIが探します」と出していましたが、AIを中継の中で
+  // 動かしている（Workers AI）ときは検索ができません。収録済みの中から
+  // 選ぶだけです。押す前に分かるようにします。
+  const note = $("#quota-note");
+  if (note) {
+    note.textContent = canGround()
+      ? "ここから先は、実際の乗換時間を調べたり、収録に無い場所をAIが"
+        + "探したりします。ここまでにしても旅程は作れます"
+        + "（移動時間は距離からの目安、行き先は収録済みの中から選びます）。"
+      : "ここから先は、実際の乗換時間を調べ、AIが希望に合う行き先を"
+        + "選びます。収録に無い場所をインターネットで探すことはしません"
+        + "（いまの設定では、AIに検索の機能がありません）。"
+        + "ここまでにしても旅程は作れます（移動時間は距離からの目安です）。";
+  }
 
   return new Promise((resolve) => {
     const done = (ok) => {
@@ -586,9 +606,13 @@ function whenLeaflet(timeoutMs = 8000) {
   });
 }
 
+let homeMapStarted = false;
+
 async function startHomeMap() {
   const box = document.getElementById("home-map");
   if (!box) return;
+  if (homeMapStarted) return;   // 2度作らない
+  homeMapStarted = true;
   await whenLeaflet();
   if (!window.L) {
     // 地図を読み込めない環境で、灰色の四角を黙って出さないこと。
@@ -991,6 +1015,15 @@ function wireForm() {
   };
   segmented("#budget-choice", "budget", (v) => {
     state.budgetYen = v ? Number(v) : null;
+    // 予算を決めたときだけ、扱いを聞きます。決めていない人に
+    // 「目安か厳守か」を聞いても、答えようがありません。
+    const box = $("#budget-mode");
+    if (box) box.hidden = !state.budgetYen;
+    setBudgetHelp();
+  });
+  segmented("#budget-mode", "mode", (v) => {
+    state.budgetMode = v === "strict" ? "strict" : "guide";
+    setBudgetHelp();
   });
   segmented("#transport-choice", "transport", (v) => {
     state.transport = v ?? "any";
@@ -1116,6 +1149,7 @@ async function readTrip() {
     interests: genres,
     // 予算の上限。決めていなければ null（見ません）。
     budgetYen: state.budgetYen ?? null,
+    budgetMode: state.budgetMode ?? "guide",
     // 何で移動するか。車が使えるかどうかで、組める旅程が変わります。
     transport: state.transport ?? "any",
     // 定番と穴場のまぜかた。画面では星の粒として出しています。
@@ -1282,8 +1316,26 @@ function showRoutesUsage() {
  * 媒体条件の中だけで効きます）。切り替えたら先頭へ戻します。
  * 前の画面のスクロール位置のままだと、切り替わったことに気づけません。
  */
+function setBudgetHelp() {
+  const help = $("#budget-help");
+  if (!help) return;
+  help.textContent = !state.budgetYen
+    ? "決めなければ、費用は概算として出すだけです。"
+    : state.budgetMode === "strict"
+      ? "収まらないときは、入場料の高い場所から外して組み直します。"
+        + "外した場所の名前は出します。"
+      : "超えたぶんを勝手に削りはしません。超えていたら、そう伝えます。";
+}
+
+function isNarrow() {
+  return Boolean(globalThis.matchMedia?.("(max-width: 860px)")?.matches);
+}
+
 function showView(view) {
   document.body.dataset.view = view;
+  // 結果の画面に移ったら、そこで地図を用意します（携帯では、ここが
+  // 地図の見え始めです）。2度目以降は startHomeMap 側で弾かれます。
+  if (view === "result" && isNarrow()) startHomeMap();
   globalThis.scrollTo?.({ top: 0, behavior: "smooth" });
 }
 

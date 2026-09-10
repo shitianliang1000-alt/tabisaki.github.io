@@ -57,3 +57,22 @@ test("Workers AI の返事は、入れ物が違っても取り出す", async () 
   // どれにも当たらなければ空。呼び出し側が「形」を返して次の手を決めます。
   assert.equal(cfText({ usage: { tokens: 1 } }), "");
 });
+
+test("Cloudflare で動かすときは、Gemini の埋め込みを呼ばない", async () => {
+  const { embedQuery, usingCloudflare } = await import("../js/ai.js");
+  const real = globalThis.fetch;
+  let called = 0;
+  globalThis.fetch = async () => { called++; throw new Error("呼ばれました"); };
+  try {
+    const v = await embedQuery("温泉でゆっくり");
+    if (usingCloudflare()) {
+      // AI本体は Workers AI なのに、検索用のベクトルだけ Gemini を
+      // 呼んでいました。中継に鍵が無ければ503で、握りつぶして語句検索に
+      // 落ちます——旅程を作るたびに、無駄な往復と待ち時間が出ます。
+      assert.equal(called, 0, "Gemini の埋め込みを呼んでいます");
+      assert.equal(v, null);
+    }
+  } finally {
+    globalThis.fetch = real;
+  }
+});

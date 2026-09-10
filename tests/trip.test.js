@@ -459,3 +459,29 @@ test("予算は、決めなければ見ない", () => {
   assert.equal(makeTrip({}).budgetYen, null);
   assert.equal(makeTrip({ budgetYen: 20000 }).budgetYen, 20000);
 });
+
+test("予算の扱いは、目安か厳守のどちらか", () => {
+  assert.equal(makeTrip({}).budgetMode, "guide");
+  assert.equal(makeTrip({ budgetMode: "strict" }).budgetMode, "strict");
+  assert.equal(makeTrip({ budgetMode: "なんでも" }).budgetMode, "guide");
+});
+
+test("予算を超えたら、入場料の高い場所から外す", async () => {
+  const { overBudgetSpots } = await import("../js/pipeline.js");
+  const itin = {
+    cost: { total: 24000 },
+    days: [{ items: [
+      { kind: "spot", spotId: "a", title: "高い館", costYen: 3000 },
+      { kind: "spot", spotId: "b", title: "ふつうの寺", costYen: 500 },
+      { kind: "spot", spotId: "c", title: "中くらいの館", costYen: 2000 },
+      { kind: "lodging", costYen: 12000 },
+    ] }],
+  };
+  // 4,000円ぶん超えています。宿や特急ではなく、入場料から削ります
+  // （宿を削ると、旅そのものが変わります）。
+  const cut = overBudgetSpots(itin, 20000).map((s) => s.title);
+  assert.deepEqual(cut, ["高い館", "中くらいの館"]);
+  // 収まっていれば、何も外しません。
+  assert.deepEqual(overBudgetSpots(itin, 30000), []);
+  assert.deepEqual(overBudgetSpots(itin, null), []);
+});
