@@ -168,10 +168,37 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
         // 歩く量は、行けるかどうかを左右します。「約8,400円」と同じ
         // 高さに置かないと、当日になって気づくことになります。
         walkSteps(itin) ? stat(`約${walkSteps(itin).toLocaleString()}歩`, "歩く量")
+          : null,
+        // このアプリの値打ちは「AIが旅程を書けること」ではなく、
+        // **実際に行けるかを確かめてあること**です。確かめた事実は
+        // 旅程の中に散らばっていて見えないので、1か所に集めて出します。
+        itin.reliability
+          ? stat("★".repeat(itin.reliability.stars)
+              + "☆".repeat(5 - itin.reliability.stars), "確かめた度合い")
           : null)),
   ].filter(Boolean));
 
-  // 0. 旅の意味づけ。
+  // 0. 何を確かめたのか。
+  //
+  //    「AIが作った旅行プラン」と「実際に行けるか確かめた旅行プラン」の
+  //    違いは、ここが見えるかどうかです。畳みません。
+  if (itin.reliability) {
+    const r = itin.reliability;
+    container.append(el("section", { class: `panel checked lv-${r.level}` },
+      el("div", { class: "panel-head" },
+        el("h3", {}, "確かめたこと"),
+        el("span", { class: "checked-stars", "aria-label": `5段階で${r.stars}` },
+          el("b", {}, "★".repeat(r.stars)),
+          el("i", {}, "☆".repeat(5 - r.stars)))),
+      el("p", { class: "score-summary" }, r.summary),
+      el("ul", { class: "check-list" }, r.checks.map((c) => el("li",
+        { class: c.ok ? "ok" : "warn" },
+        el("span", { class: "ck-ic", "aria-hidden": "true" }, c.ok ? "✓" : "⚠"),
+        el("span", { class: "ck-label" }, c.label),
+        el("span", { class: "ck-detail" }, c.detail))))));
+  }
+
+  // 1. 旅の意味づけ。
   //
   //    以前は旅程の**前**に置いていました。最初に知りたいのは
   //    「どこへ行き、何時に何をするか」で、意味づけはそのあとです。
@@ -825,12 +852,16 @@ function axisList(axes) {
 }
 
 /** 情報の出どころの印。色だけでなく、必ず言葉を添えます。 */
-function srcChip(c, extra = "") {
+function srcChip(c, extra = "", source = "") {
   const title = [c.text, c.checkedAt ? `（${c.checkedAt} 時点）` : ""]
     .filter(Boolean).join("");
+  // 「確認済み」とだけ書かれても、何で確かめたのかが分かりません。
+  // 当日ずれたときに、疑う先が変わります。
+  const text = source ? `${c.label}・${source}`
+    : extra ? `${c.label}・${extra}` : c.label;
   return el("span", { class: `src src--${c.level}`, title },
     el("span", { "aria-hidden": "true" }, c.icon),
-    el("span", {}, extra ? `${c.label}・${extra}` : c.label));
+    el("span", {}, text));
 }
 
 /** 乗換の手順を、開閉できる形で並べます。 */
@@ -990,7 +1021,11 @@ function renderItem(item, index, itin, handlers, sunNote) {
     // 実際に経路検索で取れた時間なのか、距離からの推定なのか。
     // 同じ「約42分」でも、意味がまったく違います。
     if (item.kind === "transit") {
-      line.append(" ", srcChip(confidenceOf("travel", item)));
+      const c = confidenceOf("travel", item);
+      // 出どころは、印の言葉と重ならないときだけ添えます
+      //（「推定・距離からの推定」は同じことを2度言っています）。
+      const src = c.source && c.source !== "距離からの推定" ? c.source : "";
+      line.append(" ", srcChip(c, "", src));
     }
     info.append(line);
   }

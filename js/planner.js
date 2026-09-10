@@ -72,6 +72,8 @@ export function buildItinerary(input) {
   // （TUNING の値は、聞いていないときの既定です）。
   const dayEndHour = Number.isFinite(trip.dayEndHour)
     ? trip.dayEndHour : TUNING.dayEndHour;
+  const dayStartHour = Number.isFinite(trip.dayStartHour)
+    ? trip.dayStartHour : TUNING.dayStartHour;
   // 区間の中身（路線・乗換・待ち時間）を引く関数。分からなければ null。
   // 「たぶんこの路線」で埋めるくらいなら、何も出さないほうが安全です。
   const legDetail = input.legDetail ?? (() => null);
@@ -118,7 +120,30 @@ export function buildItinerary(input) {
   }, legs?.outbound?.transit));
 
   // --- 日ごとに組み立てる ---
-  const movesByDay = new Map(moves.map((m) => [m.day, m]));
+  //
+  // 予定の入らない日に拠点を移すと、その日は「移動して、寝るだけ」に
+  // なります（4:00 浅草→名古屋、22:30 名古屋に宿泊。それだけ）。
+  // 人はそうしません。前の街にもう一晩いて、翌朝に移ります。
+  // 立ち寄りのある日まで、移動を遅らせます。
+  const visitDays = new Set(visits.map((v) => v.day ?? 0));
+  const shifted = moves.map((m) => {
+    let day = m.day;
+    while (day < nights && !visitDays.has(day)) day++;
+    if (day === m.day) return m;
+    // 遅らせたぶん、時刻もその日の朝に置き直します。
+    const start = atHour(
+      new Date(trip.departAt.getTime() + day * 86400000), dayStartHour);
+    return { ...m, day, start, end: addMinutes(start, m.minutes) };
+  });
+  const movesByDay = new Map(shifted.map((m) => [m.day, m]));
+
+  /** その日の拠点。移動を遅らせたぶん、前の街の滞在が伸びます。 */
+  const baseOfDay = (day) => {
+    let idx = 0;
+    for (const [i, m] of shifted.entries()) if (day >= m.day) idx = i + 1;
+    return stays[Math.min(idx, stays.length - 1)]?.region
+      ?? regionOfDay(stays, day) ?? firstRegion;
+  };
   let prevEnd = arriveStation;
   // 直前に置いた宿。予定の無い日は、新しく置かずにこれを延ばします。
   let lastLodging = null;
@@ -126,21 +151,31 @@ export function buildItinerary(input) {
   let cur = stays[0].station;
 
   for (let day = 0; day <= nights; day++) {
-    const region = regionOfDay(stays, day) ?? firstRegion;
+    const region = baseOfDay(day);
 
     // 拠点が変わる日は、朝いちで移動する
     const mv = movesByDay.get(day);
     if (mv) {
-      items.push({
+      // 拠点を移す区間も、調べた結果があるなら使います。
+      //
+      // ここは routed:false を**決め打ち**していました。区間ごとに
+      // Yahoo!へ聞いているのに、拠点の移動だけは必ず「推定」と出ます。
+      // 1日目は実測なのに2日目から推定になる、の正体がこれです。
+      const leg = legDetail(mv.from, mv.to);
+      items.push(withTransit({
         id: nextId(), kind: "transit",
         start: mv.start, end: mv.end,
         title: `${mv.from.name ?? "拠点"} → ${mv.to.name ?? region.name}`,
-        detail: `拠点を移します・約${mv.minutes}分`,
+        detail: leg?.line
+          ? `拠点を移します・${leg.line}`
+          : `拠点を移します・約${mv.minutes}分`,
         from: mv.from, to: mv.to,
-        routed: false, costYen: 0,
+        routed: Boolean(leg?.routed), costYen: 0,
+        yahoo: leg?.yahoo ?? null,
+        alternatives: leg?.alternatives ?? [],
         km: haversineKm(mv.from, mv.to),
         reason: `${day + 1}日目から${region.name}を拠点にするため`,
-      });
+      }, leg?.transit));
       prevEnd = mv.end;
       cur = mv.to;
     }
@@ -254,7 +289,7 @@ export function buildItinerary(input) {
   }
 
   // --- 復路 or 終点への移動 ---
-  const lastRegion = regionOfDay(stays, nights) ?? firstRegion;
+  const lastRegion = baseOfDay(nights);
   const end = dayEnd(trip, nights);
   if (end.place) {
     const backMin = legs?.inbound?.minutes

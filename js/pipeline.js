@@ -26,6 +26,7 @@ import {
 import { extractKeywords } from "./keywords.js";
 import { analyzeCoverage, coverageMessage, seasonalNotes } from "./match.js";
 import { balanceByTier, mixTargets } from "./mix.js";
+import { tripReliability } from "./reliability.js";
 import { buildItinerary } from "./planner.js";
 import { computeRoute, legDetailLookup, legLookupAll, pickMode }
   from "./routes.js";
@@ -530,6 +531,10 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 旅程の質は、プログラム側で数えて採点します。AIに自己採点させると、
   // 同じ旅程でも聞くたびに点が変わり、案どうしを比べられません。
   itin.score = scoreItinerary(itin, { interests: trip.interests ?? [] });
+  // 帰りの余裕は verify.js が数えています。旅程にも持たせます
+  // （どこまで裏が取れているかを出すのに要ります）。
+  itin.slackMin = checked.result.slackMin;
+  itin.reliability = tripReliability(itin);
 
   // 8. 天気・日没・混雑から、見直しの提案を作ります。
   //    ここでは提案を出すだけで、旅程は変えません。押されたときだけ
