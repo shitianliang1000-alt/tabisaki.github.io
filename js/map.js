@@ -78,9 +78,17 @@ export class TripMap {
 
       const marker = L.marker(latlng, { icon: this.icon(p, i) })
         .addTo(this.layer);
-      marker.bindPopup(
-        `<strong>${escapeHtml(p.label)}</strong>`
-        + (p.time ? `<br><span>${escapeHtml(p.time)}</span>` : ""));
+      const popupContent = document.createElement("div");
+      const strong = document.createElement("strong");
+      strong.textContent = p.label;
+      popupContent.append(strong);
+      if (p.time) {
+        popupContent.append(document.createElement("br"));
+        const span = document.createElement("span");
+        span.textContent = p.time;
+        popupContent.append(span);
+      }
+      marker.bindPopup(popupContent);
       // 重なったときに、番号の若いほうを手前に出します。
       // Leaflet は既定で「南にあるものほど手前」なので、1 が 2 の
       // 後ろに隠れることがありました。どこから始まるかが読めません。
@@ -146,11 +154,7 @@ export class TripMap {
 }
 
 
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}
+
 
 /** 旅程から、地図に落とす点の並びを作ります。 */
 export function pointsFromItinerary(itin, trip) {
