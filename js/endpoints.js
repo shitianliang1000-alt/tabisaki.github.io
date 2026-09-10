@@ -104,3 +104,23 @@ export function keyHeaders(which, cfg = {}) {
   }
   return cfg.mapsKey ? { "X-Goog-Api-Key": cfg.mapsKey } : {};
 }
+
+/**
+ * 中継にキーが無いときの案内。
+ *
+ * 「npx wrangler secret put …」とだけ書いていました。npx が使えない人には
+ * 手の打ちようがありません。しかもダッシュボードには**同じ名前の欄が
+ * 2か所**あり、Builds のほうに入れても動いている Worker からは見えません
+ * （実際、そちらに入れて「設定されていません」と出ていました）。
+ * どこに入れるのかを、そのまま書きます。
+ */
+export function missingSecretHelp(name, what) {
+  return `中継に${what}（${name}）が設定されていません。`
+    + "\n\nCloudflare のダッシュボードから入れられます。"
+    + "\n  Workers & Pages → tabisaki-github-io → Settings"
+    + "\n  → Runtime の「Variables and Secrets」→ Add"
+    + `\n  種類は Secret、名前は ${name}`
+    + "\n\n※ Builds の「Variables and secrets」ではありません。"
+    + "そちらはビルド中だけの値で、動いている Worker からは見えません。"
+    + `\n※ コマンドで入れる場合: npx wrangler secret put ${name}`;
+}

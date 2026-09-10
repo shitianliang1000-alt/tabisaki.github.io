@@ -99,3 +99,20 @@ test("Cloudflare で動かすときは、Gemini の埋め込みを呼ばない",
     globalThis.fetch = real;
   }
 });
+
+// --- 中継にキーが無いときの案内 ---------------------------------------------
+//
+// 「npx wrangler secret put …」とだけ書いていました。npx が使えない人には
+// 手の打ちようがありません。しかもダッシュボードには**同じ名前の欄が2か所**
+// あり、Builds のほうに入れても動いている Worker からは見えません
+// （実際、そちらに入れて「設定されていません」と出ていました）。
+
+test("キーの入れ場所は、Runtime と Builds を取り違えないように書く", async () => {
+  const { missingSecretHelp } = await import("../js/endpoints.js");
+  const help = missingSecretHelp("GEMINI_API_KEY", "AIのキー");
+  assert.match(help, /GEMINI_API_KEY/);
+  assert.match(help, /Runtime/);
+  assert.match(help, /Builds.*ではありません/s);
+  // npx が使えない人のために、ダッシュボードの道順を先に書きます。
+  assert.ok(help.indexOf("Runtime") < help.indexOf("npx"), help);
+});

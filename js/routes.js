@@ -34,7 +34,8 @@
 //     routed:false を返し、画面に「推定」と出す。
 
 import { TUNING, USE_ROUTES_API } from "./config.js";
-import { endpointFor, keyHeaders, proxyStatus, usingProxy } from "./endpoints.js";
+import { endpointFor, keyHeaders, missingSecretHelp, proxyStatus, usingProxy }
+  from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
 import { QuotaBlockedError, meteredFetch } from "./quota.js";
 import { estimateMinutes, haversineKm, isSlowTerrain } from "./feasibility.js";
@@ -964,9 +965,7 @@ export async function diagnoseMapsKey(signal) {
       const st = await proxyStatus(cfg, signal);
       if (st && st.secrets && st.secrets.MAPS_API_KEY === false) {
         return { ok: false, code: "no-key",
-          message: "中継に経路APIのキーが設定されていません。"
-            + "\nWorker で次を実行してください:"
-            + "\n  npx wrangler secret put MAPS_API_KEY"
+          message: missingSecretHelp("MAPS_API_KEY", "経路APIのキー")
             + "\n※ 電車・バス（Yahoo!路線情報）はキー不要なので、"
             + "そちらは設定しなくても動きます。" };
       }

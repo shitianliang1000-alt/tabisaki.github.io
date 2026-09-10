@@ -13,7 +13,8 @@ import {
   FALLBACK_MODELS, EMBED_DIM, EMBED_MODEL, LOCAL_BASE_URL,
   CF_FALLBACK_MODELS, CF_MODEL, LOCAL_MODEL, MODEL, MODEL_PROVIDER,
 } from "./config.js";
-import { endpointFor, keyHeaders, proxyStatus, usingProxy } from "./endpoints.js";
+import { endpointFor, keyHeaders, missingSecretHelp, proxyStatus, usingProxy }
+  from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
 import { buildSearchText, extractKeywords } from "./keywords.js";
 import { meteredFetch } from "./quota.js";
@@ -121,10 +122,8 @@ export async function diagnoseGeminiKey(signal) {
     try {
       const st = await proxyStatus(cfg0, signal);
       if (st && st.secrets && st.secrets.GEMINI_API_KEY === false) {
-        return { ok: false, message:
-          "中継にAIのキーが設定されていません。"
-          + "\nWorker で次を実行してください:"
-          + "\n  npx wrangler secret put GEMINI_API_KEY" };
+        return { ok: false, message: missingSecretHelp("GEMINI_API_KEY",
+          "AIのキー") };
       }
     } catch { /* 状態を取れなくても、下の実地の確認は行います */ }
   }
