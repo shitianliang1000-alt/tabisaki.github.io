@@ -758,3 +758,95 @@ test("名指しされた街は、1つずつ回る", async () => {
     pool.find((p) => p.region.name === n).region.id))).size, 3,
     `1つの街に固まっています: ${names.join("・")}`);
 });
+
+test("移動して寝るだけの日を作らない", () => {
+  // 実際に出ていた2日目:
+  //   4:00  浅草駅 → 名古屋市中心部（拠点を移します・約160分）
+  //   22:30 名古屋市に宿泊
+  //   ……それだけ。
+  // 人はそうしません。前の街にもう一晩いて、翌朝に移ります。
+  const trip = makeTrip({
+    origin: TOKYO,
+    departAt: d("2026-09-12T09:00"),
+    arriveBy: d("2026-09-15T20:00"),
+  });
+  const other = { id: "far", name: "名古屋城", category: "城",
+                  lat: 35.1856, lng: 136.8997, fame_tier: "major" };
+  const v = verifyOrder([...spots, other], {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+    nights: 3, day0: trip.departAt,
+  });
+  const built = buildItinerary({
+    trip, region: REGION, visits: v.visits, meals: v.meals,
+    // 2日目に拠点を移す指示。ただし2日目には立ち寄りがありません。
+    moves: [{ day: 1, minutes: 160,
+              start: d("2026-09-13T04:00"), end: d("2026-09-13T06:40"),
+              from: { name: "テスト駅", lat: 35.319, lng: 139.55 },
+              to: { name: "名古屋", lat: 35.1706, lng: 136.8816 } }],
+    stays: [
+      { region: REGION, days: 1, dayFrom: 0, dayTo: 0,
+        station: { name: "テスト駅", lat: 35.319, lng: 139.55 } },
+      { region: { id: "nagoya", name: "名古屋", prefecture: "愛知県",
+                  lat: 35.1706, lng: 136.8816,
+                  stationLat: 35.1706, stationLng: 136.8816 },
+        days: 3, dayFrom: 1, dayTo: 3,
+        station: { name: "名古屋", lat: 35.1706, lng: 136.8816 } },
+    ],
+    reasons: new Map(),
+    legs: { outbound: { minutes: 60, routed: false },
+            inbound: { minutes: 60, routed: false } },
+  });
+  for (const day of built.days) {
+    const kinds = day.items.map((i) => i.kind);
+    const onlyMoveAndSleep = kinds.every((k) => k === "transit" || k === "lodging")
+      && kinds.includes("lodging");
+    assert.ok(!onlyMoveAndSleep,
+      `${day.date.toLocaleDateString("ja-JP")} が移動して寝るだけの日です`
+      + `（${kinds.join(",")}）`);
+  }
+});
+
+test("拠点を移す区間も、調べた結果があれば実測として出す", () => {
+  // 「1日目は実測なのに、2日目から推定になる」の正体。
+  // 拠点の移動だけ routed:false を決め打ちしていました。
+  const trip = makeTrip({
+    origin: TOKYO,
+    departAt: d("2026-09-12T09:00"),
+    arriveBy: d("2026-09-14T20:00"),
+  });
+  const from = { name: "テスト駅", lat: 35.319, lng: 139.55 };
+  const to = { name: "名古屋", lat: 35.1706, lng: 136.8816 };
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+    nights: 2, day0: trip.departAt,
+  });
+  const built = buildItinerary({
+    trip, region: REGION, visits: v.visits, meals: v.meals,
+    moves: [{ day: 1, minutes: 100,
+              start: d("2026-09-13T09:00"), end: d("2026-09-13T10:40"),
+              from, to }],
+    stays: [
+      { region: REGION, days: 1, dayFrom: 0, dayTo: 0, station: from },
+      { region: { id: "nagoya", name: "名古屋", prefecture: "愛知県",
+                  lat: 35.1706, lng: 136.8816,
+                  stationLat: 35.1706, stationLng: 136.8816 },
+        days: 2, dayFrom: 1, dayTo: 2, station: to },
+    ],
+    reasons: new Map(),
+    // 区間の中身は引ける、という状況。
+    legDetail: (a, b) => (a === from && b === to
+      ? { routed: true, line: "09:00 発→ 10:40 着 1時間40分",
+          yahoo: { departure: "09:00", arrival: "10:40" } }
+      : null),
+    legs: { outbound: { minutes: 60, routed: false },
+            inbound: { minutes: 60, routed: false } },
+  });
+  const move = built.days.flatMap((x) => x.items)
+    .find((i) => i.kind === "transit" && /拠点を移します/.test(i.detail ?? ""));
+  assert.ok(move, "拠点の移動が見つかりません");
+  assert.equal(move.routed, true, "調べてあるのに推定と出しています");
+  assert.match(move.detail, /09:00 発/);
+  assert.ok(move.yahoo, "時刻表から取ったことが残っていません");
+});
