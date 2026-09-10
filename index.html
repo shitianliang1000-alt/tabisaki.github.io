@@ -284,8 +284,17 @@
             <span>3万円まで</span>
           </button>
         </div>
-        <p class="md-field-help">超えたぶんを勝手に削りはしません。
-          超えていたら、そう伝えます。</p>
+        <div class="md-segmented" id="budget-mode" role="group"
+             aria-label="予算の扱い" hidden>
+          <button type="button" class="md-state is-selected" data-mode="guide">
+            <span>目安として使う</span>
+          </button>
+          <button type="button" class="md-state" data-mode="strict">
+            <span>できるだけ収める</span>
+          </button>
+        </div>
+        <p class="md-field-help" id="budget-help">超えたぶんを勝手に削りは
+          しません。超えていたら、そう伝えます。</p>
       </div>
 
       <div class="tune-group">
@@ -523,10 +532,10 @@
 <dialog id="quota-dialog" class="md-dialog">
   <h2 class="md-headline-small">この旅を、もう少し詳しく調べますか</h2>
   <p class="md-body-medium" id="quota-detail" style="margin:0 0 12px"></p>
-  <p class="md-body-small" style="margin:0;padding:14px 16px;border-radius:var(--hig-r-sm);background:var(--hig-fill);color:var(--hig-label)">
-    ここから先は、実際の乗換時間を調べたり、収録に無い場所をAIが
-    探したりします。ここまでにしても旅程は作れます
-    （移動時間は距離からの目安、行き先は収録済みの中から選びます）。</p>
+  <!-- 文面は app.js が入れます。AIをどこで動かしているかで、できることが
+       変わるためです（Workers AI には検索がありません）。 -->
+  <p class="md-body-small" id="quota-note"
+     style="margin:0;padding:14px 16px;border-radius:var(--hig-r-sm);background:var(--hig-fill);color:var(--hig-label)"></p>
   <div class="md-dialog-actions">
     <button type="button" class="md-btn md-btn--text md-state" id="quota-stop">
       <span>ここまでにする</span></button>

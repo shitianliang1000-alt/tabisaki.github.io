@@ -9,10 +9,10 @@
 import { KB_INDEX_URL, TILE_ATTRIBUTION, TILE_URL } from "./config.js";
 import { clearSettings, cspAllows, effectiveConfig, loadSettings, maskKey,
          saveSettings } from "./settings.js";
-import { callModel, describeSpot, diagnoseGeminiKey, hasApiKey }
+import { callModel, canGround, describeSpot, diagnoseGeminiKey, hasApiKey }
   from "./ai.js";
 import { discoverArea } from "./discover.js";
-import { loadKnowledgeBase, mergeIntoKb } from "./kb.js";
+import { loadKnowledgeBase, loadRegionIndex, mergeIntoKb } from "./kb.js";
 
 import { clearRouteCache, diagnoseMapsKey, diagnoseYahooTransit,
          resetRoutesBreaker, routesUsage }
@@ -61,7 +61,11 @@ async function boot() {
   state.map = new TripMap("map");
   state.map.configure({ tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION });
   startBackgroundMap();
-  startHomeMap();
+  // 携帯では、条件の画面に地図は出ていません（3画面に分けています）。
+  // 見えていない地図のために Leaflet を待ち、地図のタイルを何枚も
+  // 落とすのは、移動中の回線ではただの負担です。結果の画面に移った
+  // ときに作ります。
+  if (!isNarrow()) startHomeMap();
 
   configureQuota({ ask: askQuota, onChange: showQuota });
 
@@ -76,15 +80,25 @@ async function boot() {
   wireChrome();
   updateWindowHelp();
 
-  // 知識ベースは 3MB あります。読み終わる前に押されると、これまでは
-  // 「データを読み込めていません」で行き止まりでした。押せなくしておいて、
-  // 読み終わったら自分で押せるようになるほうが、待つ理由が分かります。
+  // 収録は約4MBあります。**読み終わるまで待たせません。**
+  //
+  // これまでは、全部読み終わるまでボタンを押せなくしていました。低速な
+  // 回線では、開いてから最初の操作までがそのぶん遅れます。条件を書いて
+  // いるあいだに後ろで取りにいき、押された時点でまだなら、そこで待ちます
+  // （たいていは書き終わるまでに済んでいます）。
+  //
+  // 先に索引とエリア（約380KB）だけを取ります。残り（スポット）は
+  // そのあと、同じ流れの中で。
   const fab = $("#make-plan");
-  fab.disabled = true;
-  fab.querySelector(".fab-tx").textContent = "旅先のデータを読んでいます…";
+  fab.querySelector(".fab-tx").textContent = "旅程をつくる";
+
+  state.kbPromise = (async () => {
+    const pre = await loadRegionIndex();
+    return loadKnowledgeBase(undefined, undefined, pre);
+  })();
 
   try {
-    state.kb = await loadKnowledgeBase();
+    state.kb = await state.kbPromise;
     if (state.kb.loadError) setBadge(state.kb.loadError, true);
     const restored = restoreConditions();
     if (restored === "url") {
@@ -108,11 +122,6 @@ async function boot() {
     $("#ph-data").textContent =
       "知識ベースを読み込めませんでした。web/ をサーバ経由で開いているか、"
       + "kb/ フォルダが同じ場所にあるかをご確認ください。";
-  } finally {
-    // 読めなかった場合も押せる状態に戻します。押せば理由が出ます。
-    // 押せないまま理由も出ないのが、いちばん困ります。
-    fab.disabled = false;
-    fab.querySelector(".fab-tx").textContent = "旅程をつくる";
   }
 }
 
@@ -507,6 +516,22 @@ function askQuota({ used, byKind, next }) {
     + (parts.length ? `（内訳: ${parts.join("・")}）` : "")
     + "。";
   $("#quota-go").querySelector("span").textContent = "詳しく調べる";
+  // できないことを「します」と書かない。
+  //
+  // 「収録に無い場所をAIが探します」と出していましたが、AIを中継の中で
+  // 動かしている（Workers AI）ときは検索ができません。収録済みの中から
+  // 選ぶだけです。押す前に分かるようにします。
+  const note = $("#quota-note");
+  if (note) {
+    note.textContent = canGround()
+      ? "ここから先は、実際の乗換時間を調べたり、収録に無い場所をAIが"
+        + "探したりします。ここまでにしても旅程は作れます"
+        + "（移動時間は距離からの目安、行き先は収録済みの中から選びます）。"
+      : "ここから先は、実際の乗換時間を調べ、AIが希望に合う行き先を"
+        + "選びます。収録に無い場所をインターネットで探すことはしません"
+        + "（いまの設定では、AIに検索の機能がありません）。"
+        + "ここまでにしても旅程は作れます（移動時間は距離からの目安です）。";
+  }
 
   return new Promise((resolve) => {
     const done = (ok) => {
@@ -586,9 +611,13 @@ function whenLeaflet(timeoutMs = 8000) {
   });
 }
 
+let homeMapStarted = false;
+
 async function startHomeMap() {
   const box = document.getElementById("home-map");
   if (!box) return;
+  if (homeMapStarted) return;   // 2度作らない
+  homeMapStarted = true;
   await whenLeaflet();
   if (!window.L) {
     // 地図を読み込めない環境で、灰色の四角を黙って出さないこと。
@@ -991,6 +1020,15 @@ function wireForm() {
   };
   segmented("#budget-choice", "budget", (v) => {
     state.budgetYen = v ? Number(v) : null;
+    // 予算を決めたときだけ、扱いを聞きます。決めていない人に
+    // 「目安か厳守か」を聞いても、答えようがありません。
+    const box = $("#budget-mode");
+    if (box) box.hidden = !state.budgetYen;
+    setBudgetHelp();
+  });
+  segmented("#budget-mode", "mode", (v) => {
+    state.budgetMode = v === "strict" ? "strict" : "guide";
+    setBudgetHelp();
   });
   segmented("#transport-choice", "transport", (v) => {
     state.transport = v ?? "any";
@@ -1116,6 +1154,7 @@ async function readTrip() {
     interests: genres,
     // 予算の上限。決めていなければ null（見ません）。
     budgetYen: state.budgetYen ?? null,
+    budgetMode: state.budgetMode ?? "guide",
     // 何で移動するか。車が使えるかどうかで、組める旅程が変わります。
     transport: state.transport ?? "any",
     // 定番と穴場のまぜかた。画面では星の粒として出しています。
@@ -1282,8 +1321,26 @@ function showRoutesUsage() {
  * 媒体条件の中だけで効きます）。切り替えたら先頭へ戻します。
  * 前の画面のスクロール位置のままだと、切り替わったことに気づけません。
  */
+function setBudgetHelp() {
+  const help = $("#budget-help");
+  if (!help) return;
+  help.textContent = !state.budgetYen
+    ? "決めなければ、費用は概算として出すだけです。"
+    : state.budgetMode === "strict"
+      ? "収まらないときは、入場料の高い場所から外して組み直します。"
+        + "外した場所の名前は出します。"
+      : "超えたぶんを勝手に削りはしません。超えていたら、そう伝えます。";
+}
+
+function isNarrow() {
+  return Boolean(globalThis.matchMedia?.("(max-width: 860px)")?.matches);
+}
+
 function showView(view) {
   document.body.dataset.view = view;
+  // 結果の画面に移ったら、そこで地図を用意します（携帯では、ここが
+  // 地図の見え始めです）。2度目以降は startHomeMap 側で弾かれます。
+  if (view === "result" && isNarrow()) startHomeMap();
   globalThis.scrollTo?.({ top: 0, behavior: "smooth" });
 }
 
@@ -1461,8 +1518,6 @@ async function run(override) {
   }
   const errors = validateTrip(trip);
   if (errors.length) { showError(errors.join(" / ")); return; }
-  if (!state.kb) { showError("データを読み込めていません。"); return; }
-
   state.trip = trip;
   // 携帯では、ここから結果の画面に移ります（css の data-view）。
   // 条件のページに留まったままだと、旅程ができても自分でスクロール
@@ -1479,6 +1534,13 @@ async function run(override) {
   moveBackgroundMap(trip.origin.lat, trip.origin.lng, 8);
 
   try {
+    // まだ読み終わっていなければ、ここで待ちます。押した人にとっては
+    // 「組み立ての一部」で、待つ理由も画面に出ます。
+    if (!state.kb) {
+      renderProgress(progress, 0, "旅先のデータを読んでいます");
+      state.kb = await state.kbPromise;
+    }
+    if (!state.kb) throw new Error("データを読み込めていません。");
     resetRoutesBreaker();
     const itin = await buildPlans(trip, progress);
     showRoutesUsage();

@@ -29,7 +29,7 @@ const YAHOO_TRANSIT_URL = "https://transit.yahoo.co.jp/search/result";
 // Gemma 4 のうち配信されているものを使います。
 const ALLOWED_CF_MODELS = new Set([
   "@cf/google/gemma-4-26b-a4b-it",
-  "@cf/google/gemma-3-12b-it",
+  "@cf/zai-org/glm-4.7-flash",
 ]);
 
 const ALLOWED_MODELS = new Set([
@@ -121,12 +121,71 @@ async function cfGenerate(request, env) {
   if (!ALLOWED_CF_MODELS.has(model)) return text("そのモデルは使えません", 400);
   const messages = Array.isArray(body?.messages) ? body.messages.slice(0, 8) : null;
   if (!messages?.length) return text("messages が要ります", 400);
-  const out = await env.AI.run(model, {
-    messages,
-    temperature: Number.isFinite(body?.temperature) ? body.temperature : 0.4,
-    max_tokens: Math.min(4096, Number(body?.max_tokens) || 2048),
-  });
-  return json({ text: String(out?.response ?? "") });
+  const temperature = Number.isFinite(body?.temperature) ? body.temperature : 0.4;
+  const maxTokens = Math.min(4096, Number(body?.max_tokens) || 2048);
+
+  // モデルによって受け取る形が違います。messages で駄目なら prompt で。
+  let out;
+  let firstError = null;
+  try {
+    out = await env.AI.run(model, { messages, temperature, max_tokens: maxTokens });
+  } catch (e) {
+    firstError = e;
+    try {
+      out = await env.AI.run(model, {
+        prompt: messages.map((m) => String(m?.content ?? "")).join("\n\n"),
+        temperature, max_tokens: maxTokens,
+      });
+    } catch (e2) {
+      // 「処理できませんでした」では、直しようがありません。上流の言い分を
+      // そのまま渡します。
+      return text(`Workers AI（${model}）: `
+        + String(e2?.message ?? firstError?.message ?? e2).slice(0, 300), 502);
+    }
+  }
+
+  const answer = cfText(out);
+  if (!answer) {
+    // 返事の入れ物はモデルによって違います。空だったときは、どの鍵が
+    // 来ているかだけ返します（中身は返しません）。次の一手が決まります。
+    return json({ text: "", shape: Object.keys(out ?? {}).slice(0, 12) });
+  }
+  return json({ text: answer });
+}
+
+/**
+ * Workers AI の返事から本文を取り出します。
+ *
+ * 入れ物がモデルによって違います（response / result.response /
+ * choices[].message.content / output[].content[].text）。1つだけを見ていて、
+ * Gemma 4 が空で返ってきました。順に当たり、どれも無ければ木をたどります。
+ */
+export function cfText(out) {
+  if (typeof out === "string") return out.trim();
+  const direct = [
+    out?.response,
+    out?.result?.response,
+    out?.output_text,
+    out?.choices?.[0]?.message?.content,
+    out?.choices?.[0]?.text,
+  ];
+  for (const c of direct) {
+    if (typeof c === "string" && c.trim()) return c.trim();
+  }
+  const parts = [];
+  const walk = (node, depth = 0) => {
+    if (!node || depth > 6) return;
+    if (typeof node === "string") { parts.push(node); return; }
+    if (Array.isArray(node)) { for (const x of node) walk(x, depth + 1); return; }
+    if (typeof node === "object") {
+      if (typeof node.text === "string") { parts.push(node.text); return; }
+      for (const key of ["content", "output", "message", "delta"]) {
+        if (node[key]) walk(node[key], depth + 1);
+      }
+    }
+  };
+  walk(out?.output ?? out?.result ?? out?.content ?? null);
+  return parts.join("").trim();
 }
 
 async function gemini(request, env, method) {

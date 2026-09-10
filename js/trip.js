@@ -91,6 +91,14 @@ export function makeTrip(init = {}) {
      */
     budgetYen: init.budgetYen ?? null,
     /**
+     * 予算の扱い。"guide"（目安）か "strict"（できるだけ収める）。
+     *
+     * 「2万円まで」を選んだ人は、2万円以内の旅程が出ると思います。
+     * それでも黙って削るのは違うので、どちらの意味で言ったのかを
+     * 聞きます。strict のときは、入場料の高い場所から外して組み直します。
+     */
+    budgetMode: init.budgetMode === "strict" ? "strict" : "guide",
+    /**
      * 何で移動するか。"any" | "transit" | "car" | "walk"。
      *
      * 「車が使えるか」は、地方では旅程が成立するかどうかを分けます。

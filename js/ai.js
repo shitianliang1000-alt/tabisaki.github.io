@@ -392,6 +392,9 @@ async function callCloudflare(model, prompt, opts = {}) {
     body: JSON.stringify({
       model,
       temperature,
+      // JSONを返させるときは長くなります。既定（2048）のままだと、
+      // 候補が多い旅程で途中で切れ、壊れたJSONになります。
+      max_tokens: schema ? 4096 : 2048,
       messages: [
         { role: "system", content: SYSTEM },
         { role: "user", content: text },
@@ -408,7 +411,15 @@ async function callCloudflare(model, prompt, opts = {}) {
   const data = await res.json();
   // 検索をしないので、出典はありません。前回の出典が残らないよう空にします。
   lastSources = { sources: [], queries: [] };
-  return String(data?.text ?? "").trim();
+  const out = String(data?.text ?? "").trim();
+  if (!out && data?.shape) {
+    // 中継までは通っていて、返事の入れ物が想定と違う場合です。
+    // 「空でした」だけだと直しようがないので、鍵の名前を渡します。
+    const err = new Error(`返事が空でした（形: ${data.shape.join(", ")}）`);
+    err.status = 502;
+    throw err;
+  }
+  return out;
 }
 
 async function callOnce(model, prompt, opts = {}) {
@@ -630,9 +641,14 @@ function keywordFallback(text, interests) {
 // --- 2. 検索用の埋め込み ----------------------------------------------------
 
 export async function embedQuery(text, opts = {}) {
-  // 自分で立てたモデルには、埋め込みの入口を用意していません。
-  // 無理に呼ぶより、語句検索に落ちるほうが確かです。
-  if (usingLocalModel() || !EMBED_MODEL) return null;
+  // 埋め込みの入口があるのは Gemini だけです。
+  //
+  // Cloudflare を除いていなかったので、AI本体は Workers AI で動いている
+  // のに、検索用のベクトルだけ /gemini/embed を呼んでいました。中継に
+  // GEMINI_API_KEY が無ければ 503 で、握りつぶして語句検索に落ちます
+  // ——**旅程を作るたびに、無駄な往復と待ち時間と失敗の記録**が出ます。
+  // 呼ばずに語句検索へ落ちるほうが、速くて正直です。
+  if (usingLocalModel() || usingCloudflare() || !EMBED_MODEL) return null;
   if (!hasApiKey()) return null;
   try {
     const cfg = net();

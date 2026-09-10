@@ -106,7 +106,12 @@ p, li { text-wrap: pretty; }
 /* 設定ボタン。地図がどの状態（案内前の地図／結果の地図）でも、
    常にこの右上に浮きます。 */
 .settings-fab {
-  position: fixed; top: 12px; right: 12px; z-index: 600;
+  /* ホーム画面に追加した状態（PWA）では、上端が時計やカメラの下に
+     入ります。安全領域のぶんだけ下げます。 */
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+  z-index: 600;
   background: var(--md-sys-color-surface-container-high);
   box-shadow: var(--md-sys-elevation-1);
   color: var(--md-sys-color-on-surface);
@@ -150,7 +155,8 @@ p, li { text-wrap: pretty; }
    欄の下にぶら下がる、細い一行にします。 */
 .here-btn {
   margin: -14px 0 2px;
-  min-height: 34px; padding: 6px 12px 6px 10px;
+  /* 指で押す的は 44px 以上。見た目を大きくしたくないので、余白で稼ぎます。 */
+  min-height: 44px; padding: 10px 12px 10px 10px;
   background: none;
   color: var(--tabi-indigo);
   font-size: 13px; font-weight: 600;
@@ -1561,7 +1567,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .md-sheet .links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
 .md-sheet .links a {
   display: inline-flex; align-items: center;
-  min-height: 40px; padding: 0 24px;
+  min-height: 44px; padding: 0 24px;
   border: .5px solid var(--hig-separator-opaque);
   border-radius: var(--md-sys-shape-corner-full);
   color: var(--md-sys-color-primary);
@@ -1603,7 +1609,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   body[data-view="result"] { padding-bottom: env(safe-area-inset-bottom); }
   body[data-view="form"] .pane-result { display: none; }
   body[data-view="result"] .back-to-form {
-    display: inline-flex; position: absolute; top: 12px; left: 12px; z-index: 12;
+    display: inline-flex; position: absolute; z-index: 12;
+    top: calc(12px + env(safe-area-inset-top));
+    left: calc(12px + env(safe-area-inset-left));
   }
   .layout { grid-template-columns: 1fr; height: auto; }
   .pane { overflow: visible; }
@@ -1673,7 +1681,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--md-sys-color-error-container);
   color: var(--md-sys-color-on-error-container);
 }
-.tl .reserve .link { min-height: 28px; padding: 0 12px; font-size: 12px; }
+.tl .reserve .link {
+  /* 字は小さいまま、押せる高さだけ 44px にします（上下の余白で）。 */
+  min-height: 44px; padding: 8px 12px; font-size: 12px;
+}
 
 .quality { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .quality li {

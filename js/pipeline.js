@@ -547,8 +547,36 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   itin.vector = vector;
   itin.suggestions = relaxForItinerary({ trip, checked });
 
+  // 「できるだけ予算内に収める」を選んでいたら、入場料の高い場所を
+  // 外して組み直します。1回だけです。削るほど旅は薄くなるので、
+  // 収まらなければ「収まりません」と言うほうが正直です。
+  if (trip.budgetMode === "strict" && !opts.noBudgetRetry) {
+    const overs = overBudgetSpots(itin, trip.budgetYen);
+    if (overs.length) {
+      const trimmedTrip = { ...trip, must: { ...(trip.must ?? {}),
+        avoidSpotIds: [...(trip.must?.avoidSpotIds ?? []),
+                       ...overs.map((s) => s.spotId).filter(Boolean)] } };
+      try {
+        const again = await planTrip({ ...opts, kb, onProgress,
+                                       trip: trimmedTrip,
+                                       noBudgetRetry: true, query, vector });
+        const now = again?.cost?.total ?? Infinity;
+        if (now <= trip.budgetYen) {
+          again.warnings = [
+            `予算に収めるため、入場料の高い${overs.length}か所を外しました`
+            + `（${overs.map((s) => s.title).join("・")}）。`
+            + "残したい場所があれば、「◯◯は入れて」と書き足してください。",
+            ...(again.warnings ?? []),
+          ];
+          return again;
+        }
+      } catch { /* 組み直せなければ、下の注意書きで伝えます */ }
+    }
+  }
+
   itin.warnings = [
     ...aiNotes(),
+    ...transitSourceNote(itin),
     ...budgetNotes(itin, trip),
     ...mustNotes,
     ...discoveryNotes,
@@ -829,6 +857,47 @@ export class PlanError extends Error {
  * 特急か）は好みの問題で、こちらが決めると「行きたかった場所が消えた」に
  * なります。超えていることと、内訳のいちばん大きいところを伝えます。
  */
+/**
+ * 予算を超えたぶん、入場料の高い場所から外していきます（strict のとき）。
+ *
+ * 「2万円まで」を選んだ人は、2万円以内の旅程が出ると思っています。
+ * それでも、何を削るかは好みの問題です。だから**入場料**から削ります
+ * （宿や特急は、削ると旅そのものが変わります）。外した場所は名前を
+ * 残すので、「それは残したい」と言い直せます。
+ *
+ * @returns {string[]} 外した場所の名前
+ */
+export function overBudgetSpots(itin, cap) {
+  const total = itin?.cost?.total ?? itin?.totalCostYen ?? 0;
+  if (!(cap > 0) || !(total > cap)) return [];
+  const spots = (itin.days ?? []).flatMap((d) => d.items ?? [])
+    .filter((i) => i.kind === "spot" && (i.costYen ?? 0) > 0)
+    .sort((a, b) => (b.costYen ?? 0) - (a.costYen ?? 0));
+  const out = [];
+  let over = total - cap;
+  for (const s of spots) {
+    if (over <= 0) break;
+    out.push(s);
+    over -= s.costYen ?? 0;
+  }
+  return out;
+}
+
+/**
+ * 電車・バスの時刻の出どころ。
+ *
+ * Yahoo!路線情報の検索結果を読んで組み立てています。公式の乗換案内では
+ * ないので、ダイヤの改正や臨時の運休は反映されないことがあります。
+ * 現地で乗り遅れるのは利用者なので、出どころは書いておきます。
+ */
+function transitSourceNote(itin) {
+  const routed = (itin?.days ?? []).flatMap((d) => d.items ?? [])
+    .some((i) => i.kind === "transit" && i.routed && i.yahoo);
+  if (!routed) return [];
+  return ["電車・バスの時刻はYahoo!路線情報の検索結果です。"
+    + "出発前に、公式の乗換案内でもう一度お確かめください。"];
+}
+
 function budgetNotes(itin, trip) {
   const cap = trip?.budgetYen;
   const total = itin?.cost?.total ?? itin?.totalCostYen;

@@ -38,7 +38,9 @@ export const MODEL_PROVIDER = "cloudflare";
 // うち配信されているものを使います（26B-A4B は実際に動く4Bぶんの重みで、
 // 端末向けのE2Bより素直に賢いはずです）。
 export const CF_MODEL = "@cf/google/gemma-4-26b-a4b-it";
-export const CF_FALLBACK_MODELS = ["@cf/google/gemma-3-12b-it"];
+// 控え。Gemma 3 12B は Cloudflare の一覧で非推奨扱いなので、現役のものに
+// します。Gemma 4 が混んでいるときに、控えまで落ちては意味がありません。
+export const CF_FALLBACK_MODELS = ["@cf/zai-org/glm-4.7-flash"];
 
 // 手元で動かす場合（Ollama など）。E2B は端末で動かす前提の大きさです。
 export const LOCAL_MODEL = "gemma4:e2b";
