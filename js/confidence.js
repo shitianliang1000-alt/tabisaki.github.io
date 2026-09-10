@@ -49,6 +49,19 @@ export function confidenceOf(kind, subject, opts = {}) {
     // 何で確かめたのかが分かりません。時刻表から取ったのか、地図の
     // 経路検索なのかで、当日ずれたときに疑う先が変わります。
     const routed = s.routed === true;
+    // 歩きは、距離で足ります。
+    //
+    // 0.5kmの徒歩に「🟡 推定」と付けると、時刻表を引けなかった区間と
+    // 同じ顔になります。歩く速さは人によって多少違いますが、便のように
+    // 「無ければ2時間待ち」にはなりません。**確かめようのないもの**と
+    // **確かめる必要のないもの**を、同じ印で並べないようにします。
+    if (!routed && s.walk === true) {
+      const walk = build("verified",
+        "距離から出した徒歩の時間です（時速約4km）", checkedAt, age);
+      walk.label = "徒歩";
+      walk.source = "";
+      return walk;
+    }
     const out = build(routed ? "verified" : "estimated",
       s.yahoo
         ? "Yahoo!路線情報の時刻です（乗換・待ち時間を含みます）"

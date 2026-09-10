@@ -81,7 +81,14 @@ export async function searchYahooTransit(from, to, opts = {}) {
     } catch (e) {
       if (opts.signal?.aborted) throw e;
       lastError = e;
-      continue;                       // 通信そのものの失敗。待って、もう一度。
+      // 通信そのものの失敗。1度だけ待ってやり直します。
+      //
+      // ここで最後まで粘ると、**区間の数だけ**同じ待ちが積み上がります。
+      // 旅程1つで20区間あれば、届かない相手を相手に6分待つことになり、
+      // 画面は「作成中」のまま止まって見えます。届かないものは、
+      // 少し置いてからにします（下の hold）。
+      if (attempt >= 1) break;
+      continue;
     }
     if (res.ok) {
       resetYahooCooldown();
@@ -101,15 +108,24 @@ export async function searchYahooTransit(from, to, opts = {}) {
     lastError = err;
     // 断られた（429）か、上流が不調（5xx）のときだけ、待って試します。
     // 400番台のほかは、待っても同じ答えです。
-    if (res.status !== 429 && res.status < 500) throw err;
+    //
+    // 同じ答えなら、**残りの区間も投げません**。403（このサイトからは
+    // 呼べません）のような設定の問題は、20区間投げても20回同じことを
+    // 言われるだけです。
+    if (res.status !== 429 && res.status < 500) { hold(err); throw err; }
   }
 
   // ここまで来たら、しばらく聞きません。旅程1つで区間の数だけ聞くので、
   // 断られた直後に残りを投げても、全部断られるだけです。
-  cooldown.until = Date.now()
-    + Math.max(COOLDOWN_MS, (lastError?.retryAfter ?? 0) * 1000);
-  cooldown.reason = String(lastError?.message ?? "断られました").slice(0, 60);
+  hold(lastError);
   throw lastError ?? new Error("Yahoo!路線情報に接続できませんでした");
+}
+
+/** しばらく聞かない。区間ごとに同じ壁へぶつかりに行かないためです。 */
+function hold(err) {
+  cooldown.until = Date.now()
+    + Math.max(COOLDOWN_MS, (err?.retryAfter ?? 0) * 1000);
+  cooldown.reason = String(err?.message ?? "断られました").slice(0, 60);
 }
 
 function neutralDepartureTime(now = new Date()) {

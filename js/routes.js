@@ -473,6 +473,11 @@ async function computeViaStations(points, opts) {
   // 2区間目に乗るのは10時ではありません。
   const plans = new Array(n);
   const yahooLegs = new Array(n).fill(null);
+  // 区間ごとの出発時刻。呼ぶ側が「この区間を通るのは何日目の何時か」を
+  // 知っているなら、そちらを使います（pipeline.js が渡します）。
+  // 所要時間だけを足していく下の時計は、滞在も宿泊もまたげません。
+  // 3日目の区間を初日の昼として調べていたのが、これです。
+  const given = Array.isArray(opts.departTimes) ? opts.departTimes : null;
   let clock = opts.departAt ? new Date(opts.departAt) : null;
   // Yahoo!の回数は、Googleの徒歩実測とは別に数えます。混ぜていたので、
   // 徒歩を測ると、そのぶん実際の時刻が取れなくなっていました。
@@ -481,8 +486,9 @@ async function computeViaStations(points, opts) {
     (TUNING.maxYahooRequests ?? 40) - yahooBudgetSpent.spent);
   for (let i = 0; i < n; i++) {
     // 断られている間は、残りの区間を投げません。投げても全部断られます。
+    const at = given?.[i] instanceof Date ? given[i] : clock;
     const hit = (yahooBudget > 0 && !yahooCooldown().waiting)
-      ? await yahooLeg(points[i], points[i + 1], { ...opts, departAt: clock })
+      ? await yahooLeg(points[i], points[i + 1], { ...opts, departAt: at })
       : null;
     if (hit) {
       yahooBudget--;
@@ -620,7 +626,12 @@ export async function computeRoute(points, opts = {}) {
   // 日本国内では必ず「経路が見つかりません」が返り、それでも課金対象の
   // リクエストは消費されます。駅の位置から組み立てます。
   if (mode === "TRANSIT") {
-    const key = cacheKey(points, "TRANSIT-yahoo", opts.departAt);
+    const key = cacheKey(points, "TRANSIT-yahoo", opts.departAt)
+      + (Array.isArray(opts.departTimes)
+        ? "|" + opts.departTimes
+          .map((d) => (d instanceof Date ? Math.floor(d.getTime() / 600000) : "-"))
+          .join(",")
+        : "");
     const hit = routeCache.get(key);
     if (hit) return hit;
 

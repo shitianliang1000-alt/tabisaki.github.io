@@ -580,6 +580,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   }
 
   itin.warnings = [
+    ...poolNote(kb, candidates),
     ...aiNotes(),
     ...transitSourceNote(itin),
     ...budgetNotes(itin, trip),
@@ -593,6 +594,84 @@ export async function planTrip({ trip, kb, onProgress = () => {},
 
   return itin;
 }
+
+/** 旅の d 日目の、hour 時ちょうど。 */
+function dayTime(trip, day, hour) {
+  const d = new Date(trip.departAt.getTime() + day * 86400000);
+  d.setHours(Math.floor(hour), Math.round((hour % 1) * 60), 0, 0);
+  return d;
+}
+
+/** 帰りの便に乗る時刻。帰着の期限から、かかる時間を引きます。 */
+function returnDeparture(trip, nights, points) {
+  const back = estimateMinutes(points[points.length - 2],
+                               points[points.length - 1]);
+  const limit = trip.arriveBy ?? dayTime(trip, nights, 20);
+  return new Date(limit.getTime() - back * 60000);
+}
+
+/**
+ * エリア内の各区間を、実際に通る日時に割り当てます。
+ *
+ * 立ち寄りには「何日目に回るか」（dayFloorById）が決まっています。
+ * その日の朝から、1か所あたり1.8時間ずつ進めた時刻を使います。
+ * 正確な時刻はこのあと planner.js が決めますが、**便を調べるには
+ * 日と時間帯が合っていれば足ります**。丸1日ずれているのが問題でした。
+ */
+function localDepartures(points, { trip, spots, dayFloorById, dayStart,
+                                   nights }) {
+  const out = [];
+  let seenOnDay = 0;
+  let prevDay = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    // 最後の1本は帰り道です。
+    if (i === points.length - 2) {
+      out.push(returnDeparture(trip, nights, [points[i], points[i + 1]]));
+      continue;
+    }
+    const day = Math.min(nights, dayFloorById.get(spots[i]?.id) ?? prevDay);
+    if (day !== prevDay) { seenOnDay = 0; prevDay = day; }
+    out.push(dayTime(trip, day, Math.min(21, dayStart + seenOnDay * 1.8)));
+    seenOnDay++;
+  }
+  return out;
+}
+
+/**
+ * 立ち寄りを、いちばん近い拠点に割り当てます。
+ *
+ * ここは以前、**エリアIDが滞在先と完全に一致する立ち寄りだけ**を
+ * 残していました。収録のエリアは1,370あり、大阪の難波なら
+ * 「大阪・ミナミ」と「大阪市」に分かれています。AIが両方から選ぶと、
+ * 片方が黙って消えます。実際に出ていた旅程が、難波を拠点にした1日で
+ * 立ち寄り1か所です（近くに146か所あるのに）。収録を増やすほど、この
+ * 取りこぼしはひどくなります。エリアが細かくなるからです。
+ *
+ * 見るのは名前ではなく距離です。どの拠点からも遠い立ち寄りは、その日の
+ * うちに往復できないので外します。
+ *
+ * @param {object[]} spots
+ * @param {Array<{station?:object, region:object}>} stays
+ * @returns {object[][]} 拠点ごとの立ち寄り
+ */
+export function assignToStays(spots, stays) {
+  const byStay = stays.map(() => []);
+  for (const spot of spots) {
+    let best = -1;
+    let bestKm = Infinity;
+    for (const [i, s] of stays.entries()) {
+      const km = haversineKm(spot, s.station ?? s.region);
+      if (km < bestKm) { best = i; bestKm = km; }
+    }
+    if (best < 0 || bestKm > STAY_REACH_KM) continue;
+    byStay[best].push(spot);
+  }
+  return byStay;
+}
+
+// 拠点から、その日のうちに往復できる距離。これを超える立ち寄りは、
+// どの拠点にも紐づけません（片道1時間半ほどが目安です）。
+const STAY_REACH_KM = 80;
 
 async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   // 案を選ぶ段階では、経路APIを呼びません。
@@ -615,14 +694,11 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     days, origin: trip.origin, end, pace: trip.pace,
   });
 
-  // 立ち寄りを滞在の順に並べ替える（同じエリアのぶんは続けて回る）
-  const byRegion = new Map(stays.map((s) => [s.region.id, []]));
-  for (const p of proposal.picks) {
-    const spot = kb.spotsById.get(p.spotId);
-    if (!spot) continue;
-    byRegion.get(spot.regionId)?.push(spot);
-  }
-  let spots = stays.flatMap((s) => byRegion.get(s.region.id) ?? []);
+  // 立ち寄りを滞在の順に並べ替える（同じ拠点のぶんは続けて回る）
+  const byStay = assignToStays(
+    proposal.picks.map((p) => kb.spotsById.get(p.spotId)).filter(Boolean),
+    stays);
+  let spots = byStay.flat();
   // 「このスポットは何日目以降に回る」を滞在計画から決めておく。
   //
   // 滞在の初日にまとめて詰め込むと、3日いるエリアで「1日目に4か所、
@@ -639,8 +715,8 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   // その日の拠点から247km離れた場所は、もう「その日に回る場所」では
   // ありません。滞在の最終日を上限にして、越えるなら諦めます。
   const dayCeilById = new Map();
-  for (const s of stays) {
-    const list = byRegion.get(s.region.id) ?? [];
+  for (const [i, s] of stays.entries()) {
+    const list = byStay[i] ?? [];
     const n = list.length || 1;
     list.forEach((sp, k) => {
       dayFloorById.set(sp.id, s.dayFrom + Math.floor((k * s.days) / n));
@@ -648,6 +724,8 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     });
   }
 
+  const dayStart = Number.isFinite(trip.dayStartHour)
+    ? trip.dayStartHour : TUNING.dayStartHour;
   const first = stays[0].station;
   const localPoints = [first, ...spots, end];
   const stationPoints = stays.length > 1
@@ -672,21 +750,38 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     // その日がまるごと崩れる区間）から先に使い切ります。
     const entries = [];
     if (stationPoints) {
-      // 出発時刻を送らないと「いまこの瞬間」で調べられます。夜に作れば
-      // 終電後として扱われ、拠点の移動だけが推定に落ちていました。
-      // 拠点を移すのは午前中が普通なので、旅の初日の10時で見ます
-      // （何日目に移るかは区間ごとに違うので、ここは一本の目安です）。
-      const moveAt = new Date(trip.departAt);
-      moveAt.setHours(10, 0, 0, 0);
-      stationRoute = await computeRoute(stationPoints,
-        { mode: pickMode(stationPoints, trip.transport), departAt: moveAt });
+      // **その区間を実際に通る日時**で聞きます。
+      //
+      // ここは長いあいだ「旅の初日の10時」でした。区間ごとに時刻を
+      // ずらす仕掛けはありましたが、ずらすのは所要時間ぶんだけなので、
+      // 3日目に移る区間も初日の昼として調べられます。旅程には
+      // 「3日目 4:00 名古屋駅 → 難波駅」と出て、中身は「12:16発→13:40着」。
+      // **同じ行の中で食い違います。**
+      //
+      // 拠点を移すのは、その滞在が始まる日の朝です。
+      stationRoute = await computeRoute(stationPoints, {
+        mode: pickMode(stationPoints, trip.transport),
+        departAt: dayTime(trip, stays[1]?.dayFrom ?? 0, dayStart),
+        departTimes: stationPoints.slice(1).map((_, i) => {
+          const stay = stays[i + 1];
+          // 最後の1本は帰り道です。最終日の、帰りにかかる時間を見て
+          // 出る時刻にします。
+          if (!stay) return returnDeparture(trip, nights, stationPoints);
+          return dayTime(trip, stay.dayFrom, dayStart);
+        }),
+      });
       entries.push([stationPoints, stationRoute.legs]);
     }
 
-    // エリア内の経路
+    // エリア内の経路。こちらも、その立ち寄りを回る日の時刻で聞きます。
+    // 1日目の朝から所要時間だけを足していくと、5か所目には「まだ午前中」、
+    // 3日目には「もう真夜中」になり、返ってくる便が実際とずれます。
     localRoute = await computeRoute(localPoints, {
       mode: pickMode(localPoints, trip.transport),
       departAt: new Date(trip.departAt.getTime() + outbound.minutes * 60000),
+      departTimes: localDepartures(localPoints, {
+        trip, spots, dayFloorById, dayStart, nights,
+      }),
     });
     entries.unshift([localPoints, localRoute.legs]);
     travelFn = legLookupAll(entries);
@@ -913,6 +1008,25 @@ function budgetNotes(itin, trip) {
     + ` ¥${cap.toLocaleString()} を ¥${(total - cap).toLocaleString()} 超えています`
     + (worst ? `（いちばん大きいのは${worst.label} ¥${worst.yen.toLocaleString()}）` : "")
     + "。日数を減らすか、上限を上げてください。"];
+}
+
+/**
+ * どれだけの中から選んだのか。
+ *
+ * 収録は30,000件ありますが、旅程に出るのは十数件です。読む側からは
+ * 「たまたま出た数件」と区別がつきません（実際、収録を倍にしたあとも
+ * 同じ場所が出て「本当に増えているのか」と言われました）。**その旅で
+ * 実際に検討した件数**を出します。旅程の中身ではなく、選び方の話です。
+ */
+function poolNote(kb, candidates) {
+  const pool = new Set();
+  for (const c of candidates ?? []) {
+    for (const s of c.spots ?? []) pool.add(s.spot?.id ?? s.id);
+  }
+  if (!pool.size) return [];
+  const total = kb?.spots?.length ?? 0;
+  return [`収録${total.toLocaleString("ja-JP")}件のうち、`
+    + `${pool.size.toLocaleString("ja-JP")}件を候補として見ています。`];
 }
 
 function aiNotes() {

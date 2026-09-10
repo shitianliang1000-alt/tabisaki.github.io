@@ -24,6 +24,8 @@ export function travelSource(item) {
   if (!item || item.kind !== "transit") return null;
   if (item.yahoo) return { key: "yahoo", label: "Yahoo!路線情報" };
   if (item.routed) return { key: "routes", label: "Googleの経路" };
+  // 歩きは距離で足ります（confidence.js と同じ見かたです）。
+  if (item.walk) return { key: "walk", label: "徒歩（距離から）" };
   return { key: "estimate", label: "距離からの推定" };
 }
 
