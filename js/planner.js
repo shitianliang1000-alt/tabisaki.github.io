@@ -152,6 +152,8 @@ export function buildItinerary(input) {
 
   for (let day = 0; day <= nights; day++) {
     const region = baseOfDay(day);
+    // その日を後ろへずらす分（実際に乗れる便に合わせたぶん）。
+    let shiftMin = 0;
 
     // 拠点が変わる日は、朝いちで移動する
     const mv = movesByDay.get(day);
@@ -162,12 +164,21 @@ export function buildItinerary(input) {
       // Yahoo!へ聞いているのに、拠点の移動だけは必ず「推定」と出ます。
       // 1日目は実測なのに2日目から推定になる、の正体がこれです。
       const leg = legDetail(mv.from, mv.to);
+      // 実際に乗る便の時刻に合わせます（往路と同じ考え方です）。
+      // 「4:00 名古屋駅 → 難波駅」と書いてある行の中身が
+      // 「12:16発→13:40着」では、どちらを信じてよいか分かりません。
+      const board = boardingTime(mv.start, leg);
+      const start = board ?? mv.start;
+      const end = board
+        ? addMinutes(board, leg.rideMinutes ?? leg.minutes ?? mv.minutes)
+        : mv.end;
       items.push(withTransit({
         id: nextId(), kind: "transit",
-        start: mv.start, end: mv.end,
+        start, end,
         title: `${mv.from.name ?? "拠点"} → ${mv.to.name ?? region.name}`,
         detail: leg?.line
           ? `拠点を移します・${leg.line}`
+            + (board ? `（${fmtHm(mv.start)}発で、次に乗れる便です）` : "")
           : `拠点を移します・約${mv.minutes}分`,
         from: mv.from, to: mv.to,
         routed: Boolean(leg?.routed), costYen: 0,
@@ -176,15 +187,21 @@ export function buildItinerary(input) {
         km: haversineKm(mv.from, mv.to),
         reason: `${day + 1}日目から${region.name}を拠点にするため`,
       }, leg?.transit));
-      prevEnd = mv.end;
+      prevEnd = end;
       cur = mv.to;
+      // 便に合わせて出発が遅れたぶん、その日の予定も後ろへずらします。
+      // ずらさないと「13:40に着く」と書いた下に「5:51から見学」が並びます。
+      shiftMin = Math.max(0, Math.round((end - mv.end) / 60000));
     }
 
     // その日の食事と訪問を、時刻順に混ぜる
+    const push = (d) => (shiftMin ? addMinutes(d, shiftMin) : d);
     const dayEntries = [
       ...meals.filter((m) => (m.day ?? 0) === day)
-        .map((m) => ({ at: m.start, meal: m })),
+        .map((m) => ({ at: push(m.start),
+                       meal: { ...m, start: push(m.start), end: push(m.end) } })),
       ...visits.filter((v) => (v.day ?? 0) === day)
+        .map((v) => ({ ...v, arrive: push(v.arrive), end: push(v.end) }))
         .map((v) => ({ at: addMinutes(v.arrive, -(v.travel + v.wait)), visit: v })),
     ].sort((a, b) => a.at - b.at);
 
