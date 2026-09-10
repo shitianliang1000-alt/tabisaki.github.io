@@ -316,3 +316,33 @@ test("収録件数の表示と、中身が一致している", () => {
   assert.equal(index.counts.spots, spotsOf().length,
     "index.json の件数が中身とずれています");
 });
+
+// ---------------------------------------------- 拠点は、実在する駅である --
+//
+// エリアの拠点は、1,370件のうち1,323件が「千代田区中心部」「京都市中心部」
+// でした。座標はエリアの代表点、名前は自動で付けたものです。これが
+// 画面の3つの不満の正体でした。
+//
+//   東京駅発なのに   8:00 東京駅 → 千代田区中心部（0.8km）
+//   無駄な移動       8:15 貨幣博物館へ移動（1.2km・東京駅の隣）
+//   時間が出ない     Yahoo!は「千代田区中心部」を解決できません
+//
+// 直しかたは tools/region_stations.py にあります。
+
+test("エリアの拠点は、実在する駅になっている",
+     { skip: !has && "kb/ が未生成" }, () => {
+  const named = regions.filter((r) => r.station);
+  const fake = named.filter((r) => r.station.includes("中心部"));
+  // 鉄道の無い離島や山間部は残ります（佐渡市など）。それ以外は駅です。
+  assert.ok(fake.length < named.length * 0.2,
+    `拠点が駅でないエリアが多すぎます: ${fake.length}/${named.length}`);
+  const kyoto = regions.find((r) => r.name === "京都市");
+  assert.equal(kyoto?.station, "京都駅");
+});
+
+test("拠点の駅は、そのエリアから遠くない",
+     { skip: !has && "kb/ が未生成" }, () => {
+  const far = regions.filter((r) => r.stationLat
+    && km(r, { lat: r.stationLat, lng: r.stationLng }) > 35);
+  assert.deepEqual(far.map((r) => `${r.name}:${r.station}`), []);
+});

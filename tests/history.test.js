@@ -6,8 +6,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { MAX, addHistory, clearHistory, loadHistory, removeHistory, savedLabel }
-  from "../js/history.js";
+import { MAX, addHistory, clearHistory, loadHistory, removeHistory, savedLabel,
+         thawItinerary } from "../js/history.js";
 
 /** localStorage の代わり。テストのあいだだけ持ちます。 */
 function fakeStore() {
@@ -110,4 +110,53 @@ test("いつ作ったかを、読める言葉にする", () => {
   assert.equal(savedLabel(ago(3), now), "3日前");
   assert.match(savedLabel(ago(30), now), /月.*日/);
   assert.equal(savedLabel(undefined, now), "");
+});
+
+// --------------------------------------------------- 旅程そのものの保存 --
+//
+// 条件だけを覚えて、開くたびに組み直していました。同じ条件でも組み直せば
+// 別の旅程が出るので（AIの選び方も、調べた便もそのときのもの）、保存した
+// つもりの旅程が知らない場所に入れ替わります。旅程そのものを持ちます。
+
+test("旅程そのものが保存され、日時も戻る", () => {
+  const store = fakeStore();
+  const itin = {
+    title: "大阪",
+    days: [{ key: 1, items: [{ kind: "spot", title: "通天閣",
+                               start: new Date("2026-09-15T10:00"),
+                               end: new Date("2026-09-15T11:00") }] }],
+  };
+  addHistory({ ...entry("大阪"), itin }, store);
+  const saved = loadHistory(store)[0];
+  assert.ok(saved.itin, "旅程が保存されていません");
+
+  const back = thawItinerary(saved.itin);
+  const item = back.days[0].items[0];
+  assert.equal(item.title, "通天閣");
+  assert.ok(item.start instanceof Date, `日時が戻っていません: ${item.start}`);
+  assert.equal(item.start.getHours(), 10);
+});
+
+test("説明文の中の日付を、日時に変えてしまわない", () => {
+  const back = thawItinerary({
+    days: [{ items: [{ detail: "2026-09-15 に改装しました",
+                       start: "2026-09-15T10:00" }] }],
+  });
+  assert.equal(typeof back.days[0].items[0].detail, "string");
+  assert.ok(back.days[0].items[0].start instanceof Date);
+});
+
+test("端末の空きが足りないときは、古いものから落として新しいぶんを残す", () => {
+  let calls = 0;
+  const store = {
+    getItem: () => null,
+    setItem: (k, v) => {
+      // 2件ぶんは入らない、という端末のふり。
+      if (++calls === 1 && v.length > 200) throw new Error("QuotaExceeded");
+    },
+  };
+  const big = { days: [{ items: Array.from({ length: 50 }, (_, i) => ({
+    kind: "spot", title: `場所${i}`, detail: "x".repeat(50) })) }] };
+  // 落ちずに戻ってくれば十分です（保存できなくても旅程は作れます）。
+  assert.doesNotThrow(() => addHistory({ ...entry("大阪"), itin: big }, store));
 });

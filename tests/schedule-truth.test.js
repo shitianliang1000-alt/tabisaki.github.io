@@ -170,3 +170,63 @@ test("隣り合うエリアの立ち寄りも、いちばん近い拠点のぶ�
   assert.deepEqual(byStay.map((list) => list.map((s) => s.id)),
     [["c"], ["a", "b"]]);
 });
+
+// ------------------------------------------ 調べる先は、書いてある駅である --
+//
+// Yahoo!に渡す駅名は、いつでも「その地点にいちばん近い停留所」を引いて
+// いました。東京駅の半径5kmには何十もの停留所があるので、たまたま近い
+// バス停が選ばれます。旅程には「東京駅 →」と書いてあるのに調べたのは
+// 別の場所、という食い違いが起き、名前が解決できずに時刻が取れないことも
+// ありました。自分の名前で通るなら、そのまま使います。
+
+test("駅から出るときは、その駅の名前で調べる", async () => {
+  resetRoutesBreaker();
+  const asked = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    asked.push(JSON.parse(init.body));
+    return { ok: true, status: 200, json: async () => ({ routed: false }) };
+  };
+  try {
+    await computeRoute([{ name: "東京駅", lat: 35.681236, lng: 139.767125 },
+                        { name: "難波駅", lat: 34.6659, lng: 135.5017 }],
+                       { mode: "TRANSIT", departAt: d("2026-09-15T09:00") });
+  } finally {
+    globalThis.fetch = real;
+    resetRoutesBreaker();
+  }
+  if (asked.length) {
+    assert.equal(asked[0].from, "東京駅", `別の場所で調べています: ${asked[0].from}`);
+    assert.equal(asked[0].to, "難波駅");
+  }
+});
+
+// ------------------------------------------------------------ 無駄な移動 --
+//
+// 「1回の入れ替えにつき6kmまで」を何度も通せば、いくらでも遠回りできます。
+// 拠点のすぐ隣に4か所あるのに、7.3km先の寺から始めて6.6km戻ってくる
+// 1日が、実際に出ていました。1回ぶんはどれも上限の中でした。
+
+import { orderByRoute } from "../js/crowd.js";
+
+test("混雑を避けるためでも、道順から大きく離れない", () => {
+  const base = { lat: 35.451, lng: 139.632, name: "桜木町駅" };   // 拠点
+  const near = (i, extra = {}) => ({
+    id: `n${i}`, name: `近く${i}`, category: "公園",
+    lat: 35.451 + i * 0.003, lng: 139.632, fame_tier: "hidden", ...extra,
+  });
+  // 遠くにある、いちばん混みやすい場所（早く閉まる）。
+  const far = { id: "far", name: "遠くの寺", category: "寺院",
+                lat: 35.508, lng: 139.678, fame_tier: "major", close: 16 };
+  const ordered = orderByRoute([near(1), near(2), near(3), far], base, null,
+                               { useCrowd: true });
+  const km = (a, b) => Math.hypot((a.lat - b.lat) * 111,
+                                  (a.lng - b.lng) * 90);
+  let total = km(base, ordered[0]);
+  for (let i = 0; i + 1 < ordered.length; i++) {
+    total += km(ordered[i], ordered[i + 1]);
+  }
+  // 拠点から遠い順に往復すると20kmを超えます。近いところから回れば10km台。
+  assert.ok(total < 18, `遠回りしています: ${Math.round(total)}km / `
+    + ordered.map((s) => s.name).join(" → "));
+});
