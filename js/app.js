@@ -12,7 +12,7 @@ import { clearSettings, cspAllows, effectiveConfig, loadSettings, maskKey,
 import { callModel, canGround, describeSpot, diagnoseGeminiKey, hasApiKey }
   from "./ai.js";
 import { discoverArea } from "./discover.js";
-import { loadKnowledgeBase, mergeIntoKb } from "./kb.js";
+import { loadKnowledgeBase, loadRegionIndex, mergeIntoKb } from "./kb.js";
 
 import { clearRouteCache, diagnoseMapsKey, diagnoseYahooTransit,
          resetRoutesBreaker, routesUsage }
@@ -80,15 +80,25 @@ async function boot() {
   wireChrome();
   updateWindowHelp();
 
-  // 知識ベースは 3MB あります。読み終わる前に押されると、これまでは
-  // 「データを読み込めていません」で行き止まりでした。押せなくしておいて、
-  // 読み終わったら自分で押せるようになるほうが、待つ理由が分かります。
+  // 収録は約4MBあります。**読み終わるまで待たせません。**
+  //
+  // これまでは、全部読み終わるまでボタンを押せなくしていました。低速な
+  // 回線では、開いてから最初の操作までがそのぶん遅れます。条件を書いて
+  // いるあいだに後ろで取りにいき、押された時点でまだなら、そこで待ちます
+  // （たいていは書き終わるまでに済んでいます）。
+  //
+  // 先に索引とエリア（約380KB）だけを取ります。残り（スポット）は
+  // そのあと、同じ流れの中で。
   const fab = $("#make-plan");
-  fab.disabled = true;
-  fab.querySelector(".fab-tx").textContent = "旅先のデータを読んでいます…";
+  fab.querySelector(".fab-tx").textContent = "旅程をつくる";
+
+  state.kbPromise = (async () => {
+    const pre = await loadRegionIndex();
+    return loadKnowledgeBase(undefined, undefined, pre);
+  })();
 
   try {
-    state.kb = await loadKnowledgeBase();
+    state.kb = await state.kbPromise;
     if (state.kb.loadError) setBadge(state.kb.loadError, true);
     const restored = restoreConditions();
     if (restored === "url") {
@@ -112,11 +122,6 @@ async function boot() {
     $("#ph-data").textContent =
       "知識ベースを読み込めませんでした。web/ をサーバ経由で開いているか、"
       + "kb/ フォルダが同じ場所にあるかをご確認ください。";
-  } finally {
-    // 読めなかった場合も押せる状態に戻します。押せば理由が出ます。
-    // 押せないまま理由も出ないのが、いちばん困ります。
-    fab.disabled = false;
-    fab.querySelector(".fab-tx").textContent = "旅程をつくる";
   }
 }
 
@@ -1513,8 +1518,6 @@ async function run(override) {
   }
   const errors = validateTrip(trip);
   if (errors.length) { showError(errors.join(" / ")); return; }
-  if (!state.kb) { showError("データを読み込めていません。"); return; }
-
   state.trip = trip;
   // 携帯では、ここから結果の画面に移ります（css の data-view）。
   // 条件のページに留まったままだと、旅程ができても自分でスクロール
@@ -1531,6 +1534,13 @@ async function run(override) {
   moveBackgroundMap(trip.origin.lat, trip.origin.lng, 8);
 
   try {
+    // まだ読み終わっていなければ、ここで待ちます。押した人にとっては
+    // 「組み立ての一部」で、待つ理由も画面に出ます。
+    if (!state.kb) {
+      renderProgress(progress, 0, "旅先のデータを読んでいます");
+      state.kb = await state.kbPromise;
+    }
+    if (!state.kb) throw new Error("データを読み込めていません。");
     resetRoutesBreaker();
     const itin = await buildPlans(trip, progress);
     showRoutesUsage();

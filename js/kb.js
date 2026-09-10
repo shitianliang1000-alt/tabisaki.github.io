@@ -84,7 +84,38 @@ function index(regions, spots) {
  * 知識ベースを読み込みます。
  * KB_INDEX_URL が未設定なら、同梱のサンプルで動作します（動作確認用）。
  */
-export async function loadKnowledgeBase(onProgress, signal) {
+/**
+ * 索引とエリアだけを先に読みます（約380KB）。
+ *
+ * 収録は約4MBあります。全部読み終わるまでボタンを押せなくしていたので、
+ * 低速な回線では、開いてから最初の操作までがそのぶん遅れていました。
+ * 条件を書いているあいだに、後ろで残りを取りに行くほうが速く感じます。
+ *
+ * ここで返すのは「エリアの一覧」までです。スポットはまだありません。
+ */
+export async function loadRegionIndex(signal) {
+  if (!KB_INDEX_URL) return null;
+  const appRoot = new URL("../", import.meta.url);
+  const base = new URL(KB_INDEX_URL, appRoot).toString();
+  try {
+    const manifest = await getJson(base, signal);
+    if (!manifest?.shards?.length) return null;
+    const regionsDoc = await getJson(
+      new URL(manifest.regionsFile, base).toString(), signal);
+    return { base, manifest, regions: regionsDoc.regions ?? [] };
+  } catch {
+    // 読めなければ、下の loadKnowledgeBase が同じことをやり直して
+    // 同梱データに落ちます。ここでは黙って諦めます。
+    return null;
+  }
+}
+
+/**
+ * @param {Function} [onProgress]
+ * @param {AbortSignal} [signal]
+ * @param {object} [pre] loadRegionIndex の結果。あれば取り直しません。
+ */
+export async function loadKnowledgeBase(onProgress, signal, pre = null) {
   if (!KB_INDEX_URL) {
     // 配列を複製してから返します。調べた結果を足す（mergeIntoKb）ときに
     // 同梱データそのものを書き換えてしまうと、読み込み直しても
@@ -112,7 +143,7 @@ export async function loadKnowledgeBase(onProgress, signal) {
 
   let manifest;
   try {
-    manifest = await getJson(base, signal);
+    manifest = pre?.manifest ?? await getJson(base, signal);
   } catch (e) {
     // 公開知識ベースを読めないときに、真っ白で終わらせない。
     // 同梱データでも旅程は組めるので、そちらに落ちて理由を伝えます。
@@ -134,9 +165,8 @@ export async function loadKnowledgeBase(onProgress, signal) {
   const total = manifest.shards.length + 1;
   onProgress?.(0, total, "地域データ");
 
-  const regionsDoc = await getJson(
-    new URL(manifest.regionsFile, base).toString(), signal);
-  const regions = regionsDoc.regions ?? [];
+  const regions = pre?.regions ?? (await getJson(
+    new URL(manifest.regionsFile, base).toString(), signal)).regions ?? [];
 
   // シャードは並べて取ります。
   //
