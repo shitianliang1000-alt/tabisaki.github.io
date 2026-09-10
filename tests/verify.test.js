@@ -82,12 +82,49 @@ test("開館まで少し待つ案は通り、待ち時間が記録される", ()
 });
 
 test("待ちすぎる案は弾かれる", () => {
-  const r = verifyOrder([A], {
-    start: NEAR, startAt: d("2026-09-12T06:00"),
+  // 昼から開く館に、朝いちで着く案。
+  //
+  // 以前はここを 6:00 発で書いていました。いまは「1日が始まる前に
+  // 着いた」ぶんは待ち時間に数えず、行動開始（9:00）まで進めてから
+  // 数えるので、6:00 発でも待ちは1時間です。待ちすぎの判定そのものは
+  // 変わっていません。
+  const noon = spot({ id: "N", name: "昼から館", open: 12, close: 17 });
+  const r = verifyOrder([noon], {
+    start: NEAR, startAt: d("2026-09-12T09:00"),
     end: NEAR, endBy: d("2026-09-12T18:00"),
   });
   assert.equal(r.ok, false);
   assert.equal(r.issues[0].reason, REJECT.WAIT_TOO_LONG);
+});
+
+test("1日が始まる前に着いても、そこは待ち時間にしない", () => {
+  // 神社は「いつでも入れる」ので、素通りすると午前4時の参拝が旅程に
+  // 入ります（実際に「4:11 浅草神社」が出ていました）。
+  const r = verifyOrder([SHRINE], {
+    start: NEAR, startAt: d("2026-09-12T04:30"),
+    end: NEAR, endBy: d("2026-09-12T18:00"),
+    // 「朝は4時から」と指定した場合。指定は尊重しますが、見学は
+    // 明るくなってからです。
+    dayStartHour: 4, dayEndHour: 18.5,
+  });
+  assert.equal(r.ok, true, JSON.stringify(r.issues));
+  assert.ok(r.visits[0].arrive.getHours() >= 7,
+    `暗いうちに見学しています: ${r.visits[0].arrive}`);
+  // 「3時間の自由時間」として旅程に立てず、助言に回します。
+  assert.equal(r.visits[0].wait, 0);
+  assert.ok(r.morningIdleMin > 60, `${r.morningIdleMin}`);
+});
+
+test("朝のうちに予定が終わった日にも、昼食は入る", () => {
+  // 1日目も2日目も昼食が抜けていました（8時に見学が終わり、次は
+  // 17:30の夕食）。食事は、予定の詰まり具合とは別に要るものです。
+  const r = verifyOrder([SHRINE], {
+    start: NEAR, startAt: d("2026-09-12T07:00"),
+    end: NEAR, endBy: d("2026-09-13T18:00"), nights: 1,
+    baseByDay: [NEAR, NEAR],
+  });
+  assert.ok(r.meals.some((m) => m.kind === "lunch"),
+    JSON.stringify(r.meals));
 });
 
 test("終点に間に合わない案は、超過分を示して弾かれる", () => {

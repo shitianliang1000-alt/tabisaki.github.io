@@ -221,6 +221,12 @@ const transitBudget = { spent: 0 };
 // Yahoo!路線情報に聞いた回数（Googleの回数とは別勘定）。
 const yahooBudgetSpent = { spent: 0 };
 
+// 断られたときに待ち直す回数の上限。1回およそ1分です。
+// 待てば入る時刻を、待たずに「推定」にするほうが損です。
+const MAX_COOLDOWN_WAITS = 4;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /** 呼び出しの記録。画面で「何回呼んで、何が返ったか」を見せるため。 */
 const usage = { calls: 0, failures: 0, lastError: "", skipped: 0 };
 
@@ -484,9 +490,27 @@ async function computeViaStations(points, opts) {
   // Yahoo!は課金されず、中継側で控えるので、多めに取ります。
   let yahooBudget = Math.max(0,
     (TUNING.maxYahooRequests ?? 40) - yahooBudgetSpent.spent);
+  // 断られたあと、どれだけ待ってやり直したか。
+  let waited = 0;
   for (let i = 0; i < n; i++) {
-    // 断られている間は、残りの区間を投げません。投げても全部断られます。
     const at = given?.[i] instanceof Date ? given[i] : clock;
+    // 断られている間は、**待ちます**。
+    //
+    // 中継の回数制限は1分20回です。5日の旅程は20区間を超えるので、
+    // 途中で必ず断られます。そこで諦めていたため、3日目から先は
+    // まるごと「推定」になっていました。旅程づくりに1〜2分よけいに
+    // かかっても、実際の時刻が入るほうが役に立ちます。
+    // 待つのは、**その旅程で一度は答えが返っているとき**だけです。
+    // 一度も通っていないなら、待っても通りません（鍵が無い、出どころが
+    // 許されていない、など）。テストや通信の無い環境で止まらないように、
+    // という意味でもあります。
+    const worthWaiting = yahooLegs.some(Boolean);
+    if (worthWaiting && yahooBudget > 0 && yahooCooldown().waiting
+        && waited < MAX_COOLDOWN_WAITS) {
+      const left = yahooCooldown().seconds;
+      await sleep(Math.min(left + 1, 65) * 1000);
+      waited++;
+    }
     const hit = (yahooBudget > 0 && !yahooCooldown().waiting)
       ? await yahooLeg(points[i], points[i + 1], { ...opts, departAt: at })
       : null;
@@ -561,7 +585,16 @@ async function yahooLeg(a, b, opts) {
       rideMinutes: yahoo.rideMinutes ?? yahoo.minutes,
       waitMinutes: yahoo.waitMinutes ?? 0,
       meters: Math.round(haversineKm(a, b) * 1000),
-      line: yahoo.summary ?? "Yahoo!路線情報",
+      // 画面に出す一行は、こちらで組み立てます。
+      //
+      // Yahoo!の要約をそのまま出すと、こうなります。
+      //
+      //   04:49 発→ 05:19 着 30分 （乗車 17分 ） / 乗換： 1 回 /
+      //   IC優先： 375 円 / 8.2km（4:00出発で、次に乗れる便です）
+      //
+      // 旅程の1行としては長すぎます。読む人が知りたいのは、何時に出て
+      // 何時に着くか、乗り換えが何回か、いくらか、の3つです。
+      line: transitLine(yahoo) ?? yahoo.summary ?? "Yahoo!路線情報",
       routed: true,
       searchedAt: yahoo.searchedAt ?? null,
       stations: { from: from.name, to: to.name, walkMeasured: false },
@@ -572,6 +605,35 @@ async function yahooLeg(a, b, opts) {
     usage.lastError = `Yahoo Transit: ${String(e?.message ?? e).slice(0, 200)}`;
     return null;
   }
+}
+
+/**
+ * 旅程に出す、電車・バスの一行。
+ *
+ * 「4:49発→5:19着（30分）・乗換1回・375円」
+ *
+ * 元の要約にある距離（8.2km）と乗車時間（17分）は落とします。距離は
+ * 地図で見れば分かり、乗車時間は「30分のうち何分座っているか」で、
+ * 予定を立てるのには使いません。
+ */
+function transitLine(yahoo) {
+  const m = yahoo?.meta ?? {};
+  if (!m.departure || !m.arrival) return null;
+  const parts = [`${m.departure}発→${m.arrival}着`];
+  if (yahoo.minutes > 0) parts[0] += `（${fmtMinutes(yahoo.minutes)}）`;
+  if (Number.isFinite(m.transfers)) {
+    parts.push(m.transfers > 0 ? `乗換${m.transfers}回` : "乗換なし");
+  }
+  if (m.fareYen > 0) parts.push(`${m.fareYen.toLocaleString("ja-JP")}円`);
+  return parts.join("・");
+}
+
+/** 「90分」ではなく「1時間30分」。旅程は時計で読むものです。 */
+function fmtMinutes(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (!h) return `${m}分`;
+  return m ? `${h}時間${m}分` : `${h}時間`;
 }
 
 /**
@@ -614,7 +676,13 @@ async function planStationLeg(a, b) {
   }
   const walkA = estimateMinutes(a, fromStop, { slow: isSlowTerrain(a) });
   const walkB = estimateMinutes(toStop, b, { slow: isSlowTerrain(b) });
-  const ride = estimateMinutes(fromStop, toStop);
+  // 乗るまでの待ちを乗せます。
+  //
+  // 距離だけで見ると、名古屋港水族館からレゴランドは5.5kmで「25分」に
+  // なります。ところが実際は、あおなみ線まで歩き、列車を待ち、乗り換え、
+  // また歩いて40分ほどです。**直線で近い＝鉄道で近い、ではありません。**
+  // 何分待つかは時刻表しか知りませんが、「0分」でないことは確かです。
+  const ride = estimateMinutes(fromStop, toStop) + (TUNING.transitWaitMin ?? 8);
   const viaStations = walkA + ride + walkB;
   const direct = await estimateLegRough(a, b);
   // 駅を経由するほうが大きく遠回りなら、その駅は的外れです。

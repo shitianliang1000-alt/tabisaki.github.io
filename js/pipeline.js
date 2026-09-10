@@ -419,6 +419,8 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   });
   // AIが付けた見出しだけを使います。キー未設定のときの自動見出しは
   // エリア名の羅列でしかなく、上の見出しと同じことを繰り返すだけなので。
+  // 1日が始まる前に着いてしまい、何もできなかった時間。助言に使います。
+  itin.morningIdleMin = checked.result.morningIdleMin ?? 0;
   itin.headline = proposal.fromModel ? proposal.headline : "";
   itin.rationale = proposal.rationale;
   itin.verifyNote = buildVerifyNote(checked, repaired, proposal);
@@ -581,6 +583,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
 
   itin.warnings = [
     ...poolNote(kb, candidates),
+    ...earlyStartNote(itin, trip),
     ...aiNotes(),
     ...transitSourceNote(itin),
     ...budgetNotes(itin, trip),
@@ -669,6 +672,45 @@ export function assignToStays(spots, stays) {
   return byStay;
 }
 
+/**
+ * 立ち寄りが日数に足りない滞在を、近くの収録から埋めます。
+ *
+ * 埋めるのは**足りないぶんだけ**です。AIの選びかたを上書きするので
+ * はなく、選び残した日を埋めます。近い順に採るので、その日の道順を
+ * 大きく崩すことはありません。
+ *
+ * @param {Array<object[]>} byStay その場で書き換えます
+ */
+function topUpStays(byStay, stays, kb, { perDay, avoid }) {
+  const taken = new Set(byStay.flat().map((s) => s.id));
+  for (const [i, stay] of stays.entries()) {
+    // 少し多めに用意します。営業時間や定休日でいくつかは落ちるので、
+    // ぴったりの数だけ渡すと、落ちたぶんがそのまま**その日の穴**に
+    // なります（9:04に見学が終わって、次は17:30の夕食）。
+    const want = Math.max(3, Math.round(perDay * (stay.days ?? 1) * 1.4));
+    const have = byStay[i].length;
+    if (have >= want) continue;
+    const base = stay.station ?? stay.region;
+    const near = [];
+    for (const spot of kb.spots) {
+      if (taken.has(spot.id) || avoid.has(spot.id)) continue;
+      const km = haversineKm(spot, base);
+      if (km <= TOP_UP_KM) near.push({ spot, km });
+    }
+    // 近い順。同じ距離なら、知られている場所から。
+    const tier = { major: 0, known: 1, hidden: 2 };
+    near.sort((a, b) => (a.km - b.km)
+      || ((tier[a.spot.fame_tier] ?? 3) - (tier[b.spot.fame_tier] ?? 3)));
+    for (const { spot } of near.slice(0, want - have)) {
+      byStay[i].push(spot);
+      taken.add(spot.id);
+    }
+  }
+}
+
+// 埋めるときに見る範囲。拠点から歩きか短い乗り物で行ける距離です。
+const TOP_UP_KM = 12;
+
 // 出発地がこれより近ければ、最初の拠点は出発地そのものにします。
 const ORIGIN_IS_BASE_KM = 3;
 
@@ -717,6 +759,15 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   const byStay = assignToStays(
     proposal.picks.map((p) => kb.spotsById.get(p.spotId)).filter(Boolean),
     stays);
+  // 足りない日を埋めます。
+  //
+  // 4泊5日で、2日目の立ち寄りが1か所という旅程が出ていました。AIが
+  // 選んだ数がそのまま日数に足りていないと、こうなります。周りに
+  // 候補が146か所あっても、選ばれなければ旅程には出ません。
+  topUpStays(byStay, stays, kb, {
+    perDay: SPOTS_PER_DAY[trip.pace] ?? 4,
+    avoid: new Set(trip.must?.avoidSpotIds ?? []),
+  });
   let spots = byStay.flat();
   // 「このスポットは何日目以降に回る」を滞在計画から決めておく。
   //
@@ -826,9 +877,17 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     useCrowd: trip.avoidCrowds !== false,
   });
 
+  // 1日目の起点は、**実際に着く時刻**です。
+  //
+  // 「4:00出発・所要30分」で 4:30 としていました。ところが往路には
+  // 「4:49発の便に乗る」という待ちがあります（Yahoo!もGoogleも、次に
+  // 乗れる便を返します）。着くのは 5:19 です。30分の差で、旅程には
+  // 「4:11 浅草神社」と、まだ東京にいるはずの時刻が並んでいました。
+  const outWait = outbound.waitMinutes ?? 0;
   const ctx = {
     start: first,
-    startAt: new Date(trip.departAt.getTime() + outbound.minutes * 60000),
+    startAt: new Date(trip.departAt.getTime()
+      + (outbound.minutes + outWait) * 60000),
     end, endBy: trip.arriveBy, pace: trip.pace, travelFn,
     nights, baseByDay, dayFloorById, dayCeilById, day0: trip.departAt,
     // 選んでもらった時間帯を、そのまま2日目以降の枠にします。
@@ -1048,6 +1107,28 @@ function poolNote(kb, candidates) {
   const total = kb?.spots?.length ?? 0;
   return [`収録${total.toLocaleString("ja-JP")}件のうち、`
     + `${pool.size.toLocaleString("ja-JP")}件を候補として見ています。`];
+}
+
+/**
+ * 出発が早すぎるときの助言。
+ *
+ * 「朝は何時から」を4:00にすると、着いた先で何もできない時間が生まれます。
+ * 神社や公園は「いつでも入れる」ので、以前はそこへ午前4時に立ち寄る
+ * 旅程が出ていました。いまは7:00まで見学を置きませんが、**そのぶん
+ * 待つ**ことに変わりはありません。黙って待たせるのではなく、
+ * 何時に出れば無駄がないかを言います。
+ */
+function earlyStartNote(itin, trip) {
+  const idle = itin?.morningIdleMin ?? 0;
+  if (idle < 60) return [];
+  const h = Math.floor(idle / 60);
+  const m = idle % 60;
+  const len = m ? `${h}時間${m}分` : `${h}時間`;
+  const better = new Date(trip.departAt.getTime() + idle * 60000);
+  const hhmm = `${better.getHours()}:`
+    + String(better.getMinutes()).padStart(2, "0");
+  return [`出発が早いため、最初の見学まで${len}あります。`
+    + `${hhmm}ごろの出発にすると、待たずに回れます。`];
 }
 
 function aiNotes() {
