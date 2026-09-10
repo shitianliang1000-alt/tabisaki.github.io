@@ -68,7 +68,11 @@ export function verifyOrder(spots, ctx) {
   let hadLunch = false;
   let hadDinner = false;
   let visitsToday = 0;
+  // その日、最初の予定が始まった時刻。食事が要る日かどうかの判定に使います。
+  let dayFirstAt = null;
   let arrivedAtNight = false;
+  // 1日が始まる前に着いてしまい、何もできなかった時間の合計。
+  let morningIdleMin = 0;
 
   const isLastDay = () => dayIndex >= nights;
   const dayLimit = () => atHour(clock, dayEndHour);
@@ -78,14 +82,7 @@ export function verifyOrder(spots, ctx) {
 
   /** 夜を越えて翌朝へ。宿が別エリアなら、その移動もここで時間を使います。 */
   function advanceDay() {
-    // その日の夕食をまだ取っていなければ、宿に入る前に確保します。
-    if (!hadDinner && visitsToday) {
-      const at = hourOf(clock) < DINNER[0] ? atHour(clock, DINNER[0]) : clock;
-      if (hourOf(at) <= DINNER[1]) {
-        meals.push({ kind: "dinner", start: new Date(at),
-                     end: addMinutes(at, TUNING.mealMin), day: dayIndex });
-      }
-    }
+    closeOutDay();
     const prevBase = baseByDay[dayIndex] ?? cur;
     dayIndex++;
     clock = nextDayAt(clock, dayStartHour);
@@ -104,7 +101,13 @@ export function verifyOrder(spots, ctx) {
     hadLunch = false;
     hadDinner = false;
     visitsToday = 0;
+    dayFirstAt = null;
   }
+
+  // 見学を始めてよい、いちばん早い時刻。行動開始が早くても、これより
+  // 前には見学を置きません（暗いうちに神社へ着いても、見えません）。
+  const earliest = Math.max(dayStartHour,
+                            TUNING.earliestVisitHour ?? dayStartHour);
 
   /** いまの時刻・いまの日で、このスポットに行けるか。 */
   function attempt(spot) {
@@ -112,6 +115,20 @@ export function verifyOrder(spots, ctx) {
     const travel = Math.round(travelFn(cur, spot));
     let arrive = addMinutes(clock, travel);
     let wait = 0;
+
+    // 早すぎる到着は、朝まで待ちます。「いつでも入れる」場所も同じです。
+    // ここを素通りしていたので、午前4時の参拝が旅程に入っていました。
+    //
+    // このぶんは「待ち時間」に数えません。現地で開くのを待っているのでは
+    // なく、**まだ1日が始まっていない**だけだからです。3時間の「自由時間」
+    // として旅程に立てても、できることはありません。早すぎる出発は、
+    // 待ち時間ではなく助言として伝えます（morningIdleMin）。
+    const dawn = atHour(arrive, earliest);
+    let dawnWait = 0;
+    if (arrive < dawn) {
+      dawnWait = Math.round((dawn - arrive) / 60000);
+      arrive = dawn;
+    }
 
     // その日の開き方。定休日・年末年始・冬期休業・曜日ごとの時間、
     // そして最終入場まで、hours.js が一箇所で決めます。
@@ -125,7 +142,7 @@ export function verifyOrder(spots, ctx) {
 
     if (!day.alwaysOpen) {
       if (arrive < day.open) {
-        wait = Math.round((day.open - arrive) / 60000);
+        wait += Math.round((day.open - arrive) / 60000);
         if (wait > TUNING.maxWaitMin) {
           return { kind: "issue",
             issue: { spotId: spot.id, name: spot.name,
@@ -168,7 +185,7 @@ export function verifyOrder(spots, ctx) {
                  detail: `${spot.name}の見学を終えるのは${fmtTime(end)}で、`
                    + `その日の行動時間（${fmtHour(dayEndHour)}まで）を越えます。` } };
     }
-    return { kind: "ok", prof, arrive, end, travel, wait,
+    return { kind: "ok", prof, arrive, end, travel, wait, dawnWait,
              km: haversineKm(cur, spot) };
   }
 
@@ -250,6 +267,8 @@ export function verifyOrder(spots, ctx) {
       continue;
     }
 
+    morningIdleMin += out.dawnWait ?? 0;
+    dayFirstAt ??= out.arrive;
     visits.push({ spot, arrive: out.arrive, end: out.end, travel: out.travel,
                   wait: out.wait, km: out.km, dwell: out.prof.dwell,
                   fee: out.prof.fee, estimated: out.prof.estimated,
@@ -260,7 +279,37 @@ export function verifyOrder(spots, ctx) {
   }
 
   // 見学後に昼どきへ入った場合の食事（帰りの前）
-  if (visits.length) takeMeals();
+  if (visits.length) { takeMeals(); closeOutDay(); }
+
+  /**
+   * その日を締めるときの食事。
+   *
+   * takeMeals() は「いまの時刻が昼どきなら」入れるので、朝のうちに
+   * 予定が終わった日には昼食が入りません。実際、1日目も2日目も
+   * 昼食が抜けていました（8時に見学が終わり、次は17:30の夕食）。
+   * 食事は、予定の詰まり具合とは別に要るものです。
+   */
+  function closeOutDay() {
+    if (!visitsToday) return;
+    // 昼を過ぎてから始まった日に、昼食は要りません（15時から動きだした
+    // 日に「12:00 昼食」を足すと、過ぎた時刻の予定になります）。
+    const sawNoon = dayFirstAt && hourOf(dayFirstAt) <= LUNCH[1];
+    if (!hadLunch && sawNoon) {
+      const at = atHour(clock, LUNCH[0] + 0.5);   // 12:00
+      meals.push({ kind: "lunch", start: new Date(at),
+                   end: addMinutes(at, TUNING.mealMin), day: dayIndex });
+      hadLunch = true;
+    }
+    const dinnerOk = ctx.allowDinner ?? !isLastDay();
+    if (dinnerOk && !hadDinner) {
+      const at = hourOf(clock) < DINNER[0] ? atHour(clock, DINNER[0]) : clock;
+      if (hourOf(at) <= DINNER[1]) {
+        meals.push({ kind: "dinner", start: new Date(at),
+                     end: addMinutes(at, TUNING.mealMin), day: dayIndex });
+        hadDinner = true;
+      }
+    }
+  }
 
   function takeMeals() {
     if (!hadLunch && hourOf(clock) >= LUNCH[0] && hourOf(clock) <= LUNCH[1]) {
@@ -314,7 +363,7 @@ export function verifyOrder(spots, ctx) {
   return {
     ok: issues.length === 0, issues, visits, meals, moves, arrivedAtNight,
     daysUsed: dayIndex + 1, nightsUsed: dayIndex,
-    underfilled, arriveEnd, slackMin,
+    underfilled, arriveEnd, slackMin, morningIdleMin,
   };
 }
 

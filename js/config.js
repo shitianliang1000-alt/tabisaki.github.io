@@ -74,6 +74,16 @@ export const TILE_ATTRIBUTION =
 export const TUNING = {
   safetyBufferMin: 15,
   maxWaitMin: 75,
+  // 見学を始めてよい、いちばん早い時刻。
+  //
+  // 神社や公園は「いつでも入れる」ので、これが無いと午前4時の参拝が
+  // 旅程に入ります（実際に「4:11 浅草神社」が出ていました）。入れるか
+  // どうかと、行くかどうかは別のことです。暗いうちに着いても、
+  // 見るものは見えません。
+  earliestVisitHour: 7.0,
+  // 時刻表が引けなかった区間に乗せる、乗るまでの待ち時間（分）。
+  // 実際の便が取れているときは使いません。
+  transitWaitMin: 8,
   mealMin: 60,
   mealYen: 1500,
   lodgingYen: 12000,

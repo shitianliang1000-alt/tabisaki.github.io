@@ -117,7 +117,7 @@ export function buildItinerary(input) {
     // （待ち時間を含む・含まない）。実際の時刻があるほうを出します。
     detail: legs?.outbound?.line
       ? legs.outbound.line
-        + (board ? `（${fmtHm(trip.departAt)}出発で、次に乗れる便です）` : "")
+        + (board ? `（${fmtHm(trip.departAt)}発の次の便）` : "")
       : `約${outMin}分`,
     alternatives: legs?.outbound?.alternatives ?? [],
     from: trip.origin,
@@ -189,7 +189,7 @@ export function buildItinerary(input) {
         title: `${mv.from.name ?? "拠点"} → ${mv.to.name ?? region.name}`,
         detail: leg?.line
           ? `拠点を移します・${leg.line}`
-            + (board ? `（${fmtHm(mv.start)}発で、次に乗れる便です）` : "")
+            + (board ? `（${fmtHm(mv.start)}発の次の便）` : "")
           : `拠点を移します・約${mv.minutes}分`,
         from: mv.from, to: mv.to,
         routed: Boolean(leg?.routed), costYen: 0,

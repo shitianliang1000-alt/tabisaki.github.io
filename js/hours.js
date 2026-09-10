@@ -185,6 +185,15 @@ function closedResult(reason, spot, prof) {
   };
 }
 
+// 季節で開閉時刻が動く場所。
+//
+// 浅草寺の本堂は4月〜9月が6:00、10月〜3月は6:30に開きます。庭園や
+// 城跡も、夏と冬で閉門が1時間ちがうことがあります。収録にあるのは
+// 1組の時刻だけなので、**「確認済み」と言い切ると危ない**分類です。
+// 数字は消しません。動くことがある、と添えます。
+const SEASONAL = new Set(["寺院", "神社", "庭園", "城", "史跡", "名勝",
+                          "公園", "展望台"]);
+
 function noteFor(spot, estimated, lastEntryEstimated) {
   if (spot?.verified === false) {
     return "AIが調べた未確認の情報です。訪問前に公式でご確認ください。";
@@ -194,6 +203,9 @@ function noteFor(spot, estimated, lastEntryEstimated) {
   }
   if (lastEntryEstimated) {
     return "最終入場は分類ごとの目安です（閉館時刻は実データ）。";
+  }
+  if (SEASONAL.has(spot?.category)) {
+    return "季節によって開閉の時刻が変わることがあります。";
   }
   return "";
 }

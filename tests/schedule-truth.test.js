@@ -230,3 +230,61 @@ test("混雑を避けるためでも、道順から大きく離れない", () =>
   assert.ok(total < 18, `遠回りしています: ${Math.round(total)}km / `
     + ordered.map((s) => s.name).join(" → "));
 });
+
+// ------------------------------------------------------------ 1日の中身 --
+//
+// 4泊5日で、2日目の立ち寄りが1か所という旅程が出ていました。周りに
+// 候補が146か所あっても、AIが選ばなければ旅程には出ません。足りない日は
+// 近くの収録から埋めます。
+
+test("立ち寄りが日数に足りないときは、近くの収録から埋める", async () => {
+  const itin = await planTrip({
+    trip: makeTrip({
+      origin: findPlace("東京駅"),
+      departAt: new Date("2026-09-13T08:00"),
+      arriveBy: new Date("2026-09-15T19:00"),
+      note: "東京をゆっくり見たい",
+      interests: [], budgetYen: 999999,
+    }),
+    kb,
+  });
+  const perDay = itin.days
+    .map((day) => day.items.filter((i) => i.kind === "spot").length)
+    .filter((n) => n > 0);
+  assert.ok(perDay.every((n) => n >= 2), `少なすぎる日があります: ${perDay}`);
+});
+
+// ------------------------------------------------------- 1行の読みやすさ --
+//
+// Yahoo!の要約をそのまま出すと、旅程の1行がこうなります。
+//
+//   04:49 発→ 05:19 着 30分 （乗車 17分 ） / 乗換： 1 回 /
+//   IC優先： 375 円 / 8.2km（4:00出発で、次に乗れる便です）
+
+test("電車・バスの一行は、発着と乗換と運賃だけにする", async () => {
+  resetRoutesBreaker();
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true, status: 200,
+    json: async () => ({
+      routed: true, minutes: 30, rideMinutes: 17, waitMinutes: 13,
+      summary: "04:49 発→ 05:19 着 30分 （乗車 17分 ） / 乗換： 1 回 "
+        + "/ IC優先： 375 円 / 8.2km",
+      meta: { departure: "04:49", arrival: "05:19", transfers: 1,
+              fareYen: 375, distanceKm: 8.2 },
+    }),
+  });
+  let route;
+  try {
+    route = await computeRoute(
+      [{ name: "東京駅", lat: 35.681236, lng: 139.767125 },
+       { name: "浅草駅", lat: 35.7106, lng: 139.7986 }],
+      { mode: "TRANSIT", departAt: d("2026-09-13T04:00") });
+  } finally {
+    globalThis.fetch = real;
+    resetRoutesBreaker();
+  }
+  const line = route.legs[0].line;
+  assert.equal(line, "04:49発→05:19着（30分）・乗換1回・375円", line);
+  assert.ok(!line.includes("km"), line);
+});

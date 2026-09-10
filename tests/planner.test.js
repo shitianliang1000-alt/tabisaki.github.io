@@ -612,7 +612,7 @@ test("往路は、実際に乗れる便の時刻から始まる", () => {
   const first = built.days[0].items[0];
   assert.equal(first.kind, "transit");
   assert.equal(first.start.getHours(), 5, "始発の時刻になっていません");
-  assert.match(first.detail, /次に乗れる便/);
+  assert.match(first.detail, /発の次の便/);
 });
 
 test("待ち時間が無ければ、出発時刻は動かさない", () => {
