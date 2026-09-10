@@ -435,15 +435,17 @@
        使う人が自分のキーをここから入れられるようにしています。 -->
   <!-- 接続の確認は、開発者向けの欄の外に出します。キーを入れるのは
        開発者の仕事ですが、「つながっているか」を知りたいのは使う人です。
-       つながっていなければ、電車・バスの時間が目安になります。 -->
+       つながっていなければ、電車・バスの時間が目安になり、AIは
+       収録データからの機械的な選定に落ちます（旅程は作れますが、
+       希望文の読み取りと並べ方が簡易になります）。 -->
   <div class="tune-group check-conn">
     <span class="tune-label">接続の確認</span>
     <button type="button" class="md-btn md-btn--tonal md-state" id="test-conn">
       <span>いま使えるか確かめる</span>
     </button>
     <p id="conn-result" class="key-result" hidden></p>
-    <p class="md-field-help">電車・バスの時間（Yahoo!路線情報）と、
-      徒歩・車の経路（Google）を1回ずつ試します。</p>
+    <p class="md-field-help">電車・バスの時間（Yahoo!路線情報）、
+      徒歩・車の経路（Google）、行き先を選ぶAI（Gemma）を1回ずつ試します。</p>
   </div>
 
   <details class="dev-settings" id="dev-settings" hidden>
@@ -496,7 +498,7 @@
 
     <ul class="md-list">
       <li class="md-list-item">
-        <span class="md-list-text">AI（Gemma 4 / Workers AI）</span>
+        <span class="md-list-text">AI（Gemma / Google AI Studio）</span>
         <span class="md-list-support" id="dev-gemini"></span>
         <button type="button" class="md-btn md-btn--text md-state" id="test-gemini">
           <span>確認</span></button>

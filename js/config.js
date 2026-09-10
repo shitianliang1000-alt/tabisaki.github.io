@@ -29,10 +29,15 @@ export const USE_ROUTES_API = true;
  *   "gemini"     … Google AI Studio のキーで呼ぶ
  *   "local"      … 手元のOllamaなど（LOCAL_BASE_URL）
  *
- * 既定は "cloudflare" です。鍵を置き忘れて「API key not valid」になる
- * 道がそもそもありません。料金は Cloudflare のアカウント側（無料枠あり）。
+ * いまは "gemini"（Google AI Studio）です。Gemma を無料枠で呼ぶと
+ * **1日14,400回**まで使えます。Workers AI の無料枠（1日1万ニューロン＝
+ * 旅程にすると数十本）より、ずっと余裕があります。
+ *
+ * キーは中継（Cloudflare Worker）に置きます。ブラウザには置きません。
+ *
+ *     npx wrangler secret put GEMINI_API_KEY
  */
-export const MODEL_PROVIDER = "cloudflare";
+export const MODEL_PROVIDER = "gemini";
 
 // Workers AI で動かすモデル。E2B は Workers AI には無いので、Gemma 4 の
 // うち配信されているものを使います（26B-A4B は実際に動く4Bぶんの重みで、
@@ -54,9 +59,10 @@ export const LOCAL_BASE_URL = "http://localhost:11434";
 // 呼べなければ下へ落ちるようにしています。ai.js は 400/404 を受けると
 // 次の候補へ進むので、配信が始まればそのまま E2B が使われます。
 // 手元の E2B を使いたい場合は MODEL_PROVIDER を "local" にしてください。
-export const MODEL = "gemma-4-e2b-it";
+export const MODEL = "gemma-4-26b-a4b-it";
 export const FALLBACK_MODELS = [
-  "gemma-4-26b-a4b-it",
+  "gemma-3-27b-it",
+  "gemma-3-12b-it",
   "gemma-4-31b-it",
 ];
 export const EMBED_MODEL = "gemini-embedding-001";
@@ -73,7 +79,12 @@ export const TILE_ATTRIBUTION =
 // --- 6. 挙動の調整 ----------------------------------------------------------
 export const TUNING = {
   safetyBufferMin: 15,
-  maxWaitMin: 75,
+  // 開くまで待つのは、ここまで。
+  //
+  // 75分にしていました。旅程には「浅草寺が開くまで約60分」という行が
+  // 立ちます。読む人にとっては、朝いちの1時間が消えるということです。
+  // 待つくらいなら、**そのとき開いている別の場所**を先に回ります。
+  maxWaitMin: 20,
   // 見学を始めてよい、いちばん早い時刻。
   //
   // 神社や公園は「いつでも入れる」ので、これが無いと午前4時の参拝が
@@ -88,15 +99,14 @@ export const TUNING = {
   mealYen: 1500,
   lodgingYen: 12000,
   transitThresholdKm: 2.5,
-  // ここまでは歩く、という距離。1.4kmにしていましたが、旅先で荷物を
-  // 持って歩くと、1kmを超えたあたりからつらくなります。
-  walkableKm: 1.0,
+  // ここまでは歩く、という距離。これを超えたら電車かバスを調べます。
+  walkableKm: 1.5,
   // 徒歩の実測（Googleの経路API）に使う回数。ここは課金対象なので絞ります。
   maxTransitRequests: 8,
   // Yahoo!路線情報に聞く回数。こちらは課金されず、中継側で1時間控える
   // ので、**実際の時刻を全区間ぶん取りにいきます**。目安で埋めるくらいなら
   // 時間をかけて本物を取ったほうがよい、という判断です。
-  maxYahooRequests: 40,
+  maxYahooRequests: 120,
   // 案を練り直す回数。作って、検証して、問題を伝えてまた作らせます。
   // 1回で止めていたころは、「時間が合わない場所が3件」のまま出ることが
   // ありました。時間はかかっても、通る案に近づけます。

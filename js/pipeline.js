@@ -19,7 +19,7 @@ import {
 import { areaNote, areaScope, detectAreas, unknownPlaceTerms } from "./areas.js";
 import { TUNING } from "./config.js";
 import { discoverArea, resolveDestination } from "./discover.js";
-import { estimateMinutes, haversineKm } from "./feasibility.js";
+import { atHour, estimateMinutes, haversineKm } from "./feasibility.js";
 import {
   mergeIntoKb, rankRegions, reachableRegions, searchSpots, searchSpotsByKeyword,
 } from "./kb.js";
@@ -42,7 +42,7 @@ import { suggestReplan } from "./replan.js";
 import { eventNotesFor } from "./events.js";
 import { luggagePlanFor } from "./luggage.js";
 import { storyFor } from "./story.js";
-import { pickBest, scoreItinerary } from "./score.js";
+import { longestGap, pickBest, scoreItinerary } from "./score.js";
 
 /**
  * @param {object} args
@@ -365,16 +365,32 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 案は毎回点をつけて、**いちばん良かったものを覚えておきます**
   // （作り直すほど良くなるとは限らないので、最後の案を採るのは誤りです）。
   let repaired = false;
-  const needsRepair = (c) => !c.result.ok || c.result.underfilled;
-  if (needsRepair(checked) && hasApiKey()) {
+  // 作り直す条件。
+  //
+  //   ・時間の合わない立ち寄りが残っている
+  //   ・日数を埋めきれていない
+  //   ・**予定の空いている時間が長い**（5時間の空白は旅程ではありません）
+  //   ・**開くまでの待ちが長い**（「開くまで約60分」の行が立つ日）
+  //
+  // 下の2つは、時刻の入った旅程にしないと分かりません。案ごとに一度
+  // 組んで（draftItinerary）から見ます。組むのは手元の計算だけなので、
+  // 何度呼んでも費用はかかりません。
+  const needsRepair = (c, itin) => !c.result.ok || c.result.underfilled
+    || longestGap(itin) > MAX_GAP_MIN
+    || longestFreeMin(itin) > MAX_FREE_MIN;
+  let firstDraft = draftItinerary(checked, trip, kb);
+  if (needsRepair(checked, firstDraft) && hasApiKey()) {
     const rounds = Math.max(1, TUNING.maxPlanRounds ?? 4);
-    let best = { proposal, checked,
-                 itin: draftItinerary(checked, trip, kb), key: "first" };
+    let best = { proposal, checked, itin: firstDraft, key: "first" };
     for (let round = 2; round <= rounds; round++) {
       const worst = best.checked.result.issues.length;
+      const gap = longestGap(best.itin);
       onProgress(4, worst
         ? `${worst}件の問題を見つけました。${round - 1}回目の作り直しです`
-        : `予定の空きが多いため、${round - 1}回目の作り直しです`);
+        : gap > MAX_GAP_MIN
+          ? `予定の空いている時間が${Math.round(gap / 60)}時間あります。`
+            + `${round - 1}回目の作り直しです`
+          : `予定の空きが多いため、${round - 1}回目の作り直しです`);
       let next;
       try {
         next = await proposePlan(candidates, query, trip.note, maxSpots,
@@ -396,7 +412,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
         repaired = true;
       }
       // 通ったら、そこで止めます。これ以上こねても良くなりません。
-      if (!needsRepair(best.checked)) break;
+      if (!needsRepair(best.checked, best.itin)) break;
     }
     proposal = best.proposal;
     checked = best.checked;
@@ -711,6 +727,71 @@ function topUpStays(byStay, stays, kb, { perDay, avoid }) {
 // 埋めるときに見る範囲。拠点から歩きか短い乗り物で行ける距離です。
 const TOP_UP_KM = 12;
 
+/**
+ * 予定の尽きた日に、その日の拠点の近くから立ち寄りを足します。
+ *
+ * @returns {object[]} 足した立ち寄り（無ければ空）
+ */
+function fillEmptyDays(visits, opt) {
+  const { kb, baseByDay, stays, dayEndHour, nights, used, avoid,
+          dayFloorById, dayCeilById } = opt;
+  const lastEndByDay = new Map();
+  for (const v of visits) {
+    const d = v.day ?? 0;
+    const prev = lastEndByDay.get(d);
+    if (!prev || v.end > prev) lastEndByDay.set(d, v.end);
+  }
+
+  const out = [];
+  for (let day = 0; day <= nights; day++) {
+    const end = lastEndByDay.get(day);
+    if (!end) continue;                       // 立ち寄りの無い日は別の話です
+    const limit = atHour(end, dayEndHour);
+    const freeMin = Math.round((limit - end) / 60000);
+    if (freeMin <= MAX_GAP_MIN) continue;
+
+    // 空いた時間を、1か所あたり90分（見学＋移動）で割ります。
+    const want = Math.min(4, Math.floor(freeMin / 90));
+    const base = baseByDay?.[day] ?? stays[0].station;
+    // 近いところから。見つからなければ、少し広げます。山あいの拠点だと
+    // 12km以内に残りが無いことがあり、そこで諦めると日が空いたままです。
+    let near = [];
+    for (const reach of [TOP_UP_KM, TOP_UP_KM * 2.5]) {
+      near = [];
+      for (const spot of kb.spots) {
+        if (used.has(spot.id) || avoid.has(spot.id)) continue;
+        const km = haversineKm(spot, base);
+        if (km <= reach) near.push({ spot, km });
+      }
+      if (near.length >= want) break;
+    }
+    const tier = { major: 0, known: 1, hidden: 2 };
+    near.sort((a, b) => (a.km - b.km)
+      || ((tier[a.spot.fame_tier] ?? 3) - (tier[b.spot.fame_tier] ?? 3)));
+    for (const { spot } of near.slice(0, want)) {
+      // その日に回るものとして入れます。前後の日へ流れると、また空きます。
+      dayFloorById.set(spot.id, day);
+      dayCeilById.set(spot.id, day);
+      used.add(spot.id);
+      out.push(spot);
+    }
+  }
+  return out;
+}
+
+// これ以上あくと、その日は「予定のある日」とは言えません。
+const MAX_GAP_MIN = 300;
+// 開くまでの待ちが、これを超える旅程は作り直します。
+const MAX_FREE_MIN = 20;
+
+/** 旅程の中で、いちばん長い「自由時間」（分）。 */
+function longestFreeMin(itin) {
+  const free = (itin?.days ?? []).flatMap((d) => d.items ?? [])
+    .filter((i) => i.kind === "free" && i.start && i.end)
+    .map((i) => Math.round((i.end - i.start) / 60000));
+  return free.length ? Math.max(...free) : 0;
+}
+
 // 出発地がこれより近ければ、最初の拠点は出発地そのものにします。
 const ORIGIN_IS_BASE_KM = 3;
 
@@ -896,7 +977,63 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     dayEndHour: trip.dayEndHour,
     pinnedIds: trip.must?.spotIds ?? [],
   };
-  const trimmed = trimToFit(spots, ctx);
+  let trimmed = trimToFit(spots, ctx);
+
+  // 空いた日を埋めます。
+  //
+  // 「10:51に見学が終わって、次は17:30の夕食」という日が出ていました。
+  // 予定表としては成立していますが、6時間半をどう過ごすのかは書いて
+  // ありません。**書いていない時間は、旅程ではありません。**
+  //
+  // 埋めかたは、足りない日に、その日の拠点の近くから足すだけです。
+  // AIに聞き直すのではありません（聞ける状態とは限らないうえ、
+  // 同じことを何度も頼むことになります）。
+  for (let pass = 0; pass < 3; pass++) {
+    const more = fillEmptyDays(trimmed.result.visits, {
+      kb, stays, baseByDay, dayStart, dayEndHour: ctx.dayEndHour ?? 18.5,
+      nights, used: new Set(spots.map((x) => x.id)),
+      avoid: new Set(trip.must?.avoidSpotIds ?? []),
+      dayFloorById, dayCeilById,
+    });
+    if (!more.length) break;
+    spots = spreadCrowds([...spots, ...more], {
+      dayFloorById, start: first, baseByDay, travelFn,
+      pinnedIds: trip.must?.spotIds ?? [],
+      useCrowd: trip.avoidCrowds !== false,
+    });
+    trimmed = trimToFit(spots, ctx);
+  }
+
+  // ここからが**本番の経路調べ**です。
+  //
+  // これまでは「AIが選んだ順」で経路を引いていました。ところが、そのあと
+  // trimToFit が時間の合わない立ち寄りを落とすので、**実際に並ぶ順とは
+  // 別の区間**を調べていたことになります。落ちた場所をまたぐ区間は、
+  // 誰も調べていないまま「推定」で残ります。
+  //
+  // 決まった順番でもう一度、端から端まで引き直します。
+  //
+  //   1. 旅程を組む（ここまで）
+  //   2. 立ち寄り先ごとに、いちばん近い駅・バス停を見つける（routes.js）
+  //   3. その並びのまま、全区間をYahoo!路線情報に聞く
+  //   4. 返ってきた実際の所要時間で、もう一度時刻を組み直す
+  //
+  // 3で聞く回数は区間の数だけ増えます（5日で30回ほど）。中継の制限は
+  // 1分20回なので、待ちながら進めて2分ほどかかります。目安で埋めた
+  // 旅程を早く出すより、実際の便が入った旅程を待つほうがよい、という
+  // 判断です。
+  if (useRoutes && opts.measureFinal !== false) {
+    const measured = await measureFinalOrder(trimmed, ctx, trip, {
+      stays, outbound, travelFn, legDetail,
+    });
+    if (measured) {
+      trimmed = measured.trimmed;
+      travelFn = measured.travelFn;
+      legDetail = measured.legDetail;
+      localRoute = measured.route ?? localRoute;
+    }
+  }
+
   const inbound = localRoute?.legs.at(-1) ?? outbound;
   const routeError = outRoute?.error ?? localRoute?.error ?? stationRoute?.error;
   return {
@@ -905,6 +1042,52 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     legs: { outbound, inbound, local: localRoute, routeError,
             modeNote: localRoute?.modeNote, routed: useRoutes },
     legDetail,
+  };
+}
+
+/**
+ * 決まった並びのまま、全区間の実際の所要時間を取り直します。
+ *
+ * @returns {{trimmed:object, travelFn:Function, legDetail:Function,
+ *            route:object}|null} 取れなければ null（そのままにします）
+ */
+async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
+  const { stays, outbound, travelFn, legDetail } = ctxIn;
+  const visits = trimmed.result?.visits ?? [];
+  if (!visits.length) return null;
+
+  // 実際に並ぶ順の地点。拠点（駅）から始めて、立ち寄りを順に、最後は終点。
+  const points = [stays[0].station, ...visits.map((v) => v.spot), ctx.end]
+    .filter(Boolean);
+  if (points.length < 2) return null;
+
+  // 区間ごとの出発時刻。組み上がった旅程が持っているので、そのまま使います
+  // （「その区間を実際に通る日時」で聞く、が守れます）。
+  const times = visits.map((v) => new Date(v.arrive.getTime()
+    - (v.travel + v.wait) * 60000));
+  times.push(new Date(visits.at(-1).end));
+
+  let route;
+  try {
+    route = await computeRoute(points, {
+      mode: pickMode(points, trip.transport),
+      departAt: times[0], departTimes: times,
+    });
+  } catch {
+    return null;   // 取れなければ、いま組んである旅程のままにします
+  }
+  if (!route?.legs?.length) return null;
+
+  const entries = [[points, route.legs]];
+  const nextTravel = legLookupAll(entries);
+  const nextDetail = legDetailLookup(entries);
+  // 実際の所要時間で、もう一度時刻を組み直します。行きの便が10分延びれば、
+  // その日の予定はすべて10分後ろにずれます。
+  const again = trimToFit(visits.map((v) => v.spot),
+                          { ...ctx, travelFn: nextTravel });
+  return {
+    trimmed: again.result?.visits?.length ? again : trimmed,
+    travelFn: nextTravel, legDetail: nextDetail, route,
   };
 }
 

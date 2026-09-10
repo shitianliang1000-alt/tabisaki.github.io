@@ -34,6 +34,7 @@ const ALLOWED_CF_MODELS = new Set([
 
 const ALLOWED_MODELS = new Set([
   "gemma-4-e2b-it", "gemma-4-26b-a4b-it", "gemma-4-31b-it",
+  "gemma-3-27b-it", "gemma-3-12b-it", "gemma-3-4b-it",
   "gemini-3.7-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite",
   "gemini-embedding-001",
 ]);

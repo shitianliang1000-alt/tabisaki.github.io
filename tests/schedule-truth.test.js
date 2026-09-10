@@ -288,3 +288,36 @@ test("電車・バスの一行は、発着と乗換と運賃だけにする", as
   assert.equal(line, "04:49発→05:19着（30分）・乗換1回・375円", line);
   assert.ok(!line.includes("km"), line);
 });
+
+// -------------------------------------------------------- 空いている時間 --
+//
+// 「10:51に見学が終わって、次は17:30の夕食」という日が出ていました。
+// 予定表としては成立していますが、6時間半をどう過ごすのかは書いて
+// ありません。書いていない時間は、旅程ではありません。
+
+import { longestGap } from "../js/score.js";
+
+test("その日の予定が尽きたら、近くから足して埋める", async () => {
+  const itin = await planTrip({
+    trip: makeTrip({
+      origin: findPlace("東京駅"),
+      departAt: new Date("2026-09-13T08:00"),
+      arriveBy: new Date("2026-09-16T19:00"),
+      note: "東京をゆっくり見たい",
+      interests: [], budgetYen: 999999,
+    }),
+    kb,
+  });
+  const gap = longestGap(itin);
+  assert.ok(gap <= 300, `${Math.round(gap / 60)}時間の空白があります`);
+});
+
+test("空白は、宿のあとを数えない", () => {
+  const day = { items: [
+    { kind: "spot", start: new Date("2026-09-13T09:00"),
+      end: new Date("2026-09-13T10:00") },
+    { kind: "lodging", start: new Date("2026-09-13T19:30"),
+      end: new Date("2026-09-14T09:00") },
+  ] };
+  assert.equal(longestGap({ days: [day] }), 0);
+});
