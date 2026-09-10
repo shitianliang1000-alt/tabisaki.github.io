@@ -107,12 +107,12 @@ test("Cloudflare で動かすときは、Gemini の埋め込みを呼ばない",
 // あり、Builds のほうに入れても動いている Worker からは見えません
 // （実際、そちらに入れて「設定されていません」と出ていました）。
 
-test("キーの入れ場所は、Runtime と Builds を取り違えないように書く", async () => {
+test("キーの入れ場所は、Bindings と Builds を取り違えないように書く", async () => {
   const { missingSecretHelp } = await import("../js/endpoints.js");
   const help = missingSecretHelp("GEMINI_API_KEY", "AIのキー");
   assert.match(help, /GEMINI_API_KEY/);
-  assert.match(help, /Runtime/);
+  assert.match(help, /Bindings/);
   assert.match(help, /Builds.*ではありません/s);
   // npx が使えない人のために、ダッシュボードの道順を先に書きます。
-  assert.ok(help.indexOf("Runtime") < help.indexOf("npx"), help);
+  assert.ok(help.indexOf("Bindings") < help.indexOf("npx"), help);
 });

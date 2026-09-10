@@ -103,8 +103,8 @@ function missingSecret(env, name) {
   if (hasSecret(env, name)) return null;
   return text(`中継に ${name} が設定されていません。`
     + "Cloudflare のダッシュボードで、Workers & Pages → この Worker → "
-    + `Settings → **Runtime** の Variables and Secrets に、Secret として ${name} を`
-    + "足してください（Builds の欄ではありません。あちらはビルド中だけの値で、"
+    + `上の「Bindings」タブ → Add → Secret として ${name} を足してください`
+    + "（Settings → Builds の欄ではありません。あちらはビルド中だけの値で、"
     + "動いている Worker からは見えません）。"
     + `コマンドなら \`npx wrangler secret put ${name}\` です`, 503);
 }

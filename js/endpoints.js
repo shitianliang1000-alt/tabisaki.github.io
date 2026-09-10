@@ -110,17 +110,23 @@ export function keyHeaders(which, cfg = {}) {
  *
  * 「npx wrangler secret put …」とだけ書いていました。npx が使えない人には
  * 手の打ちようがありません。しかもダッシュボードには**同じ名前の欄が
- * 2か所**あり、Builds のほうに入れても動いている Worker からは見えません
- * （実際、そちらに入れて「設定されていません」と出ていました）。
+ * いくつもあり**、置き場所を間違えると、入れたのに「設定されていません」
+ * と出ます。実際に2度たどりました。
+ *
+ *   Bindings タブ                    ← ここです（動いている Worker が読む）
+ *   Settings → Builds → Variables    ← ビルド中だけの値。env には入りません
+ *   Settings → Runtime               ← 置き場所・互換性日付など。変数はここに
+ *                                      無いことがあります（画面の版によります）
+ *
  * どこに入れるのかを、そのまま書きます。
  */
 export function missingSecretHelp(name, what) {
   return `中継に${what}（${name}）が設定されていません。`
     + "\n\nCloudflare のダッシュボードから入れられます。"
-    + "\n  Workers & Pages → tabisaki-github-io → Settings"
-    + "\n  → Runtime の「Variables and Secrets」→ Add"
-    + `\n  種類は Secret、名前は ${name}`
-    + "\n\n※ Builds の「Variables and secrets」ではありません。"
+    + "\n  Workers & Pages → tabisaki-github-io → 上の「Bindings」タブ"
+    + "\n  → Add（追加）→ Secret"
+    + `\n  名前は ${name}、値は発行したキー`
+    + "\n\n※ Settings → Builds の「Variables and secrets」ではありません。"
     + "そちらはビルド中だけの値で、動いている Worker からは見えません。"
     + `\n※ コマンドで入れる場合: npx wrangler secret put ${name}`;
 }
