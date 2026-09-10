@@ -16,7 +16,10 @@
 const HOUR = 60;
 
 /** 内訳の重み。合計1。 */
-const WEIGHTS = { move: 0.25, fatigue: 0.3, rhythm: 0.2, joy: 0.25 };
+// 合計で1になるようにします。「空き時間」は、予定の抜けた時間が
+// どれだけ少ないかです（8時間半あく日が実際に出ていました）。
+const WEIGHTS = { move: 0.2, fatigue: 0.25, rhythm: 0.15, joy: 0.2,
+                  empty: 0.2 };
 
 /** x を [lo,hi] から 0〜100 に落とします（lo で100、hi で0）。 */
 function falloff(x, lo, hi) {
@@ -50,6 +53,7 @@ export function scoreItinerary(itin, opts = {}) {
     fatiguePart(days, all),
     rhythmPart(days),
     joyPart(spots, opts.interests ?? []),
+    emptyPart(days),
   ];
 
   const total = Math.round(
@@ -67,6 +71,47 @@ export function scoreItinerary(itin, opts = {}) {
   return { total, parts, weakest, fatigue, fatigueLabel,
            tooHard: fatigue >= 80,
            summary: summarize(total, parts, weakest) };
+}
+
+// --- 空いている時間 ---------------------------------------------------------
+
+/** その日のいちばん長い空白（分）。予定と予定のあいだです。 */
+export function longestGapMin(day) {
+  const items = [...(day?.items ?? [])]
+    .filter((i) => i.start && i.end)
+    .sort((a, b) => a.start - b.start);
+  let worst = 0;
+  for (let i = 0; i + 1 < items.length; i++) {
+    // 宿は「その日の終わり」なので、そこから先は空白ではありません。
+    if (items[i + 1].kind === "lodging") break;
+    const gap = Math.round((items[i + 1].start - items[i].end) / 60000);
+    if (gap > worst) worst = gap;
+  }
+  return worst;
+}
+
+/** 旅程全体で、いちばん長い空白（分）。 */
+export function longestGap(itin) {
+  return Math.max(0, ...(itin?.days ?? []).map(longestGapMin));
+}
+
+/**
+ * 空白の少なさ。
+ *
+ * 「9:04に見学が終わって、次は17:30の夕食」という日が出ていました。
+ * 予定表としては成立していますが、8時間半をどう過ごすのかは書いて
+ * ありません。**書いていない時間は、旅程ではありません。**
+ * 2時間までは休憩や街歩きの範囲、5時間を超えるとその日は空です。
+ */
+function emptyPart(days) {
+  const worst = Math.max(0, ...days.map(longestGapMin));
+  const score = falloff(worst, 120, 300);
+  const h = Math.floor(worst / 60);
+  const m = worst % 60;
+  return { key: "empty", label: "空き時間", score, weight: WEIGHTS.empty,
+           note: worst >= 120
+             ? `予定の空いている時間が最大${h ? `${h}時間` : ""}${m}分あります`
+             : "予定の抜けた時間はありません" };
 }
 
 // --- 移動の割合 -------------------------------------------------------------

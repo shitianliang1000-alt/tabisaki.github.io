@@ -72,8 +72,9 @@ test("閉館までに見学しきれない案も弾かれる", () => {
 });
 
 test("開館まで少し待つ案は通り、待ち時間が記録される", () => {
+  // 待ってよいのは20分まで（TUNING.maxWaitMin）。
   const r = verifyOrder([A], {
-    start: NEAR, startAt: d("2026-09-12T09:30"),
+    start: NEAR, startAt: d("2026-09-12T09:45"),
     end: NEAR, endBy: d("2026-09-12T18:00"),
   });
   assert.equal(r.ok, true, JSON.stringify(r.issues));

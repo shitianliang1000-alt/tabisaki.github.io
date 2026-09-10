@@ -340,8 +340,9 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       itin.sourceMix.action
         ? el("p", { class: "src-action" }, itin.sourceMix.action) : null,
       el("ul", { class: "panel-list" },
-        [["🟢 確認済み", "収録データの実測値、または経路検索で取れた値です。"],
-         ["🟡 推定", "分類ごとの目安、または距離からの計算です。"],
+        [["🟢 収録データ", "収録の実データ、または経路検索・時刻表で取れた値です。"
+          + "行く日に変わっていないことまでは、お約束できません。"],
+         ["🟡 目安", "分類ごとの目安、または距離からの計算です。"],
          ["🟠 AI調査", "AIが検索して得た情報で、公式では確認できていません。"
                      + "訪問前に公式サイトでご確認ください。"]]
           .map(([k, v]) => el("li", {}, `${k} … ${v}`))),

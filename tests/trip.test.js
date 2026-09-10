@@ -180,12 +180,15 @@ test("開いてはいても、最終入場を過ぎていれば落ちる", () =>
 });
 
 test("開館まで少し待つのは許容する", () => {
+  // 待ってよいのは20分までです（TUNING.maxWaitMin）。旅程に
+  // 「開くまで約60分」と立つくらいなら、そのとき開いている別の場所を
+  // 先に回ります。
   const r = checkSpot(spot(), {
-    from: KAMAKURA, earliest: d("2026-09-12T09:30"),
+    from: KAMAKURA, earliest: d("2026-09-12T09:45"),
     endPlace: TOKYO, endBy: d("2026-09-12T20:00"),
   });
   assert.equal(r.ok, true, r.reason);
-  assert.ok(r.wait > 0 && r.wait <= 75, `wait=${r.wait}`);
+  assert.ok(r.wait > 0 && r.wait <= 20, `wait=${r.wait}`);
   assert.equal(r.arrive.getHours(), 10);
 });
 

@@ -194,8 +194,11 @@ test("AI調査には、次にすることが添えられている", () => {
   assert.match(LEVELS.ai.action, /公式/);
 });
 
-test("確認済みには、余計な行動を求めない", () => {
-  assert.equal(LEVELS.verified.action, "");
+test("収録データでも、行く日のことまでは請け合わない", () => {
+  // 「確認済み」と言い切ると、営業時間の変更や臨時休業の責任まで
+  // 引き受けたことになります。確かめたのは**収録した時点の値**です。
+  assert.equal(LEVELS.verified.label, "収録データ");
+  assert.match(LEVELS.verified.action, /公式/);
 });
 
 test("まとめた結果にも、取るべき行動が付いてくる", () => {

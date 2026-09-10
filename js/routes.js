@@ -311,10 +311,16 @@ function readableError(text) {
  * 走っている前提なのでこれまでの推定式のままです。
  */
 async function estimateLegRough(a, b) {
-  const direct = estimateMinutes(a, b, {
-    slow: isSlowTerrain(a) || isSlowTerrain(b),
-  });
   const directKm = haversineKm(a, b);
+  // 山道の見積もり（時速2.2km）は、**歩く距離のときだけ**です。
+  //
+  // ここを距離に関わらず使っていたので、5.1km先のダムへ「149分」と
+  // 出ていました。歩けば確かにそれくらいですが、5kmを歩く人はいません。
+  // 歩ける距離を超えたら、乗り物で行くものとして見ます。
+  const walkable = directKm <= (TUNING.walkableKm ?? 1.5);
+  const direct = estimateMinutes(a, b, {
+    slow: walkable && (isSlowTerrain(a) || isSlowTerrain(b)),
+  });
   // 短い区間では、停留所を挟む意味がありません（探す手間のほうが大きい）。
   if (directKm <= 1.5) return direct;
 
