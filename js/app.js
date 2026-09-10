@@ -478,9 +478,10 @@ function wireKeyPanel() {
   const run = (btn, fn) => runInto("#key-result", btn, fn);
   $("#test-gemini").addEventListener("click", (e) =>
     run(e.currentTarget, () => diagnoseGeminiKey()));
-  // 「確認」は両方見ます。電車・バスはYahoo!路線情報、徒歩はGoogleと、
-  // 使う先が分かれているためです。片方だけ通っていることがあります。
-  const bothChecks = async () => {
+  // 経路の確認は、電車・バス（Yahoo!路線情報）と徒歩・車（Google）の
+  // 2つを見ます。使う先が分かれているので、片方だけ通っていることが
+  // あります。
+  const routeChecks = async () => {
     const [maps, yahoo] = await Promise.all([
       diagnoseMapsKey(), diagnoseYahooTransit(),
     ]);
@@ -489,10 +490,25 @@ function wireKeyPanel() {
       message: `【電車・バス】${yahoo.message}\n\n【徒歩・車】${maps.message}`,
     };
   };
-  $("#test-maps").addEventListener("click", (e) => run(e.currentTarget, bothChecks));
-  // 開発者向けの欄を閉じていても押せる、同じ確認。
+  $("#test-maps").addEventListener("click", (e) => run(e.currentTarget, routeChecks));
+  // 開発者向けの欄を閉じていても押せる、まとめての確認。
+  //
+  // 経路の2つに、**行き先を選ぶAI（Gemma）**を加えた3点セットです。
+  // AIが通らなくても旅程は作れます（収録データから機械的に選ぶ形に
+  // 落ちます）。それでも、ここで見えるようにしておかないと
+  // 「AIの意見を聞いていない気がする」ことに利用者が気づけません。
+  const allChecks = async () => {
+    const [maps, yahoo, ai] = await Promise.all([
+      diagnoseMapsKey(), diagnoseYahooTransit(), diagnoseGeminiKey(),
+    ]);
+    return {
+      ok: maps.ok && yahoo.ok && ai.ok,
+      message: `【行き先を選ぶAI】${ai.message}\n\n`
+        + `【電車・バス】${yahoo.message}\n\n【徒歩・車】${maps.message}`,
+    };
+  };
   $("#test-conn").addEventListener("click", (e) =>
-    runInto("#conn-result", e.currentTarget, bothChecks));
+    runInto("#conn-result", e.currentTarget, allChecks));
 
   $("#reset-quota").addEventListener("click", () => {
     quota.reset();
