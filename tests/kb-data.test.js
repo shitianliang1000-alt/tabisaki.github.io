@@ -234,8 +234,10 @@ test("座標は日本の範囲に収まっている", () => {
 
 function spotsOf() {
   const out = [];
-  for (const n of ["00", "01", "02", "03", "04", "05", "p27"]) {
-    const url = new URL(`../kb/spots-${n}.json`, import.meta.url);
+  // 段の一覧は index.json が持っています。ここに書き写すと、段が
+  // 増えたときに、増えたぶんだけ黙って見ないテストになります。
+  for (const shard of index.shards) {
+    const url = new URL(`../kb/${shard.file}`, import.meta.url);
     out.push(...JSON.parse(readFileSync(url, "utf8")).spots);
   }
   return out;
