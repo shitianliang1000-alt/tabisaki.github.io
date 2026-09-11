@@ -79,8 +79,12 @@ export function confidenceOf(kind, subject, opts = {}) {
               : "経路検索で確認した所要時間です")
           : "距離からの推定です。実際の便やダイヤは反映していません",
       checkedAt, age);
-    out.source = s.yahoo ? "Yahoo!路線情報"
-      : routed ? "Googleの経路" : "距離からの推定";
+    // 出どころの名前は、**見分けがつく必要があるときだけ**出します。
+    // 電車・バスの時刻はYahoo!路線情報からしか取らなくなったので、
+    // 「時刻表・Yahoo!路線情報」と並べても、読む人の判断は変わりません。
+    // 印は短いほうが読まれます。
+    out.source = routed && !s.yahoo ? "Googleの経路"
+      : s.yahoo ? "" : "距離からの推定";
     if (s.yahoo) out.label = "時刻表";
     return out;
   }

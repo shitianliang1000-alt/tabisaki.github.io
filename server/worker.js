@@ -18,14 +18,23 @@ function allowList(env) {
 // 同じ扱いになります。後ろにあるものの重さが違うので、**点**で数えます。
 //
 //   /status      0点  こちらで完結します
-//   Yahoo!       1点  取りに行きますが、無料です
+//   Yahoo!       1点  取りに行きますが、**無料です**
 //   Routes API   3点  Googleの従量課金
 //   Gemini       5点  1日14,400回の枠を分け合います
 //   Workers AI   5点  1日10,000ニューロンの枠
 //
-// 1分20点・1時間200点。旅程1本はだいたい30〜60点なので、続けて作ろうと
-// すると待ちが入ります。待たせるのは、止まるよりましだからです
-// （無料枠を使い切ると、その日は誰も使えません）。
+// 数える枠は**2つに分けます**。以前は全部を1分20点の1つの枠で数えて
+// いました。ところが旅程1本で電車・バスを30区間ほど聞くので、1分20点は
+// 最初の1本の途中で尽きます。無料のYahoo!が、お金のかかるGeminiと
+// 同じ枠を奪い合っていたわけで、これは数えかたの誤りでした。
+//
+//   free … Yahoo!路線情報。こちらの費用はゼロなので、大きく取ります。
+//          上限は「取り違えて無限に呼んでしまったとき」の歯止めだけです。
+//   paid … Gemini・Routes・Workers AI。使い切るとその日は誰も使えない
+//          ので、ここは絞ったままにします。
+//
+// どちらも Worker の環境変数で変えられます（RATE_FREE_PER_MINUTE など）。
+// RATE_LIMIT に off を入れると、数えるのをやめます。
 const COST = {
   "/status": 0,
   "/yahoo/transit": 1,
@@ -34,8 +43,35 @@ const COST = {
   "/gemini/embed": 1,
   "/cf/generate": 5,
 };
-const PER_MINUTE = 20;
-const PER_HOUR = 200;
+
+/** その入口が、どちらの枠か。 */
+const POOL = {
+  "/yahoo/transit": "free",
+};
+
+export const LIMITS = {
+  free: { minute: 600, hour: 6000 },
+  paid: { minute: 60, hour: 400 },
+};
+
+/** 環境変数があれば、そちらを使います。 */
+function limitsFrom(env) {
+  const n = (v, fallback) => {
+    const x = Number(v);
+    return Number.isFinite(x) && x > 0 ? x : fallback;
+  };
+  return {
+    free: {
+      minute: n(env?.RATE_FREE_PER_MINUTE, LIMITS.free.minute),
+      hour: n(env?.RATE_FREE_PER_HOUR, LIMITS.free.hour),
+    },
+    paid: {
+      minute: n(env?.RATE_PAID_PER_MINUTE, LIMITS.paid.minute),
+      hour: n(env?.RATE_PAID_PER_HOUR, LIMITS.paid.hour),
+    },
+  };
+}
+
 const MAX_BODY = 512 * 1024;
 const UPSTREAM_TIMEOUT_MS = 30_000;
 const GEMINI_ROOT = "https://generativelanguage.googleapis.com/v1beta";
@@ -79,7 +115,8 @@ export default {
     const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
     // 重さに応じて数えます（Geminiの1回と /status の1回は別ものです）。
-    const gate = await rateCheck(env, ip, costOf(path));
+    // 枠は2つ。無料のYahoo!が、お金のかかるGeminiの枠を食べません。
+    const gate = await rateCheck(env, ip, costOf(path), poolOf(path));
     if (!gate.ok) {
       return cors(fail(429, "RATE_LIMITED",
         "いま利用が集中しています。1分ほどおいてから、もう一度お試しください。",
@@ -601,10 +638,22 @@ export function costOf(path) {
   return 1;
 }
 
-async function rateCheck(env, ip, cost) {
-  if (!env.RATE) return { ok: true };
+/** その入口の枠。表に無いものは、お金のかかる側として数えます。 */
+export function poolOf(path) {
+  for (const [suffix, pool] of Object.entries(POOL)) {
+    if (path.endsWith(suffix)) return pool;
+  }
+  return "paid";
+}
+
+async function rateCheck(env, ip, cost, pool = "paid") {
+  if (!env.RATE || String(env.RATE_LIMIT ?? "").toLowerCase() === "off") {
+    return { ok: true };
+  }
   const id = env.RATE.idFromName(ip); const stub = env.RATE.get(id);
-  return (await stub.fetch(`https://rate/check?cost=${cost}`)).json();
+  const q = new URLSearchParams({ cost: String(cost), pool,
+                                  limits: JSON.stringify(limitsFrom(env)) });
+  return (await stub.fetch(`https://rate/check?${q}`)).json();
 }
 
 /**
@@ -615,9 +664,12 @@ async function rateCheck(env, ip, cost) {
  * 「1分 undefined/undefined点」と出ていました。ここで開いて渡します。
  */
 async function rateUsage(env, ip) {
-  if (!env.RATE) return null;
+  if (!env.RATE || String(env.RATE_LIMIT ?? "").toLowerCase() === "off") {
+    return null;
+  }
   const id = env.RATE.idFromName(ip); const stub = env.RATE.get(id);
-  const body = await (await stub.fetch("https://rate/usage")).json();
+  const q = new URLSearchParams({ limits: JSON.stringify(limitsFrom(env)) });
+  const body = await (await stub.fetch(`https://rate/usage?${q}`)).json();
   return body?.usage ?? body ?? null;
 }
 
@@ -627,37 +679,62 @@ export class RateLimiter {
   async fetch(request) {
     const url = new URL(request.url);
     const cost = Math.max(0, Number(url.searchParams.get("cost") ?? 1) || 0);
+    const pool = url.searchParams.get("pool") === "free" ? "free" : "paid";
     const peek = url.pathname === "/usage";
+    let limits = LIMITS;
+    try {
+      const given = JSON.parse(url.searchParams.get("limits") ?? "null");
+      if (given?.free?.minute && given?.paid?.minute) limits = given;
+    } catch { /* 読めなければ既定のままです */ }
+
     return this.state.blockConcurrencyWhile(async () => {
       const now = Date.now();
-      // 記録は [時刻, 点数] の組です。前は時刻だけだったので、古い記録は
-      // 1点として読み替えます（配備の切り替わりで落ちないように）。
+      // 記録は [時刻, 点数, 枠] の組です。形を変えてきたので、古い記録も
+      // 読めるようにしておきます（配備の切り替わりで落ちないように）。
+      //   時刻だけ          → 1点・paid
+      //   [時刻, 点数]      → paid
+      //   [時刻, 点数, 枠]  → そのまま
       const raw = (await this.state.storage.get("hits")) ?? [];
-      const hits = raw.map((h) => (Array.isArray(h) ? h : [h, 1]));
+      const hits = raw.map((h) => (Array.isArray(h)
+        ? [h[0], h[1] ?? 1, h[2] === "free" ? "free" : "paid"]
+        : [h, 1, "paid"]));
       const recent = hits.filter(([t]) => now - t < 3_600_000);
-      const sum = (list) => list.reduce((a, [, c]) => a + c, 0);
+
+      const sum = (list, kind) => list
+        .filter(([, , k]) => k === kind)
+        .reduce((a, [, c]) => a + c, 0);
       const lastMinute = recent.filter(([t]) => now - t < 60_000);
-      const usage = {
-        minute: sum(lastMinute), minuteLimit: PER_MINUTE,
-        hour: sum(recent), hourLimit: PER_HOUR,
-      };
+      const shape = (kind) => ({
+        minute: sum(lastMinute, kind), minuteLimit: limits[kind].minute,
+        hour: sum(recent, kind), hourLimit: limits[kind].hour,
+      });
+      // 画面に出す見出しは、お金のかかる側です。無料のYahoo!は
+      // 「ぶつかることのない枠」なので、内訳として添えるだけにします。
+      const usage = { ...shape("paid"), free: shape("free"),
+                      paid: shape("paid") };
       if (peek) return json({ ok: true, usage });
 
-      if (sum(lastMinute) + cost > PER_MINUTE) {
+      const lim = limits[pool];
+      if (sum(lastMinute, pool) + cost > lim.minute) {
         await this.state.storage.put("hits", recent);
         return json({ ok: false, retryAfter: 60, usage });
       }
-      if (sum(recent) + cost > PER_HOUR) {
+      if (sum(recent, pool) + cost > lim.hour) {
         await this.state.storage.put("hits", recent);
         return json({ ok: false, retryAfter: 600, usage });
       }
       if (cost > 0) {
-        recent.push([now, cost]);
+        recent.push([now, cost, pool]);
         await this.state.storage.put("hits", recent);
         await this.state.storage.setAlarm(now + 3_600_000);
       }
-      return json({ ok: true, usage: { ...usage, minute: usage.minute + cost,
-                                       hour: usage.hour + cost } });
+      const after = pool === "paid"
+        ? { ...usage, minute: usage.minute + cost, hour: usage.hour + cost,
+            paid: { ...usage.paid, minute: usage.paid.minute + cost,
+                    hour: usage.paid.hour + cost } }
+        : { ...usage, free: { ...usage.free, minute: usage.free.minute + cost,
+                              hour: usage.free.hour + cost } };
+      return json({ ok: true, usage: after });
     });
   }
 

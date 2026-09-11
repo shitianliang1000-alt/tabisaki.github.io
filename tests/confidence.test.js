@@ -209,3 +209,29 @@ test("まとめた結果にも、取るべき行動が付いてくる", () => {
   assert.equal(mix.level, "ai", "いちばん弱いものが全体の弱さになるはずです");
   assert.match(mix.action, /公式/);
 });
+
+// --- 印に、出どころの名前を重ねない -----------------------------------------
+//
+// 電車・バスの時刻はYahoo!路線情報からしか取らなくなりました。Googleの
+// 経路と見分ける必要が無くなった以上、「時刻表・Yahoo!路線情報」と
+// 並べても読む人の判断は変わりません。印は短いほうが読まれます。
+
+test("時刻表の印に、提供元の名前は添えない", () => {
+  const c = confidenceOf("travel", {
+    kind: "transit", routed: true,
+    yahoo: { departure: "09:02", arrival: "09:04" },
+  });
+  assert.equal(c.label, "時刻表");
+  assert.equal(c.source, "", "「時刻表・Yahoo!路線情報」と並べています");
+  // 中身（何を見て確かめたか）は残します。開けば読めます。
+  assert.match(c.text, /Yahoo/);
+});
+
+test("目安と徒歩は、これまでどおりの印", () => {
+  const est = confidenceOf("travel", { kind: "transit", routed: false });
+  assert.equal(est.level, "estimated");
+  const walk = confidenceOf("travel",
+    { kind: "transit", routed: false, walk: true });
+  assert.equal(walk.label, "徒歩");
+  assert.equal(walk.source, "");
+});
