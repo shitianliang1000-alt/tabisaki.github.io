@@ -553,8 +553,11 @@ test("断られたら、しばらく聞きに行かない", async () => {
 // そこで諦めて「目安」にしていたので、「移動約413分・約2.7km」のような
 // 数字が、調べないまま旅程に載っていました。
 
+// 歩く距離（TUNING.walkableKm）より離れた2点にします。1.5km以内は
+// 聞かずに徒歩として扱うので、近すぎると「聞いていない」が正解に
+// なってしまい、聞き方のテストになりません。
 const NEAR_A = { lat: 35.6550, lng: 139.7010, name: "美術館A" };
-const NEAR_B = { lat: 35.6600, lng: 139.7100, name: "公園B" };
+const NEAR_B = { lat: 35.6750, lng: 139.7250, name: "公園B" };
 const CLUSTER = [
   [35.6575, 139.7050, "中央"],      // 両方の最寄り
   [35.6540, 139.7000, "西口"],
@@ -715,3 +718,59 @@ test("ぜんぶ外しているときは、拾い直さない（同じ答えが�
       // 2区間 × 名前3通り = 6回まで。拾い直すと倍になります。
       assert.ok(asked.length <= 6, `聞きすぎです（${asked.length}回）`);
     }));
+
+// --- 歩く距離は、聞かない -------------------------------------------------
+//
+// 「高乗寺へ移動 07:46発→09:07着（1時間21分）・乗換2回・608円・約0.6km」。
+// 600mを1時間21分かけて2回乗り換える人はいません。歩けば8分です。
+// 時刻表に聞けば時刻表は答えます。近すぎて直通がないので、遠回りの
+// 乗り継ぎが返ってくるだけです。
+
+const CLOSE_A = { lat: 35.6550, lng: 139.7010, name: "寺A" };
+const CLOSE_B = { lat: 35.6590, lng: 139.7045, name: "寺B" };   // 約0.5km
+
+test("歩ける距離の区間は、時刻表に聞かない", () =>
+  withYahoo(CLUSTER, () => ({
+    routed: true, minutes: 81, rideMinutes: 81, waitMinutes: 0,
+    summary: "07:46 発→ 09:07 着 1時間21分",
+  }), async (asked) => {
+    const r = await computeRoute([CLOSE_A, CLOSE_B], {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    assert.equal(asked.length, 0,
+      "0.5kmの区間を時刻表に聞いています");
+    assert.equal(r.legs[0].walk, true, "徒歩として扱っていません");
+    assert.ok(r.legs[0].minutes < 30,
+      `0.5kmに${r.legs[0].minutes}分かけています`);
+    assert.equal(r.legs[0].line, null, "乗り継ぎの一行が付いています");
+    assert.match(r.modeNote ?? "", /徒歩/);
+  }));
+
+test("歩ける距離を超えたら、聞く", () =>
+  withYahoo(CLUSTER, () => ({
+    routed: true, minutes: 14, rideMinutes: 14, waitMinutes: 0,
+    summary: "10:05 発→ 10:19 着 14分",
+  }), async (asked) => {
+    const r = await computeRoute([NEAR_A, NEAR_B], {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    assert.ok(asked.length >= 1, "歩けない距離なのに聞いていません");
+    assert.equal(r.legs[0].routed, true);
+    assert.notEqual(r.legs[0].walk, true);
+  }));
+
+test("歩く区間は、「◯区間中◯区間で時刻表」の分母から外す", () =>
+  withYahoo(CLUSTER, () => ({
+    routed: true, minutes: 14, rideMinutes: 14, waitMinutes: 0,
+    summary: "10:05 発→ 10:19 着 14分",
+  }), async () => {
+    // 1区間目は歩き、2区間目は電車。
+    const r = await computeRoute([CLOSE_A, CLOSE_B, NEAR_B], {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    assert.match(r.modeNote ?? "", /1区間のうち1区間/,
+      `分母に歩きが混ざっています: ${r.modeNote}`);
+    assert.match(r.modeNote ?? "", /1区間は徒歩/);
+    // 聞くべき区間はすべて引けているので、区間全体としては実測扱いです。
+    assert.equal(r.routed, true);
+  }));
