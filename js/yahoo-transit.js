@@ -17,16 +17,61 @@ import { effectiveConfig } from "./settings.js";
  */
 const RETRY_WAIT_MS = [1500, 5000, 12000];
 const COOLDOWN_MS = 60000;
-const cooldown = { until: 0, reason: "" };
 
-/** いま聞ける状態か。旅程を組む側が、無駄な呼び出しを避けるために見ます。 */
+/**
+ * 断られる前に、こちらで間隔を空けます。
+ *
+ * 中継の回数制限は1分あたり20回です。旅程1つで30区間ほど聞くので、
+ * 全速で投げれば**必ず**途中で断られます。断られてから1分待つのは、
+ * 待ち時間としては最悪の形です。断られた回はやり直しになるうえ、
+ * その間の残りの区間も道連れになります。
+ *
+ * 先に自分で数えて、1分18回に収まるよう待ちます。断られなければ
+ * やり直しも起きないので、同じ時間で調べられる区間が増えます。
+ * （中継の数えかたは重み付きです。/yahoo/transit は1回=1です。）
+ */
+const PACE_PER_MINUTE = 18;
+const PACE_WINDOW_MS = 60000;
+const sentAt = [];
+
+/** 次の1回を投げてよい時刻まで待ちます。 */
+async function pace() {
+  for (;;) {
+    const now = Date.now();
+    while (sentAt.length && now - sentAt[0] >= PACE_WINDOW_MS) sentAt.shift();
+    if (sentAt.length < PACE_PER_MINUTE) { sentAt.push(now); return; }
+    await sleep(PACE_WINDOW_MS - (now - sentAt[0]) + 50);
+  }
+}
+
+/** テストと、旅程を組み直すときのために、数えた回数を捨てます。 */
+export function resetYahooPace() { sentAt.length = 0; }
+const cooldown = { until: 0, reason: "", retryable: false };
+
+/**
+ * いま聞ける状態か。旅程を組む側が、無駄な呼び出しを避けるために見ます。
+ *
+ * retryable は「待てば通るか」です。**ここを区別しないと直せません。**
+ *
+ *   429（回数が多い）・5xx  … 相手には届いています。待てば通ります。
+ *   403・400（設定の不備）  … 何分待っても同じ答えです。
+ *
+ * 以前はどちらも同じ「待ち」として扱っていました。呼ぶ側は
+ * 「一度も答えが返っていないなら待たない」という取り決めで身を守って
+ * いましたが、そのせいで**前回の旅程で回数制限に当たったまま次を組むと、
+ * 1区間目から待てず、全区間が目安**になっていました。
+ */
 export function yahooCooldown(now = Date.now()) {
   const left = Math.max(0, cooldown.until - now);
   return { waiting: left > 0, seconds: Math.ceil(left / 1000),
-           reason: cooldown.reason };
+           reason: cooldown.reason, retryable: cooldown.retryable };
 }
 
-export function resetYahooCooldown() { cooldown.until = 0; cooldown.reason = ""; }
+export function resetYahooCooldown() {
+  cooldown.until = 0;
+  cooldown.reason = "";
+  cooldown.retryable = false;
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -72,6 +117,8 @@ export async function searchYahooTransit(from, to, opts = {}) {
       // 相手の側の事情は変わりません。
       await sleep(waits[attempt - 1]);
     }
+    // 断られる前に、こちらで間隔を空けます。テストと診断は素通しです。
+    if (opts.pace !== false) await pace();
     let res;
     try {
       res = await fetch(url, {
@@ -125,9 +172,17 @@ export async function searchYahooTransit(from, to, opts = {}) {
 
 /** しばらく聞かない。区間ごとに同じ壁へぶつかりに行かないためです。 */
 function hold(err) {
+  const status = Number(err?.status ?? 0);
+  const retryable = status === 429 || status >= 500
+    || err?.retryable === true;
+  // 待てば通るものは、言われたぶんだけ待ちます。中継が Retry-After を
+  // 付けてくれるなら、それが最短です。1分固定で待つと、5秒で明ける
+  // 制限に55秒よけいに座ることになります。
+  const asked = (err?.retryAfter ?? 0) * 1000;
   cooldown.until = Date.now()
-    + Math.max(COOLDOWN_MS, (err?.retryAfter ?? 0) * 1000);
+    + (retryable && asked > 0 ? asked : COOLDOWN_MS);
   cooldown.reason = String(err?.message ?? "断られました").slice(0, 60);
+  cooldown.retryable = retryable;
 }
 
 function neutralDepartureTime(now = new Date()) {
