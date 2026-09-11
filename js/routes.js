@@ -528,6 +528,10 @@ async function computeViaStations(points, opts) {
     (TUNING.maxYahooRequests ?? 40) - yahooBudgetSpent.spent);
   // 断られたあと、どれだけ待ってやり直したか。
   let waited = 0;
+  // 引けなかった区間を、あとでもう一度聞くための出発時刻。
+  const askedAt = new Array(n).fill(null);
+  // 拾い直した区間の数（画面の注記に出します）。
+  let retried = 0;
   for (let i = 0; i < n; i++) {
     const at = given?.[i] instanceof Date ? given[i] : clock;
     // 断られている間は、**待ちます**。
@@ -569,9 +573,46 @@ async function computeViaStations(points, opts) {
       plans[i] = { minutes: hit.minutes, walkKm: 0,
                    fromStop: null, toStop: null, walkMeasured: false };
     } else {
+      askedAt[i] = at;
       plans[i] = await planStationLeg(points[i], points[i + 1]);
     }
     if (clock) clock = new Date(clock.getTime() + plans[i].minutes * 60000);
+  }
+
+  // 引けなかった区間を、もう一度だけ拾い直します。
+  //
+  // 1回目に外す理由は、その区間が引けないからとは限りません。通信が
+  // 一瞬切れた、中継が混んでいた、回数制限の一歩手前だった——どれも
+  // 時間をおけば通ります。とくに**1区間目**は、まだ間隔の調整も待ちも
+  // 効いていない状態で投げるので、いちばん外しやすい場所です。
+  // 「東京駅 → 潮見駅」だけが目安で、あとは全部時刻が入っている、と
+  // いう出かたは、これでした。
+  //
+  // 拾い直すのは、ほかの区間が引けているときだけです。ぜんぶ外して
+  // いるなら、原因は区間ではなく設定か通信なので、もう一度投げても
+  // 同じ答えが返るだけです。
+  if (yahooLegs.some(Boolean)) {
+    for (let i = 0; i < n; i++) {
+      if (yahooLegs[i] || yahooBudget <= 0) continue;
+      const cool2 = yahooCooldown();
+      if (cool2.waiting) {
+        if (!cool2.retryable || waited >= MAX_COOLDOWN_WAITS) continue;
+        await sleep(Math.min(cool2.seconds + 1, 65) * 1000);
+        waited++;
+      }
+      const again = await yahooLeg(points[i], points[i + 1],
+        { ...opts, departAt: askedAt[i], tries: yahooBudget });
+      if (again?.spent) {
+        yahooBudget -= again.spent;
+        yahooBudgetSpent.spent += again.spent;
+        retried++;
+      }
+      if (again && !again.miss) {
+        yahooLegs[i] = again;
+        plans[i] = { minutes: again.minutes, walkKm: 0,
+                     fromStop: null, toStop: null, walkMeasured: false };
+      }
+    }
   }
 
   // 歩きの長い区間から実測します。
@@ -605,7 +646,10 @@ async function computeViaStations(points, opts) {
   const searched = yahooLegs.filter(Boolean).length;
   const viaStations = plans.filter((p) => p.fromStop && p.toStop).length;
   const parts = [];
-  if (searched) parts.push(`${n}区間のうち${searched}区間はYahoo!路線情報で検索`);
+  if (searched) {
+    parts.push(`${n}区間のうち${searched}区間はYahoo!路線情報で検索`
+      + (retried ? `（${retried}区間は聞き直し）` : ""));
+  }
   if (viaStations) {
     parts.push(`${viaStations}区間は最寄りの駅・バス停どうしの移動として`
       + "見ています"
