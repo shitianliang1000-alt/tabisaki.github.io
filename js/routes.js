@@ -41,7 +41,7 @@ import { QuotaBlockedError, meteredFetch } from "./quota.js";
 import { estimateMinutes, haversineKm, isSlowTerrain } from "./feasibility.js";
 import { findStop, nearbyStops, nearestStop } from "./stops.js";
 import { summarizeTransitLeg, transitFieldMask } from "./transit.js";
-import { resetYahooCooldown, searchYahooTransit, yahooCooldown }
+import { resetYahooCooldown, resetYahooPace, searchYahooTransit, yahooCooldown }
   from "./yahoo-transit.js";
 
 /**
@@ -223,9 +223,7 @@ const transitBudget = { spent: 0 };
 const yahooBudgetSpent = { spent: 0 };
 
 // 断られたときに待ち直す回数の上限。1回およそ1分です。
-// 待てば入る時刻を、待たずに「推定」にするほうが損です。
-// 1区間につき名前を何通りか試すようになったぶん、回数制限に当たる機会も
-// 増えました。待てば入る時刻を、待たずに「目安」にするほうが損です。
+// 待てば入る時刻を、待たずに「目安」にするほうが損です。
 const MAX_COOLDOWN_WAITS = 8;
 
 /**
@@ -250,6 +248,15 @@ export function routesUsage() {
            transitSpent: transitBudget.spent };
 }
 
+/**
+ * 数えた回数を捨てます。テストと、設定を入れ直したときのためです。
+ * 旅程を組み直すだけのときには呼びません（中継側の1分は続いています）。
+ */
+export function resetTransitPacing() {
+  resetYahooPace();
+  resetYahooCooldown();
+}
+
 export function routesBreakerState() {
   return { ...breaker };
 }
@@ -257,7 +264,15 @@ export function routesBreakerState() {
 export function resetRoutesBreaker() {
   transitBudget.spent = 0;
   yahooBudgetSpent.spent = 0;
-  resetYahooCooldown();
+  // 回数制限の待ちは、**消しません**。
+  //
+  // ここは旅程を組むたびに呼ばれます。前回の終わりに回数制限へ当たって
+  // いると、その待ちを消して1区間目から投げ直すことになり、また同じ壁に
+  // ぶつかります。そして最初の1区間が通らないので、以降も待たずに進み、
+  // 全区間が「目安」になります。作り直すほど直らない、の正体でした。
+  // 消してよいのは、設定の不備で止まっているときだけです（キーを入れ
+  // 直した直後など、待っても意味がなく、条件が変わっているため）。
+  if (!yahooCooldown().retryable) resetYahooCooldown();
   breaker.fails = 0;
   breaker.open = false;
   breaker.reason = "";
@@ -521,15 +536,22 @@ async function computeViaStations(points, opts) {
     // 途中で必ず断られます。そこで諦めていたため、3日目から先は
     // まるごと「推定」になっていました。旅程づくりに1〜2分よけいに
     // かかっても、実際の時刻が入るほうが役に立ちます。
-    // 待つのは、**その旅程で一度は答えが返っているとき**だけです。
-    // 一度も通っていないなら、待っても通りません（鍵が無い、出どころが
-    // 許されていない、など）。テストや通信の無い環境で止まらないように、
-    // という意味でもあります。
-    const worthWaiting = yahooLegs.some(Boolean);
-    if (worthWaiting && yahooBudget > 0 && yahooCooldown().waiting
+    //
+    // 待つかどうかは、**断られた理由**で決めます。
+    //
+    //   429・5xx … 相手には届いています。待てば通ります。
+    //   403・400 … 設定の不備なので、何分待っても同じ答えです。
+    //
+    // 以前は「その旅程で一度は答えが返っているとき」だけ待っていました。
+    // 通信の無い場所で止まらないための取り決めでしたが、**前の旅程で
+    // 回数制限に当たったまま次を組むと、1区間目から待てません**。
+    // すると最後まで一度も答えが返らないので、以降も待たず、
+    // 全区間が「目安」になります。作り直すほど直らない、の正体でした。
+    const cool = yahooCooldown();
+    const worthWaiting = cool.retryable || yahooLegs.some(Boolean);
+    if (worthWaiting && yahooBudget > 0 && cool.waiting
         && waited < MAX_COOLDOWN_WAITS) {
-      const left = yahooCooldown().seconds;
-      await sleep(Math.min(left + 1, 65) * 1000);
+      await sleep(Math.min(cool.seconds + 1, 65) * 1000);
       waited++;
     }
     const hit = (yahooBudget > 0 && !yahooCooldown().waiting)

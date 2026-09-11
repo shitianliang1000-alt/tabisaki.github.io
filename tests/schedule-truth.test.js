@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildItinerary } from "../js/planner.js";
-import { computeRoute, resetRoutesBreaker } from "../js/routes.js";
+import { computeRoute, resetRoutesBreaker, resetTransitPacing } from "../js/routes.js";
 
 const d = (s) => new Date(s);
 
@@ -92,6 +92,7 @@ test("便に合わせて遅れたぶん、その日の立ち寄りも後ろへ�
 
 test("区間ごとに、その区間を通る日時で調べる", async () => {
   resetRoutesBreaker();
+  resetTransitPacing();
   const asked = [];
   const fetchStub = async (url, init) => {
     asked.push(JSON.parse(init.body));
@@ -108,6 +109,7 @@ test("区間ごとに、その区間を通る日時で調べる", async () => {
   } finally {
     globalThis.fetch = real;
     resetRoutesBreaker();
+  resetTransitPacing();
   }
   // 中継へ届いていれば、2区間それぞれの日付で聞いているはずです。
   if (asked.length >= 2) {
@@ -181,6 +183,7 @@ test("隣り合うエリアの立ち寄りも、いちばん近い拠点のぶ�
 
 test("駅から出るときは、その駅の名前で調べる", async () => {
   resetRoutesBreaker();
+  resetTransitPacing();
   const asked = [];
   const real = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
@@ -194,6 +197,7 @@ test("駅から出るときは、その駅の名前で調べる", async () => {
   } finally {
     globalThis.fetch = real;
     resetRoutesBreaker();
+  resetTransitPacing();
   }
   if (asked.length) {
     assert.equal(asked[0].from, "東京駅", `別の場所で調べています: ${asked[0].from}`);
@@ -263,6 +267,7 @@ test("立ち寄りが日数に足りないときは、近くの収録から埋�
 
 test("電車・バスの一行は、発着と乗換と運賃だけにする", async () => {
   resetRoutesBreaker();
+  resetTransitPacing();
   const real = globalThis.fetch;
   globalThis.fetch = async () => ({
     ok: true, status: 200,
@@ -283,6 +288,7 @@ test("電車・バスの一行は、発着と乗換と運賃だけにする", as
   } finally {
     globalThis.fetch = real;
     resetRoutesBreaker();
+  resetTransitPacing();
   }
   const line = route.legs[0].line;
   // 出すのは「乗っている時間」です。yahoo.minutes（30分）は4:00から

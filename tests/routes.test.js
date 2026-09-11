@@ -79,6 +79,7 @@ test("空路になる距離でも、公共交通なら聞きにいく", async ()
   // 含めて答えます。ここでは通信できないので目安に落ちますが、
   // 「長すぎるから聞かない」で止めてはいけません。
   resetRoutesBreaker();
+  resetTransitPacing();
   clearRouteCache();
   const r = await computeRoute([TOKYO, NAHA], { mode: "TRANSIT" });
   assert.equal(r.routed, false);
@@ -90,6 +91,7 @@ test("空路になる距離でも、公共交通なら聞きにいく", async ()
 test("車の経路は、空路になる距離では呼ばない", async () => {
   // こちらはGoogleの経路APIの話です。海をまたぐ区間に道路はありません。
   resetRoutesBreaker();
+  resetTransitPacing();
   clearRouteCache();
   const r = await computeRoute([TOKYO, NAHA], { mode: "DRIVE" });
   assert.equal(r.routed, false);
@@ -106,6 +108,7 @@ test("同じ経路は取り直さない（案の作り直しで倍になって�
 
 test("失敗が続いたら呼ぶのをやめる", () => {
   resetRoutesBreaker();
+  resetTransitPacing();
   assert.equal(routesBreakerState().open, false);
 });
 
@@ -167,7 +170,7 @@ test("置き換えたことを、結果に書き添える", () => {
 // 駅の位置から組み立てるようにしたので、そこを固定します。
 
 import {
-  MAX_POINTS, clearRouteCache, computeRoute, resetRoutesBreaker, routesUsage,
+  MAX_POINTS, clearRouteCache, computeRoute, resetRoutesBreaker, resetTransitPacing, routesUsage,
 } from "../js/routes.js";
 import { TUNING } from "../js/config.js";
 import { resetStopsCache } from "../js/stops.js";
@@ -182,6 +185,7 @@ function withStations(stops, fn) {
   });
   clearRouteCache();
   resetRoutesBreaker();
+  resetTransitPacing();
   return fn().finally(() => {
     globalThis.fetch = real;
     resetStopsCache();
@@ -365,6 +369,7 @@ function withYahoo(stops, reply, fn) {
   };
   clearRouteCache();
   resetRoutesBreaker();
+  resetTransitPacing();
   return fn(asked).finally(() => {
     globalThis.fetch = real;
     resetStopsCache();
@@ -602,3 +607,80 @@ test("何通り試しても引けなければ、目安に戻す（無限には�
       assert.ok(asked.length <= 3, `聞きすぎです（${asked.length}回）`);
       assert.equal(r.legs[0].routed, false);
     }));
+
+// --- 回数制限をまたいでも、目安に落とさない -------------------------------
+//
+// 「作り直すほど目安が増える」の正体です。前の旅程の終わりに回数制限へ
+// 当たると、次の旅程は1区間目から断られます。以前はそこで待たなかった
+// ので（「一度も答えが返っていないなら待たない」という取り決め）、
+// 最後まで一度も通らず、全区間が目安になっていました。
+
+test("前の旅程で回数制限に当たっていても、待って調べ直す", async () => {
+  const { resetYahooCooldown, searchYahooTransit } =
+    await import("../js/yahoo-transit.js");
+  resetRoutesBreaker();
+  resetTransitPacing();
+  resetYahooCooldown();
+
+  // まず429を1回起こして、待ちに入れます（＝前の旅程の終わりの状態）。
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false, status: 429, headers: { get: () => "1" },
+    text: async () => JSON.stringify({ ok: false, error: {
+      code: "RATE_LIMITED", service: "proxy", retryable: true,
+      message: "呼び出しが多すぎます", retryAfter: 1 } }),
+  });
+  await searchYahooTransit({ name: "新宿" }, { name: "箱根湯本" },
+    { retryWaits: [], pace: false }).catch(() => {});
+  globalThis.fetch = real;
+
+  const { yahooCooldown } = await import("../js/yahoo-transit.js");
+  assert.equal(yahooCooldown().waiting, true, "待ちに入っていません");
+  assert.equal(yahooCooldown().retryable, true,
+    "待てば通る断りだと分かっていません");
+
+  // 旅程を組み直します。ここで待ちを消してしまうと、また同じ壁です。
+  resetRoutesBreaker();
+  assert.equal(yahooCooldown().waiting, true,
+    "組み直しで待ちを消しています（また断られます）");
+
+  // 待ったあとは、1区間目から実際の時刻が入ります。
+  await withYahoo(STOPS, () => ({
+    routed: true, minutes: 90, rideMinutes: 82, waitMinutes: 8,
+    summary: "10:08 発→ 11:30 着 1時間22分",
+  }), async (asked) => {
+    const r = await computeRoute([SHINJUKU_ST, HAKONE_YUMOTO], {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    assert.ok(asked.length >= 1, "待ったのに聞いていません");
+    assert.equal(r.legs[0].routed, true,
+      "回数制限をまたぐと目安のままです");
+  });
+  resetTransitPacing();
+});
+
+test("設定の不備で止まっているときは、組み直しで待ちを消す", async () => {
+  const { resetYahooCooldown, searchYahooTransit, yahooCooldown } =
+    await import("../js/yahoo-transit.js");
+  resetRoutesBreaker();
+  resetTransitPacing();
+  resetYahooCooldown();
+
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false, status: 403, headers: { get: () => null },
+    text: async () => JSON.stringify({ ok: false, error: {
+      code: "FORBIDDEN", service: "proxy", retryable: false,
+      message: "このサイトからは呼べません" } }),
+  });
+  await searchYahooTransit({ name: "新宿" }, { name: "箱根湯本" },
+    { retryWaits: [], pace: false }).catch(() => {});
+  globalThis.fetch = real;
+
+  assert.equal(yahooCooldown().retryable, false);
+  // キーや出どころを直したかもしれないので、こちらは消します。
+  resetRoutesBreaker();
+  assert.equal(yahooCooldown().waiting, false,
+    "設定を直しても待ち続けています");
+  resetTransitPacing();
+});
