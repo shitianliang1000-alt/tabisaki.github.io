@@ -11,6 +11,7 @@ import { clearSettings, cspAllows, effectiveConfig, loadSettings, maskKey,
          saveSettings } from "./settings.js";
 import { callModel, canGround, describeSpot, diagnoseGeminiKey, hasApiKey }
   from "./ai.js";
+import { proxyStatus } from "./endpoints.js";
 import { discoverArea } from "./discover.js";
 import { loadKnowledgeBase, loadRegionIndex, mergeIntoKb } from "./kb.js";
 
@@ -498,13 +499,15 @@ function wireKeyPanel() {
   // 落ちます）。それでも、ここで見えるようにしておかないと
   // 「AIの意見を聞いていない気がする」ことに利用者が気づけません。
   const allChecks = async () => {
-    const [maps, yahoo, ai] = await Promise.all([
+    const [maps, yahoo, ai, budget] = await Promise.all([
       diagnoseMapsKey(), diagnoseYahooTransit(), diagnoseGeminiKey(),
+      proxyBudget(),
     ]);
     return {
       ok: maps.ok && yahoo.ok && ai.ok,
       message: `【行き先を選ぶAI】${ai.message}\n\n`
-        + `【電車・バス】${yahoo.message}\n\n【徒歩・車】${maps.message}`,
+        + `【電車・バス】${yahoo.message}\n\n【徒歩・車】${maps.message}`
+        + (budget ? `\n\n【中継の余力】${budget}` : ""),
     };
   };
   $("#test-conn").addEventListener("click", (e) =>
@@ -517,6 +520,33 @@ function wireKeyPanel() {
   fill();
   refresh();
   showQuota();
+}
+
+/**
+ * 中継の余力。
+ *
+ * 無料枠は、使い切ると**その日は誰も使えません**（追加課金ではなく、
+ * その種類の処理が失敗します）。止まってから気づくのでは遅いので、
+ * 押せば見えるようにしておきます。
+ *
+ * ここで見えるのは、この端末（IP）ぶんの点数です。Cloudflare の1日の
+ * 合計（10万リクエスト／Workers AI 1万ニューロン）は、中継の外からは
+ * 数えられないので、ダッシュボードで見る旨を添えます。
+ */
+async function proxyBudget() {
+  try {
+    const st = await proxyStatus(effectiveConfig());
+    const u = st?.usage;
+    if (!u) return "";
+    return `この端末から 1分 ${u.minute}/${u.minuteLimit}点`
+      + `・1時間 ${u.hour}/${u.hourLimit}点`
+      + "（重い処理ほど点が高くなります。AIとGoogleの経路が5点、"
+      + "Yahoo!が1点です）"
+      + "\n1日の合計は Cloudflare のダッシュボードでご確認ください"
+      + "（無料枠は10万リクエスト／日）。";
+  } catch {
+    return "";
+  }
 }
 
 function escapeHtml(s) {

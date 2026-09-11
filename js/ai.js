@@ -13,8 +13,8 @@ import {
   FALLBACK_MODELS, EMBED_DIM, EMBED_MODEL, LOCAL_BASE_URL,
   CF_FALLBACK_MODELS, CF_MODEL, LOCAL_MODEL, MODEL, MODEL_PROVIDER,
 } from "./config.js";
-import { endpointFor, keyHeaders, missingSecretHelp, proxyStatus, usingProxy }
-  from "./endpoints.js";
+import { endpointFor, keyHeaders, missingSecretHelp, proxyStatus,
+         readProxyError, usingProxy } from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
 import { buildSearchText, extractKeywords } from "./keywords.js";
 import { meteredFetch } from "./quota.js";
@@ -188,6 +188,9 @@ export function aiStatus() {
 }
 
 export function resetAiStatus() { lastAiError = null; }
+
+/** 覚えた読み取りを捨てます（テストと、設定を変えたとき用）。 */
+export function clearAiMemo() { understood.clear(); }
 
 /** 呼び出し側の catch から使います。最初の理由だけを残します。 */
 export function noteAiError(e) {
@@ -446,6 +449,23 @@ async function callCloudflare(model, prompt, opts = {}) {
 }
 
 /**
+ * 中継の断り文句を、そのまま持てる形の例外にします。
+ *
+ * これまでは「400 {\"error\":{...}}」という生の文字列を例外にしていました。
+ * 画面にそのまま出るので、読んだ人には手がかりになりません。中継は
+ * code / retryable / 日本語の message を返すので、それを持ちます。
+ */
+function proxyError(res, body) {
+  const info = readProxyError(body, res.status);
+  const err = new Error(info.message || `${res.status}`);
+  err.status = res.status;
+  err.code = info.code;
+  err.retryable = info.retryable;
+  err.retryAfter = info.retryAfter;
+  return err;
+}
+
+/**
  * 中継を通すときは、**本文にモデル名を入れます**。
  *
  * Googleへ直に投げるときは、モデル名はURLに入ります
@@ -476,12 +496,7 @@ async function callOnce(model, prompt, opts = {}) {
                                    model, cfg)),
     signal,
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    const err = new Error(`${res.status} ${text.slice(0, 200)}`);
-    err.status = res.status;
-    throw err;
-  }
+  if (!res.ok) throw proxyError(res, await res.text().catch(() => ""));
   const data = await res.json();
   const parts = data?.candidates?.[0]?.content?.parts ?? [];
   const text = parts.map((p) => p.text ?? "").join("").trim();
@@ -627,10 +642,27 @@ const FALLBACK_PLAN = {
   keywords: ["観光", "名所"], avoid: [],
 };
 
+/**
+ * 同じ希望文を、二度読み取らせない。
+ *
+ * 「もっとゆっくり」を押す、案を選び直す、条件を少し変えて作り直す——
+ * どれも希望文は同じままです。それでも毎回モデルに読み取らせていたので、
+ * 押すたびに1回ぶんの枠と、その待ち時間を使っていました。読み取りの
+ * 結果は同じ入力なら同じでよいので、その回のあいだは覚えておきます。
+ *
+ * 覚えるのはこのページを開いているあいだだけです（読み込み直せば消えます）。
+ * 希望文・興味・時間のどれかが変われば、別のものとして聞き直します。
+ */
+const understood = new Map();
+const UNDERSTOOD_MAX = 12;
+
 export async function understandRequest(note, interests, hours, opts = {}) {
   const text = String(note ?? "").trim();
   if (!text && interests.length === 0) return { ...FALLBACK_PLAN, interests };
   if (!hasApiKey()) return keywordFallback(text, interests);
+
+  const key = JSON.stringify([text, [...interests].sort(), Math.round(hours)]);
+  if (understood.has(key)) return { ...understood.get(key) };
 
   const prompt = [
     "利用者の希望から、旅先を検索するための条件を抽出してください。",
@@ -651,7 +683,7 @@ export async function understandRequest(note, interests, hours, opts = {}) {
     // 抽出は当てものではないので、温度は低く固定します。
     const p = await callModelJson(prompt,
       { temperature: 0.1, topP: 0.8, schema: UNDERSTAND_SCHEMA, ...opts });
-    return {
+    const out = {
       searchText: p.searchText || FALLBACK_PLAN.searchText,
       interests: Array.isArray(p.interests) ? p.interests : interests,
       pace: ["relaxed", "balanced", "packed"].includes(p.pace) ? p.pace : "balanced",
@@ -660,6 +692,11 @@ export async function understandRequest(note, interests, hours, opts = {}) {
       keywords: Array.isArray(p.keywords) ? p.keywords : [],
       avoid: Array.isArray(p.avoid) ? p.avoid : [],
     };
+    if (understood.size >= UNDERSTOOD_MAX) {
+      understood.delete(understood.keys().next().value);
+    }
+    understood.set(key, out);
+    return { ...out };
   } catch (e) {
     noteAiError(e);
     return keywordFallback(text, interests);
