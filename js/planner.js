@@ -123,11 +123,16 @@ export function buildItinerary(input) {
     from: trip.origin,
     to: firstStation,
     routed: Boolean(legs?.outbound?.routed),
+    // 調べた便の中身。これを渡していなかったので、Yahoo!で引いた往路が
+    // 画面では「収録データ・Googleの経路」と出ていました。
+    yahoo: legs?.outbound?.yahoo ?? null,
     km: haversineKm(trip.origin, firstStation),
     costYen: 0,
-    reason: legs?.outbound?.routed
-      ? "Google マップの経路検索による所要時間"
-      : "経路APIを使えないため距離からの推定",
+    reason: legs?.outbound?.yahoo
+      ? "Yahoo!路線情報で調べた実際の便"
+      : legs?.outbound?.routed
+        ? "Google マップの経路検索による所要時間"
+        : "経路APIを使えないため距離からの推定",
   }, legs?.outbound?.transit));
 
   // --- 日ごとに組み立てる ---
@@ -227,23 +232,52 @@ export function buildItinerary(input) {
       }
       const v = entry.visit;
       if (v.travel > 0) {
+        // その区間を実際に調べた結果です。
+        //
+        // ここは区間ごとの結果を**見ていませんでした**。往路と拠点移動
+        // だけが Yahoo!の時刻を出し、日中の移動は調べてあっても
+        // 「移動約413分・約2.7km」としか出ません。しかも確からしさの印は
+        // legs.local.routed（その日ぜんぶが引けたときだけ true）を見て
+        // いたので、1区間でも引けないと、実際に調べた区間まで
+        // 「目安」の印が付いていました。
+        const leg = legDetail(cur, v.spot);
+        const routed = Boolean(leg?.routed);
+        const leave = addMinutes(v.arrive, -(v.travel + v.wait));
+        // 実際に乗る便の時刻から始めます。
+        //
+        // 頼んだ時刻に便がなければ、Yahoo!が返す所要時間には**次の便を
+        // 待つ時間**が入っています。本数の少ないバス区間では、それが
+        // 数時間になります。2.7kmの移動が「約413分」と出ていたのは
+        // これで、待っている時間まで動いていることにしていました。
+        // 乗る時刻から乗る時刻までを移動にして、その手前は空き時間です。
+        const board = boardingTime(leave, leg);
         items.push(withTransit({
           id: nextId(), kind: "transit",
-          start: addMinutes(v.arrive, -(v.travel + v.wait)),
+          start: board ?? leave,
           end: addMinutes(v.arrive, -v.wait),
           title: `${v.spot.name}へ移動`,
+          // 引けているなら、発着時刻のある一行を出します。
+          // 「約413分」は、頼んだ時刻から着くまで（便を待つ時間を含む）
+          // なので、移動時間として読むと桁が違って見えます。
           // 徒歩かどうかは、かかる分ではなく**距離**で決めます。
           // 25分以内なら徒歩、としていたので、3.1kmを「徒歩約18分」と
           // 書いていました（時速10km。走っています）。18分という数字は
           // 電車・バスの見積もりで、歩きの見積もりではありません。
-          detail: (isWalkLeg(v.km) ? "徒歩" : "移動") + `約${v.travel}分`
-            + (v.km ? `・約${v.km.toFixed(1)}km` : ""),
+          detail: leg?.line
+            ? leg.line + (board ? `（${fmtHm(leave)}発の次の便）` : "")
+              + (v.km ? `・約${v.km.toFixed(1)}km` : "")
+            : (isWalkLeg(v.km) ? "徒歩" : "移動") + `約${v.travel}分`
+              + (v.km ? `・約${v.km.toFixed(1)}km` : ""),
           from: cur, to: v.spot,
           walk: isWalkLeg(v.km), km: v.km ?? 0,
-          routed: Boolean(legs?.local?.routed),
+          routed,
+          yahoo: leg?.yahoo ?? null,
+          alternatives: leg?.alternatives ?? [],
           costYen: 0,
-          reason: "検証済みの移動時間",
-        }, legDetail(cur, v.spot)?.transit));
+          reason: routed
+            ? "Yahoo!路線情報で調べた実際の便"
+            : "時刻を引けなかったため距離からの目安",
+        }, leg?.transit));
       }
       cur = v.spot;
       // 待ち時間を「自由時間」として立てるのは、それが**予定として意味を持つ**

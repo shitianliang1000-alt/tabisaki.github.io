@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { findStop, nearestStop, resetStopsCache, searchStops }
+import { findStop, nearbyStops, nearestStop, resetStopsCache, searchStops }
   from "../js/stops.js";
 
 const FUJI_5GO = { lat: 35.3606, lng: 138.7364 };
@@ -105,4 +105,33 @@ test("同じ名前なら、バス停より駅を先に採る", () =>
     { year: 2012, stops: [[34.68, 135.50, "本町"]] },
     async () => {
       assert.equal((await findStop("本町"))?.kind, "rail");
+    }));
+
+test("近い順に、いくつかの停留所を返す（同じ名前はまとめる）", () =>
+  withStops(
+    { year: 2008, stops: [
+      [35.3606, 138.7305, "山頂駅（仮）"],
+      [35.3606, 138.7305, "山頂"],
+    ] },
+    { year: 2012, stops: [[35.3600, 138.7370, "富士山五合目"]] },
+    async () => {
+      const near = await nearbyStops(FUJI_SUMMIT, 5, 3);
+      assert.equal(near[0].name, "山頂駅（仮）");
+      // 「山頂」は「山頂駅（仮）」…ではなく別名なので残りますが、
+      // 「駅」の有無だけが違う名前は1件にまとめます。
+      assert.ok(near.length >= 2, "2件目が返っていません");
+      assert.ok(near.some((s) => s.name === "富士山五合目"));
+      assert.equal(new Set(near.map((s) => s.name)).size, near.length);
+    }));
+
+test("2番目の候補があるので、最寄りが同じでも別の名前を試せる", () =>
+  withStops(
+    { year: 2008, stops: [
+      [35.6812, 139.7671, "東京"],
+      [35.6846, 139.7744, "日本橋"],
+    ] },
+    { year: 2012, stops: [] },
+    async () => {
+      const near = await nearbyStops(TOKYO, 5, 3);
+      assert.deepEqual(near.map((s) => s.name), ["東京", "日本橋"]);
     }));

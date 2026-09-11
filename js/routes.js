@@ -39,7 +39,7 @@ import { endpointFor, keyHeaders, missingSecretHelp, proxyStatus, usingProxy }
 import { effectiveConfig } from "./settings.js";
 import { QuotaBlockedError, meteredFetch } from "./quota.js";
 import { estimateMinutes, haversineKm, isSlowTerrain } from "./feasibility.js";
-import { findStop, nearestStop } from "./stops.js";
+import { findStop, nearbyStops, nearestStop } from "./stops.js";
 import { summarizeTransitLeg, transitFieldMask } from "./transit.js";
 import { resetYahooCooldown, searchYahooTransit, yahooCooldown }
   from "./yahoo-transit.js";
@@ -224,7 +224,21 @@ const yahooBudgetSpent = { spent: 0 };
 
 // 断られたときに待ち直す回数の上限。1回およそ1分です。
 // 待てば入る時刻を、待たずに「推定」にするほうが損です。
-const MAX_COOLDOWN_WAITS = 4;
+// 1区間につき名前を何通りか試すようになったぶん、回数制限に当たる機会も
+// 増えました。待てば入る時刻を、待たずに「目安」にするほうが損です。
+const MAX_COOLDOWN_WAITS = 8;
+
+/**
+ * 1区間あたり、停留所の名前を何通りまで試すか。
+ *
+ * 最寄りの1件で引けないことは珍しくありません（同名の停留所が全国に
+ * ある、両端の最寄りが同じ、バス停の名前をYahoo!が知らない）。
+ * 2〜3通り試せばたいてい通りますが、それ以上は当たらないまま
+ * 回数だけ使うので、ここで止めます。
+ */
+const YAHOO_NAME_TRIES = 3;
+/** 片側につき、候補として拾う停留所の数。 */
+const YAHOO_STOP_CANDIDATES = 3;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -519,11 +533,16 @@ async function computeViaStations(points, opts) {
       waited++;
     }
     const hit = (yahooBudget > 0 && !yahooCooldown().waiting)
-      ? await yahooLeg(points[i], points[i + 1], { ...opts, departAt: at })
+      ? await yahooLeg(points[i], points[i + 1],
+                       { ...opts, departAt: at, tries: yahooBudget })
       : null;
-    if (hit) {
-      yahooBudget--;
-      yahooBudgetSpent.spent++;
+    // 使った回数は、当たっても外れても引きます。1区間で名前を3通り
+    // 試したなら3回ぶんです。
+    if (hit?.spent) {
+      yahooBudget -= hit.spent;
+      yahooBudgetSpent.spent += hit.spent;
+    }
+    if (hit && !hit.miss) {
       yahooLegs[i] = hit;
       plans[i] = { minutes: hit.minutes, walkKm: 0,
                    fromStop: null, toStop: null, walkMeasured: false };
@@ -583,11 +602,48 @@ async function computeViaStations(points, opts) {
  */
 async function yahooLeg(a, b, opts) {
   try {
-    const [from, to] = await Promise.all([stopNameFor(a), stopNameFor(b)]);
-    if (!from?.name || !to?.name || from.name === to.name) return null;
-    const yahoo = await searchYahooTransit(from, to, opts);
-    if (!yahoo?.routed || !(yahoo.minutes > 0)) return null;
+    const [fromNames, toNames] = await Promise.all(
+      [stopNamesFor(a), stopNamesFor(b)]);
+    // 名前の組を、見込みの高い順に作ります。
+    //
+    // 以前はここで**1組だけ**試し、両端が同じ名前になったら諦めて
+    // いました。近い2地点（同じ駅が最寄りのスポットどうし）は必ずそこに
+    // 落ちるので、街なかの短い移動はほとんど「目安」のままでした。
+    // 2番目の停留所まで見れば、その多くは実際の時刻が引けます。
+    const pairs = [];
+    for (let i = 0; i < fromNames.length; i++) {
+      for (let j = 0; j < toNames.length; j++) {
+        const from = fromNames[i];
+        const to = toNames[j];
+        if (!from?.name || !to?.name) continue;
+        if (sameStopName(from.name, to.name)) continue;
+        pairs.push({ from, to, rank: i + j });
+      }
+    }
+    pairs.sort((x, y) => x.rank - y.rank);
+    if (!pairs.length) return { spent: 0, miss: true };
+
+    // 残りの回数を超えて試しません。1区間に使い切ると、後ろの区間が
+    // まるごと「目安」になります。
+    const tries = Math.max(1,
+      Math.min(YAHOO_NAME_TRIES, opts.tries ?? YAHOO_NAME_TRIES));
+    let from = null;
+    let to = null;
+    let yahoo = null;
+    let spent = 0;
+    for (const cand of pairs.slice(0, tries)) {
+      spent++;
+      const r = await searchYahooTransit(cand.from, cand.to, opts);
+      if (r?.routed && r.minutes > 0) {
+        from = cand.from;
+        to = cand.to;
+        yahoo = r;
+        break;
+      }
+    }
+    if (!yahoo) return { spent, miss: true };
     return {
+      spent,
       minutes: yahoo.minutes,
       rideMinutes: yahoo.rideMinutes ?? yahoo.minutes,
       waitMinutes: yahoo.waitMinutes ?? 0,
@@ -610,7 +666,7 @@ async function yahooLeg(a, b, opts) {
     };
   } catch (e) {
     usage.lastError = `Yahoo Transit: ${String(e?.message ?? e).slice(0, 200)}`;
-    return null;
+    return { spent: 0, miss: true };
   }
 }
 
@@ -662,15 +718,31 @@ function fmtMinutes(min) {
  *
  * の両方が起きます。**自分の名前で通るなら、そのまま使います。**
  */
-async function stopNameFor(point) {
+async function stopNamesFor(point) {
+  const out = [];
+  const push = (s) => {
+    if (!s?.name) return;
+    if (out.some((x) => sameStopName(x.name, s.name))) return;
+    out.push(s);
+  };
   const name = String(point?.name ?? "").trim();
   if (name) {
-    if (/(駅|港|空港|バス停|停留所)$/.test(name)) return point;
-    // 収録の停留所に同じ名前があるなら、それも「駅として通る名前」です。
-    const exact = await findStop(name);
-    if (exact) return exact;
+    if (/(駅|港|空港|バス停|停留所)$/.test(name)) push(point);
+    else {
+      // 収録の停留所に同じ名前があるなら、それも「駅として通る名前」です。
+      const exact = await findStop(name);
+      if (exact) push(exact);
+    }
   }
-  return (await nearestStop(point, 5)) ?? point;
+  for (const s of await nearbyStops(point, 5, YAHOO_STOP_CANDIDATES)) push(s);
+  return out;
+}
+
+/** 「高尾山口」と「高尾山口駅」は同じ停留所です。 */
+function sameStopName(a, b) {
+  const norm = (s) => String(s ?? "").trim().replace(/[\s　]+/g, "")
+    .replace(/駅$/, "");
+  return norm(a) === norm(b);
 }
 
 /** 1区間ぶんの組み立て（まだ経路APIは呼びません）。 */
