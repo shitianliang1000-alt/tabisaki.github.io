@@ -684,3 +684,34 @@ test("設定の不備で止まっているときは、組み直しで待ちを�
     "設定を直しても待ち続けています");
   resetTransitPacing();
 });
+
+test("1区間目だけ外したら、あとで拾い直す", () => {
+  // 1区間目は一度だけ落ちる。以降は通る。
+  let first = 0;
+  return withYahoo(STOPS, (body) => {
+    if (body.from === "新宿" && ++first === 1) {
+      return { routed: false, reason: "経路が見つかりません" };
+    }
+    return { routed: true, minutes: 90, rideMinutes: 82, waitMinutes: 8,
+             summary: "10:08 発→ 11:30 着 1時間22分" };
+  }, async () => {
+    const r = await computeRoute([SHINJUKU_ST, ODAWARA, HAKONE_YUMOTO], {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    assert.equal(r.legs[1].routed, true, "2区間目が引けていません");
+    assert.equal(r.legs[0].routed, true,
+      "1区間目を拾い直していません（ここだけ目安のまま）");
+    assert.equal(r.routed, true);
+    assert.match(r.modeNote ?? "", /聞き直し/);
+  });
+});
+
+test("ぜんぶ外しているときは、拾い直さない（同じ答えが返るだけ）", () =>
+  withYahoo(STOPS, () => ({ routed: false, reason: "経路が見つかりません" }),
+    async (asked) => {
+      await computeRoute([SHINJUKU_ST, ODAWARA, HAKONE_YUMOTO], {
+        mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+      });
+      // 2区間 × 名前3通り = 6回まで。拾い直すと倍になります。
+      assert.ok(asked.length <= 6, `聞きすぎです（${asked.length}回）`);
+    }));

@@ -536,8 +536,11 @@ function wireKeyPanel() {
 async function proxyBudget() {
   try {
     const st = await proxyStatus(effectiveConfig());
-    const u = st?.usage;
-    if (!u) return "";
+    // 中継が古いと、点数が1枚よけいに包まれて届きます（usage.usage）。
+    // 中継を入れ替えるまでのあいだ「undefined点」と出さないよう、
+    // どちらの形でも読めるようにしておきます。
+    const u = st?.usage?.usage ?? st?.usage;
+    if (!Number.isFinite(u?.minute)) return "";
     return `この端末から 1分 ${u.minute}/${u.minuteLimit}点`
       + `・1時間 ${u.hour}/${u.hourLimit}点`
       + "（重い処理ほど点が高くなります。AIとGoogleの経路が5点、"
@@ -1365,14 +1368,27 @@ function showRoutesUsage() {
   const u = routesUsage();
   const box = $("#routes-usage");
   if (!box) return;
-  if (!u.calls && !u.skipped) { box.textContent = ""; box.hidden = true; return; }
+  if (!u.calls && !u.skipped && !u.yahooLegs) {
+    box.textContent = ""; box.hidden = true; return;
+  }
   box.hidden = false;
-  const parts = [`直前の作成での呼び出し: ${u.calls}回`];
+  // 電車・バスの時刻はYahoo!に聞きます。**ここを出していませんでした。**
+  // 30区間を調べた旅程でも画面には何も出ないので、「一度しか
+  // 問い合わせていないのでは」と見えていました。区間の数と、そのうち
+  // 時刻が入った数を、そのまま出します。
+  const parts = [];
+  if (u.yahooLegs) {
+    parts.push(`電車・バス: ${u.yahooLegs}区間中 ${u.yahooHits}区間で時刻表`
+      + `（問い合わせ ${u.yahooAsks}回）`);
+  }
+  parts.push(`Googleの経路: ${u.calls}回`);
   if (u.failures) parts.push(`失敗 ${u.failures}回`);
   if (u.skipped) parts.push(`省略 ${u.skipped}回`);
   if (u.breakerOpen) parts.push("失敗が続いたため停止中");
   box.textContent = parts.join(" / ");
-  box.classList.toggle("ng", Boolean(u.failures || u.breakerOpen));
+  box.classList.toggle("ng",
+    Boolean(u.failures || u.breakerOpen
+            || (u.yahooLegs && u.yahooHits < u.yahooLegs)));
   if (u.lastError) box.title = u.lastError;
   showQuota();
 }
