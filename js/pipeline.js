@@ -999,23 +999,20 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
  * @returns {{trimmed:object, travelFn:Function, legDetail:Function,
  *            route:object}|null} 取れなければ null（そのままにします）
  */
-async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
-  const { stays, outbound } = ctxIn;
-  const visits = trimmed.result?.visits ?? [];
-  if (!visits.length) return null;
-
-  // **旅程に並ぶとおりの、端から端までの一本道**を作ります。
-  //
-  // ここは以前「拠点 → 立ち寄り… → 終点」だけでした。拠点を移す区間
-  // （2日目の朝に別の街へ渡る、など）はこの並びに入らないので、
-  // 調べ直しの対象から外れ、そのまま「推定」で残っていました。
-  // 19区間のうち10区間しか実際の便になっていなかったのは、これです。
-  //
-  //   往路（出発地→最初の拠点）
-  //   その日の立ち寄り…
-  //   拠点を移す区間（滞在が変わる日の朝）
-  //   次の街の立ち寄り…
-  //   帰り（最後の立ち寄り→終点）
+/**
+ * 旅程に並ぶとおりの、端から端までの一本道と、その各区間を通る時刻。
+ *
+ * ここは以前「拠点 → 立ち寄り… → 終点」だけでした。拠点を移す区間
+ * （2日目の朝に別の街へ渡る、など）はこの並びに入らないので、
+ * 調べ直しの対象から外れ、そのまま「推定」で残っていました。
+ *
+ *   往路（出発地→最初の拠点）
+ *   その日の立ち寄り…
+ *   拠点を移す区間（滞在が変わる日の朝）
+ *   次の街の立ち寄り…
+ *   帰り（最後の立ち寄り→終点）
+ */
+function chainOf(visits, ctx, trip, stays) {
   const points = [trip.origin, stays[0].station];
   const times = [new Date(trip.departAt)];
   let stayIdx = 0;
@@ -1033,39 +1030,104 @@ async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
   }
   times.push(new Date(visits.at(-1).end));
   points.push(ctx.end);
+  return { points, times };
+}
 
-  const usable = points.filter(Boolean);
-  if (usable.length !== points.length || usable.length < 2) return null;
-
-  let route;
-  try {
-    route = await routeChain(points, {
-      mode: pickMode(points, trip.transport),
-      departAt: times[0], departTimes: times,
-    });
-  } catch {
-    return null;   // 取れなければ、いま組んである旅程のままにします
+/**
+ * 調べた時刻と、旅程に出る時刻がどれだけずれたか（分）。
+ *
+ * 同じ並びでも、時刻は1回では決まりません。実際の便で組み直すと、
+ * その先の区間を通る時刻がまるごと動くからです。
+ */
+function worstShift(a, b) {
+  let worst = 0;
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    worst = Math.max(worst, Math.abs(a[i] - b[i]) / 60000);
   }
-  if (!route?.legs?.length) return null;
+  return worst;
+}
 
-  const merged = [[points, route.legs]];
-  const nextTravel = legLookupAll(merged);
-  const nextDetail = legDetailLookup(merged);
+/**
+ * 時刻がずれたと見なす幅（分）。
+ *
+ * 10:38に出る区間を「09:02発の便」で調べていました。1本目の実測で
+ * 旅程ぜんぶが後ろへ動いたのに、調べ直していなかったためです。
+ * 30分もずれれば、本数の少ない路線では別の便になります。
+ */
+const SHIFT_TOLERANCE_MIN = 30;
+/** 調べ直す回数の上限。ここで収まらないなら、それ以上こねても同じです。 */
+const MEASURE_ROUNDS = 3;
 
-  // 実際の時刻で、もう一度組み直します。
-  //
-  // 1日目の起点も引き直します。往路が「4:00発で、乗れるのは6:28の便、
-  // 8:49着」なら、その日は8:49から始まります。目安のままだと、
-  // 着く前に見学が始まる旅程になります。
-  const measuredOut = route.legs[0] ?? outbound;
-  const startAt = arrivalAfter(trip.departAt, measuredOut);
-  const again = trimToFit(visits.map((v) => v.spot),
-                          { ...ctx, startAt, travelFn: nextTravel });
-  return {
-    trimmed: again.result?.visits?.length ? again : trimmed,
-    travelFn: nextTravel, legDetail: nextDetail, route,
-    outbound: measuredOut,
-  };
+/**
+ * 決まった並びのまま、全区間の実際の所要時間を取り直します。
+ *
+ * **時刻が動かなくなるまで繰り返します。**
+ *
+ * 1回では足りません。往路を実測すると、その日の始まりが動きます。
+ * すると2区間目以降を通る時刻も動くのに、調べたのは動く前の時刻です。
+ * 画面には「10:38 多摩森林科学園へ移動／09:02発→09:04着」と、
+ * 1時間半ずれた便が並んでいました。
+ *
+ * 組み直したあとの時刻を見て、30分以上ずれた区間があれば、その時刻で
+ * もう一度聞きます。ふつうは2回で収まります。
+ *
+ * @returns {{trimmed:object, travelFn:Function, legDetail:Function,
+ *            route:object}|null} 取れなければ null（そのままにします）
+ */
+async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
+  const { stays, outbound } = ctxIn;
+  if (!(trimmed.result?.visits ?? []).length) return null;
+
+  let current = trimmed;
+  let best = null;
+
+  for (let round = 0; round < MEASURE_ROUNDS; round++) {
+    const visits = current.result?.visits ?? [];
+    if (!visits.length) break;
+    const { points, times } = chainOf(visits, ctx, trip, stays);
+    const usable = points.filter(Boolean);
+    if (usable.length !== points.length || usable.length < 2) break;
+
+    let route;
+    try {
+      route = await routeChain(points, {
+        mode: pickMode(points, trip.transport),
+        departAt: times[0], departTimes: times,
+      });
+    } catch {
+      break;   // 取れなければ、いま組んである旅程のままにします
+    }
+    if (!route?.legs?.length) break;
+
+    const merged = [[points, route.legs]];
+    const nextTravel = legLookupAll(merged);
+    const nextDetail = legDetailLookup(merged);
+
+    // 実際の時刻で、もう一度組み直します。
+    //
+    // 1日目の起点も引き直します。往路が「4:00発で、乗れるのは6:28の便、
+    // 8:49着」なら、その日は8:49から始まります。目安のままだと、
+    // 着く前に見学が始まる旅程になります。
+    const measuredOut = route.legs[0] ?? outbound;
+    const startAt = arrivalAfter(trip.departAt, measuredOut);
+    const again = trimToFit(visits.map((v) => v.spot),
+                            { ...ctx, startAt, travelFn: nextTravel });
+    const settled = again.result?.visits?.length ? again : current;
+
+    best = {
+      trimmed: settled,
+      travelFn: nextTravel, legDetail: nextDetail, route,
+      outbound: measuredOut,
+    };
+
+    // 組み直した結果、各区間を通る時刻はどこまで動いたか。
+    const after = settled.result?.visits?.length
+      ? chainOf(settled.result.visits, ctx, trip, stays).times
+      : times;
+    if (worstShift(times, after) < SHIFT_TOLERANCE_MIN) break;
+    current = settled;
+  }
+  return best;
 }
 
 /**

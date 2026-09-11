@@ -299,3 +299,91 @@ test("日数が増えれば、立ち寄りも増える", async () => {
   assert.ok(long > short, `1泊${short}件・3泊${long}件で増えていません`);
   assert.ok(long >= 12, `3泊4日で${long}件は少なすぎます`);
 });
+
+
+// --- 調べた便と、旅程に出る時刻を合わせる -----------------------------------
+//
+// 画面にこう出ていました。
+//
+//   10:38  多摩森林科学園へ移動   09:02発→09:04着（2分）
+//   12:42  浄泉寺へ移動          10:07発→10:08着（1分）
+//
+// どちらも1時間半ほど前の便です。1回目の実測で旅程ぜんぶが後ろへ
+// 動いたのに、便を調べ直していなかったためです。本数の少ない路線では、
+// これは別の便になります。
+
+test("旅程に出る時刻と、調べた便の時刻がそろう", async () => {
+  const { resetRoutesBreaker, resetTransitPacing, clearRouteCache } =
+    await import("../js/routes.js");
+  resetRoutesBreaker();
+  resetTransitPacing();
+  clearRouteCache();
+
+  const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}`
+    + `:${String(d.getMinutes()).padStart(2, "0")}`;
+  // 停留所のデータは、使う直前に fetch で読みます。ここを素通しにすると
+  // Node には file: が無いので空になり、**立ち寄りどうしの区間が一度も
+  // 調べられません**（この回帰そのものが見えなくなります）。ディスクから
+  // 読ませます。
+  const { readFile } = await import("node:fs/promises");
+  const root = new URL("../", import.meta.url).pathname;
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (!u.includes("yahoo/transit")) {
+      const path = u.startsWith("file:")
+        ? new URL(u).pathname
+        : root + u.replace(/^\.?\//, "").replace(/^.*\/kb\//, "kb/");
+      const body = await readFile(path, "utf8");
+      return { ok: true, status: 200,
+               json: async () => JSON.parse(body), text: async () => body };
+    }
+    // 頼まれた時刻ちょうどに出る便がある、という世界。ずれて調べていれば、
+    // ずれた時刻がそのまま旅程に出ます。
+    const at = new Date(JSON.parse(init?.body ?? "{}").departAt);
+    // どの区間も、目安よりずっと長くかかることにします。
+    // これが1回では収まらない理由です。実測で組み直すと、そのあとの
+    // 区間を通る時刻がまるごと後ろへ動きます。1回で止めると、
+    // 動く前の時刻で調べた便が、動いたあとの行に並びます。
+    const min = 45;
+    const end = new Date(at.getTime() + min * 60000);
+    return {
+      ok: true, status: 200, headers: { get: () => null },
+      text: async () => "",
+      json: async () => ({
+        routed: true, minutes: min, rideMinutes: min, waitMinutes: 0,
+        summary: `${hhmm(at)} 発→ ${hhmm(end)} 着 ${min}分`,
+        meta: { departure: hhmm(at), arrival: hhmm(end),
+                transfers: 0, fareYen: 200, legs: [], alternatives: [] },
+      }),
+    };
+  };
+  // 停留所は一度読んだら覚えたままです。このファイルの前のテストが
+  // 素のfetchで読みに行って空になっているので、読み直させます。
+  const { resetStopsCache } = await import("../js/stops.js");
+  resetStopsCache();
+  try {
+    const itin = await planTrip({
+      trip: trip({ note: "東京の下町を歩きたい",
+                   departAt: new Date("2026-08-31T04:00"),
+                   arriveBy: new Date("2026-09-01T19:00") }),
+      kb,
+    });
+    const moves = itin.days.flatMap((d) => d.items)
+      .filter((i) => i.kind === "transit" && i.yahoo?.departure);
+    assert.ok(moves.length, "時刻の入った移動がありません");
+    for (const m of moves) {
+      const [h, min] = m.yahoo.departure.split(":").map(Number);
+      const shown = new Date(m.start);
+      const gap = Math.abs((h * 60 + min)
+        - (shown.getHours() * 60 + shown.getMinutes()));
+      assert.ok(gap <= 30,
+        `${m.title}: 行は ${hhmm(shown)} なのに、`
+        + `調べたのは ${m.yahoo.departure} の便です`);
+    }
+  } finally {
+    globalThis.fetch = real;
+    resetTransitPacing();
+    resetStopsCache();
+  }
+});
