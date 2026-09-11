@@ -860,18 +860,32 @@ test("区間ごとに調べた便を、その区間の印と一行に出す", ()
     start: { lat: REGION.stationLat, lng: REGION.stationLng },
     startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
   });
+  const legs = { outbound: { minutes: 60, routed: false },
+                 local: { routed: false },
+                 inbound: { minutes: 60, routed: false } };
+  // その区間が旅程の何時に並ぶのかは、組んでみないと分かりません。
+  // **調べた便が行の時刻と合っていること**が前提なので、まず素で組んで
+  // 行の時刻を読み、その時刻に出る便を答えることにします。
+  const bare = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(), legs,
+  });
+  const row = bare.days[0].items.find((i) => i.to?.id === "s2");
+  const hm = (d) => `${String(d.getHours()).padStart(2, "0")}`
+    + `:${String(d.getMinutes()).padStart(2, "0")}`;
+  const dep = hm(new Date(row.start));
+  const arr = hm(new Date(new Date(row.start).getTime() + 12 * 60000));
+
   // 神社A → 寺B だけ引けている。ほかは引けていない。
   const legDetail = (a, b) =>
     (a?.id === "s1" && b?.id === "s2")
-      ? { minutes: 12, routed: true, line: "10:20発→10:32着（12分）・乗換なし・180円",
-          yahoo: { departure: "10:20", arrival: "10:32" } }
+      ? { minutes: 12, routed: true,
+          line: `${dep}発→${arr}着（12分）・乗換なし・180円`,
+          yahoo: { departure: dep, arrival: arr } }
       : null;
   const itin = buildItinerary({
     trip, region: REGION, visits: v.visits, reasons: new Map(), legDetail,
     // 日中の区間ぜんぶが引けたわけではない、という状態。
-    legs: { outbound: { minutes: 60, routed: false },
-            local: { routed: false },
-            inbound: { minutes: 60, routed: false } },
+    legs,
   });
   const moves = itin.days[0].items.filter((i) => i.kind === "transit");
   const hit = moves.find((i) => i.to?.id === "s2");
@@ -879,7 +893,7 @@ test("区間ごとに調べた便を、その区間の印と一行に出す", ()
   assert.equal(hit.routed, true,
     "引けた区間なのに「目安」の印のままです");
   assert.ok(hit.yahoo, "調べた便の中身が渡っていません");
-  assert.match(hit.detail, /10:20発/,
+  assert.match(hit.detail, new RegExp(`${dep}発`),
     "調べた時刻ではなく「移動約◯分」のままです");
   // 引けていない区間は、印も中身も付けません。
   const miss = moves.find((i) => i.to?.id === "s3");
@@ -898,12 +912,70 @@ test("往路がYahoo!の答えなら、Googleの経路とは書かない", () =>
     trip, region: REGION, visits: v.visits, reasons: new Map(),
     legs: {
       outbound: { minutes: 91, routed: true,
-                  line: "04:38発→06:09着（1時間31分）・乗換1回・1,174円",
-                  yahoo: { departure: "04:38", arrival: "06:09" } },
+                  line: "09:38発→11:09着（1時間31分）・乗換1回・1,174円",
+                  yahoo: { departure: "09:38", arrival: "11:09" } },
       inbound: { minutes: 60, routed: false },
     },
   });
   const out = itin.days[0].items.find((i) => i.kind === "transit");
   assert.ok(out.yahoo, "往路に調べた便の中身が渡っていません");
   assert.match(out.reason, /Yahoo/);
+});
+
+test("行より前の便は、出さない（調べたときの時刻のまま残っている）", () => {
+  const trip = makeTrip({ origin: TOKYO, departAt: d("2026-09-12T09:00"),
+                          arriveBy: d("2026-09-12T19:00") });
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+  });
+  // 「11:08 夢の島熱帯植物館へ移動／11:19発→11:21着」の逆向き。
+  // 旅程が後ろへ動いたのに、調べたのは動く前の時刻、という状態です。
+  // もう乗れない便なので、時刻は出しません。
+  const legDetail = (a, b) =>
+    (a?.id === "s1" && b?.id === "s2")
+      ? { minutes: 12, routed: true,
+          line: "04:00発→04:12着（12分）・乗換なし・180円",
+          yahoo: { departure: "04:00", arrival: "04:12" } }
+      : null;
+  const itin = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(), legDetail,
+    legs: { outbound: { minutes: 60, routed: false },
+            inbound: { minutes: 60, routed: false } },
+  });
+  const hit = itin.days[0].items.find((i) => i.to?.id === "s2");
+  assert.ok(hit, "寺Bへの移動がありません");
+  assert.ok(!/04:00発/.test(hit.detail),
+    `もう乗れない便を出しています: ${hit.detail}`);
+  assert.match(hit.detail, /約\d+分/, "所要時間も出ていません");
+  assert.equal(hit.routed, false,
+    "合っていない便なのに「時刻表」の印が付いています");
+  assert.equal(hit.yahoo, null);
+});
+
+test("行より後の便は、そのまま出す（それは待ち時間）", () => {
+  const trip = makeTrip({ origin: TOKYO, departAt: d("2026-09-12T09:00"),
+                          arriveBy: d("2026-09-12T19:00") });
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+  });
+  const legDetail = (a, b) =>
+    (a?.id === "s1" && b?.id === "s2")
+      ? { minutes: 20, rideMinutes: 12, waitMinutes: 8, routed: true,
+          line: "18:00発→18:12着（12分）・乗換なし・180円",
+          yahoo: { departure: "18:00", arrival: "18:12" } }
+      : null;
+  const itin = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(), legDetail,
+    legs: { outbound: { minutes: 60, routed: false },
+            inbound: { minutes: 60, routed: false } },
+  });
+  const hit = itin.days[0].items.find((i) => i.to?.id === "s2");
+  assert.match(hit.detail, /18:00発/);
+  assert.equal(hit.routed, true);
+  // 行の時刻も、その便に合わせます。
+  const start = new Date(hit.start);
+  assert.equal(start.getHours(), 18);
+  assert.equal(start.getMinutes(), 0);
 });

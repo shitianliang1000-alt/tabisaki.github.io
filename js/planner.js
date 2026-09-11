@@ -94,6 +94,7 @@ export function buildItinerary(input) {
   // 説明には「14:50発→18:40着」と出ます。**同じ行の中で食い違います。**
   // 実際に乗れるのは次の便なので、そちらに合わせて時刻を動かします。
   const board = boardingTime(trip.departAt, legs?.outbound);
+  const outFits = legFitsRow(trip.departAt, legs?.outbound);
   const arriveStation = addMinutes(trip.departAt, outMin);
   // 着く先の名前は、**その滞在の拠点**から取ります。エリアの station 欄
   // ではありません。出発地が拠点そのものになることがあり（東京駅発で
@@ -115,17 +116,17 @@ export function buildItinerary(input) {
     // Yahoo!の答えには発着時刻も所要時間も入っています。そこへ
     // 「・約238分」と足すと、数えかたの違う数字が2つ並びます
     // （待ち時間を含む・含まない）。実際の時刻があるほうを出します。
-    detail: legs?.outbound?.line
+    detail: legs?.outbound?.line && outFits
       ? legs.outbound.line
         + (board ? `（${fmtHm(trip.departAt)}発の次の便）` : "")
       : `約${outMin}分`,
-    alternatives: legs?.outbound?.alternatives ?? [],
+    alternatives: outFits ? (legs?.outbound?.alternatives ?? []) : [],
     from: trip.origin,
     to: firstStation,
-    routed: Boolean(legs?.outbound?.routed),
+    routed: Boolean(legs?.outbound?.routed) && outFits,
     // 調べた便の中身。これを渡していなかったので、Yahoo!で引いた往路が
     // 画面では「収録データ・Googleの経路」と出ていました。
-    yahoo: legs?.outbound?.yahoo ?? null,
+    yahoo: outFits ? (legs?.outbound?.yahoo ?? null) : null,
     km: haversineKm(trip.origin, firstStation),
     costYen: 0,
     reason: legs?.outbound?.yahoo
@@ -133,7 +134,7 @@ export function buildItinerary(input) {
       : legs?.outbound?.routed
         ? "Google マップの経路検索による所要時間"
         : "経路APIを使えないため距離からの推定",
-  }, legs?.outbound?.transit));
+  }, outFits ? legs?.outbound?.transit : null));
 
   // --- 日ごとに組み立てる ---
   //
@@ -184,6 +185,7 @@ export function buildItinerary(input) {
       // 「4:00 名古屋駅 → 難波駅」と書いてある行の中身が
       // 「12:16発→13:40着」では、どちらを信じてよいか分かりません。
       const board = boardingTime(mv.start, leg);
+      const fits = legFitsRow(mv.start, leg);
       const start = board ?? mv.start;
       const end = board
         ? addMinutes(board, leg.rideMinutes ?? leg.minutes ?? mv.minutes)
@@ -192,17 +194,17 @@ export function buildItinerary(input) {
         id: nextId(), kind: "transit",
         start, end,
         title: `${mv.from.name ?? "拠点"} → ${mv.to.name ?? region.name}`,
-        detail: leg?.line
+        detail: leg?.line && fits
           ? `拠点を移します・${leg.line}`
             + (board ? `（${fmtHm(mv.start)}発の次の便）` : "")
           : `拠点を移します・約${mv.minutes}分`,
         from: mv.from, to: mv.to,
-        routed: Boolean(leg?.routed), costYen: 0,
-        yahoo: leg?.yahoo ?? null,
-        alternatives: leg?.alternatives ?? [],
+        routed: Boolean(leg?.routed) && fits, costYen: 0,
+        yahoo: fits ? (leg?.yahoo ?? null) : null,
+        alternatives: fits ? (leg?.alternatives ?? []) : [],
         km: haversineKm(mv.from, mv.to),
         reason: `${day + 1}日目から${region.name}を拠点にするため`,
-      }, leg?.transit));
+      }, fits ? leg?.transit : null));
       prevEnd = end;
       cur = mv.to;
       // 便に合わせて出発が遅れたぶん、その日の予定も後ろへずらします。
@@ -251,6 +253,9 @@ export function buildItinerary(input) {
         // これで、待っている時間まで動いていることにしていました。
         // 乗る時刻から乗る時刻までを移動にして、その手前は空き時間です。
         const board = boardingTime(leave, leg);
+        // 調べた便が、この行の時刻に合っているか。合っていないなら
+        // 発着時刻は出しません（間違った時刻より「分かりません」）。
+        const fits = legFitsRow(leave, leg);
         items.push(withTransit({
           id: nextId(), kind: "transit",
           start: board ?? leave,
@@ -263,21 +268,21 @@ export function buildItinerary(input) {
           // 25分以内なら徒歩、としていたので、3.1kmを「徒歩約18分」と
           // 書いていました（時速10km。走っています）。18分という数字は
           // 電車・バスの見積もりで、歩きの見積もりではありません。
-          detail: leg?.line
+          detail: leg?.line && fits
             ? leg.line + (board ? `（${fmtHm(leave)}発の次の便）` : "")
               + (v.km ? `・約${v.km.toFixed(1)}km` : "")
             : (isWalkLeg(v.km) ? "徒歩" : "移動") + `約${v.travel}分`
               + (v.km ? `・約${v.km.toFixed(1)}km` : ""),
           from: cur, to: v.spot,
           walk: isWalkLeg(v.km), km: v.km ?? 0,
-          routed,
-          yahoo: leg?.yahoo ?? null,
-          alternatives: leg?.alternatives ?? [],
+          routed: routed && fits,
+          yahoo: fits ? (leg?.yahoo ?? null) : null,
+          alternatives: fits ? (leg?.alternatives ?? []) : [],
           costYen: 0,
-          reason: routed
+          reason: routed && fits
             ? "Yahoo!路線情報で調べた実際の便"
             : "時刻を引けなかったため距離からの目安",
-        }, leg?.transit));
+        }, fits ? leg?.transit : null));
       }
       cur = v.spot;
       // 待ち時間を「自由時間」として立てるのは、それが**予定として意味を持つ**
@@ -444,17 +449,48 @@ export function buildItinerary(input) {
  * Yahoo!が返した発車時刻を、旅の当日に当てはめます。頼んだ日時で
  * 調べているので、返ってくる時刻はその日のものです。
  */
+/**
+ * その区間で実際に乗る便の時刻。置けなければ null。
+ *
+ * 「待ち時間があるときだけ」という条件を外しました。waitMinutes は
+ * **調べたときの時刻**から数えた待ちで、旅程に出る時刻から数えた待ちでは
+ * ありません。組み直しで行の時刻が動くと、両者はずれます。
+ * 「11:08 夢の島熱帯植物館へ移動／11:19発→11:21着」は、これでした。
+ * 行に出すのは「その便が出る時刻」です。時計を見て駅に立つ人にとって、
+ * 意味があるのはそちらだけです。
+ */
 function boardingTime(from, leg) {
   const hm = leg?.yahoo?.departure;
-  if (!hm || !(leg?.waitMinutes > 0)) return null;
+  if (!hm) return null;
   const [h, m] = hm.split(":").map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
   const at = new Date(from);
   at.setHours(h, m, 0, 0);
-  // 日をまたぐ便（23:50発など）は、翌日にはしません。待ち時間ぶん
-  // 進めた時刻と大きく食い違うなら、置かないほうが安全です。
+  // 日をまたぐ便（23:50発など）は、翌日にはしません。
+  // 過ぎた時刻の便も置きません。調べたときより行が後ろへ動いた
+  // ときに出るもので、もう乗れない便です。
   if (at < from) return null;
   return at;
+}
+
+/**
+ * 調べた便が、いま出す行の時刻に合っているか。
+ *
+ * 合っていない便の「11:19発→11:21着」を出すと、行の時刻（11:08）と
+ * 中で食い違います。読む人にはどちらが本当か分かりません。
+ * 合っていないなら、発着時刻は出さずに所要時間だけにします。
+ * **間違った時刻を出すくらいなら、分からないと言うほうがましです。**
+ */
+function legFitsRow(from, leg) {
+  const hm = leg?.yahoo?.departure;
+  if (!hm) return true;           // 発着時刻が無いなら、食い違いようがない
+  const [h, m] = hm.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return true;
+  const rowMin = from.getHours() * 60 + from.getMinutes();
+  const legMin = h * 60 + m;
+  // 便が行より**前**なら、調べたときの時刻のままです（もう乗れません）。
+  // 後ろなら、それは待ち時間なので、そのまま出して構いません。
+  return legMin >= rowMin - 1;
 }
 
 function fmtHm(d) {

@@ -1052,9 +1052,12 @@ function worstShift(a, b) {
  *
  * 10:38に出る区間を「09:02発の便」で調べていました。1本目の実測で
  * 旅程ぜんぶが後ろへ動いたのに、調べ直していなかったためです。
- * 30分もずれれば、本数の少ない路線では別の便になります。
+ *
+ * ここは30分にしていましたが、**都市部では10分で別の便です**
+ * （「11:08 夢の島熱帯植物館へ移動／11:19発」が、その幅で残りました）。
+ * 数分のずれなら同じ便なので、5分で切ります。
  */
-const SHIFT_TOLERANCE_MIN = 30;
+const SHIFT_TOLERANCE_MIN = 5;
 /** 調べ直す回数の上限。ここで収まらないなら、それ以上こねても同じです。 */
 const MEASURE_ROUNDS = 3;
 
@@ -1080,6 +1083,7 @@ async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
 
   let current = trimmed;
   let best = null;
+  let lastShift = Infinity;
 
   for (let round = 0; round < MEASURE_ROUNDS; round++) {
     const visits = current.result?.visits ?? [];
@@ -1124,7 +1128,12 @@ async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
     const after = settled.result?.visits?.length
       ? chainOf(settled.result.visits, ctx, trip, stays).times
       : times;
-    if (worstShift(times, after) < SHIFT_TOLERANCE_MIN) break;
+    const shift = worstShift(times, after);
+    if (shift < SHIFT_TOLERANCE_MIN) break;
+    // 縮まらないなら、これ以上聞いても同じです（便に合わせて動いた時刻が、
+    // また別の便を呼ぶ、という行ったり来たりを止めます）。
+    if (shift >= lastShift) break;
+    lastShift = shift;
     current = settled;
   }
   return best;
