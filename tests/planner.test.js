@@ -850,3 +850,60 @@ test("拠点を移す区間も、調べた結果があれば実測として出�
   assert.match(move.detail, /09:00 発/);
   assert.ok(move.yahoo, "時刻表から取ったことが残っていません");
 });
+
+// --- 区間ごとに調べた結果を、そのまま出す ---------------------------------
+
+test("区間ごとに調べた便を、その区間の印と一行に出す", () => {
+  const trip = makeTrip({ origin: TOKYO, departAt: d("2026-09-12T09:00"),
+                          arriveBy: d("2026-09-12T19:00") });
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+  });
+  // 神社A → 寺B だけ引けている。ほかは引けていない。
+  const legDetail = (a, b) =>
+    (a?.id === "s1" && b?.id === "s2")
+      ? { minutes: 12, routed: true, line: "10:20発→10:32着（12分）・乗換なし・180円",
+          yahoo: { departure: "10:20", arrival: "10:32" } }
+      : null;
+  const itin = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(), legDetail,
+    // 日中の区間ぜんぶが引けたわけではない、という状態。
+    legs: { outbound: { minutes: 60, routed: false },
+            local: { routed: false },
+            inbound: { minutes: 60, routed: false } },
+  });
+  const moves = itin.days[0].items.filter((i) => i.kind === "transit");
+  const hit = moves.find((i) => i.to?.id === "s2");
+  assert.ok(hit, "寺Bへの移動がありません");
+  assert.equal(hit.routed, true,
+    "引けた区間なのに「目安」の印のままです");
+  assert.ok(hit.yahoo, "調べた便の中身が渡っていません");
+  assert.match(hit.detail, /10:20発/,
+    "調べた時刻ではなく「移動約◯分」のままです");
+  // 引けていない区間は、印も中身も付けません。
+  const miss = moves.find((i) => i.to?.id === "s3");
+  assert.equal(miss?.routed, false);
+  assert.equal(miss?.yahoo, null);
+});
+
+test("往路がYahoo!の答えなら、Googleの経路とは書かない", () => {
+  const trip = makeTrip({ origin: TOKYO, departAt: d("2026-09-12T09:00"),
+                          arriveBy: d("2026-09-12T19:00") });
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+  });
+  const itin = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(),
+    legs: {
+      outbound: { minutes: 91, routed: true,
+                  line: "04:38発→06:09着（1時間31分）・乗換1回・1,174円",
+                  yahoo: { departure: "04:38", arrival: "06:09" } },
+      inbound: { minutes: 60, routed: false },
+    },
+  });
+  const out = itin.days[0].items.find((i) => i.kind === "transit");
+  assert.ok(out.yahoo, "往路に調べた便の中身が渡っていません");
+  assert.match(out.reason, /Yahoo/);
+});

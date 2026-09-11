@@ -541,3 +541,64 @@ test("断られたら、しばらく聞きに行かない", async () => {
     resetYahooCooldown();
   }
 });
+
+// --- 引けるまで、停留所の名前を変えて聞き直す -------------------------------
+//
+// 街なかの短い移動は、両端の最寄りが同じ停留所になりがちです。以前は
+// そこで諦めて「目安」にしていたので、「移動約413分・約2.7km」のような
+// 数字が、調べないまま旅程に載っていました。
+
+const NEAR_A = { lat: 35.6550, lng: 139.7010, name: "美術館A" };
+const NEAR_B = { lat: 35.6600, lng: 139.7100, name: "公園B" };
+const CLUSTER = [
+  [35.6575, 139.7050, "中央"],      // 両方の最寄り
+  [35.6540, 139.7000, "西口"],
+  [35.6610, 139.7110, "東口"],
+];
+
+test("両端の最寄りが同じでも、次の候補で聞き直す", () =>
+  withYahoo(CLUSTER,
+    (body) => (body.from === body.to
+      ? { routed: false, reason: "同じ駅です" }
+      : { routed: true, minutes: 14, rideMinutes: 14, waitMinutes: 0,
+          summary: "10:05 発→ 10:19 着 14分" }),
+    async (asked) => {
+      const r = await computeRoute([NEAR_A, NEAR_B], {
+        mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+      });
+      assert.ok(asked.length >= 1, "一度も聞いていません");
+      // 同じ名前どうしは、そもそも聞きません。
+      assert.ok(asked.every((b) => b.from !== b.to),
+        "同じ停留所どうしで聞いています");
+      assert.equal(r.legs[0].routed, true,
+        "候補を変えれば引けるのに、目安のままです");
+      assert.equal(r.legs[0].minutes, 14);
+    }));
+
+test("最初の名前で引けなければ、別の停留所名で試す", () =>
+  withYahoo(CLUSTER,
+    // いちばん近い停留所（西口・東口）では引けず、少し離れた「中央」で
+    // だけ引ける、という状況です。
+    (body) => (body.from === "中央" || body.to === "中央"
+      ? { routed: true, minutes: 18, rideMinutes: 18, waitMinutes: 0,
+          summary: "10:05 発→ 10:23 着 18分" }
+      : { routed: false, reason: "経路が見つかりません" }),
+    async (asked) => {
+      const r = await computeRoute([NEAR_A, NEAR_B], {
+        mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+      });
+      assert.ok(asked.length > 1, "1回で諦めています");
+      assert.equal(r.legs[0].routed, true);
+      assert.ok([r.legs[0].stations.from, r.legs[0].stations.to]
+        .includes("中央"), "引けた組の名前が残っていません");
+    }));
+
+test("何通り試しても引けなければ、目安に戻す（無限には聞かない）", () =>
+  withYahoo(CLUSTER, () => ({ routed: false, reason: "経路が見つかりません" }),
+    async (asked) => {
+      const r = await computeRoute([NEAR_A, NEAR_B], {
+        mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+      });
+      assert.ok(asked.length <= 3, `聞きすぎです（${asked.length}回）`);
+      assert.equal(r.legs[0].routed, false);
+    }));

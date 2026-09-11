@@ -73,7 +73,10 @@ function load() {
       const key = normalizeName(s.name);
       if (!byName.has(key)) byName.set(key, s);
     }
-    return { grid: buildGrid(all.map((s) => [s.lat, s.lng, s.name])), all, byName };
+    return {
+      grid: buildGrid(all.map((s) => [s.lat, s.lng, s.name, s.kind])),
+      all, byName,
+    };
   });
   return loadPromise;
 }
@@ -145,25 +148,61 @@ export async function searchStops(query, limit = 20) {
  * @param {number} maxKm この距離より遠ければ「無い」扱いにします
  */
 export async function nearestStop(point, maxKm = 3) {
+  return (await nearbyStops(point, maxKm, 1))[0] ?? null;
+}
+
+/**
+ * 近い順に、停留所をいくつか返します。
+ *
+ * 最寄りの1件だけでは足りない場面があります。Yahoo!路線情報は
+ * 同じ名前の停留所が全国にあると答えられないことがあり、また出発地と
+ * 目的地の最寄りが**同じ停留所**になると、そもそも問い合わせられません
+ * （「高尾山口駅から高尾山口駅まで」は経路になりません）。
+ * 2番目・3番目の候補があれば、そのどちらかで実際の時刻が引けます。
+ *
+ * 同じ名前は1件にまとめます（同じ名前で聞き直しても答えは変わりません）。
+ * 駅を先に、そのあと近い順です。バス停より駅のほうが、Yahoo!が名前を
+ * 解決できる見込みが高いためです。
+ *
+ * @param {{lat:number,lng:number}} point
+ * @param {number} maxKm
+ * @param {number} limit
+ * @returns {Promise<Array<{lat,lng,name,kind,km}>>}
+ */
+export async function nearbyStops(point, maxKm = 3, limit = 3) {
   const grid = await loadGrid();
   const cx = Math.round(point.lat / CELL_DEG);
   const cy = Math.round(point.lng / CELL_DEG);
-  let best = null;
-  let bestKm = Infinity;
+  const found = [];
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
       const list = grid.get(`${cx + dx},${cy + dy}`);
       if (!list) continue;
       for (const s of list) {
         const km = haversineKm(point, { lat: s[0], lng: s[1] });
-        if (km < bestKm) {
-          bestKm = km;
-          best = { lat: s[0], lng: s[1], name: s[2], km };
+        if (km <= maxKm) {
+          found.push({ lat: s[0], lng: s[1], name: s[2], kind: s[3], km });
         }
       }
     }
   }
-  return best && bestKm <= maxKm ? best : null;
+  // 並べ方は「近い順」が基本です。ただし、ほぼ同じ距離（0.3km以内）に
+  // 駅とバス停があるなら駅を先にします。
+  found.sort((a, b) => {
+    if (Math.abs(a.km - b.km) > 0.3) return a.km - b.km;
+    const rank = (s) => (s.kind === "rail" ? 0 : 1);
+    return rank(a) - rank(b) || a.km - b.km;
+  });
+  const seen = new Set();
+  const out = [];
+  for (const s of found) {
+    const key = normalizeName(s.name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /** テスト・診断用に、読み込み状態をリセットします。 */
