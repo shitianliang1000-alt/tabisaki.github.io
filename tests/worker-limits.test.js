@@ -117,3 +117,45 @@ test("受け取る側は、やり直せるかどうかを番号から推し量�
     + '"message":"中継にキーがありません"}}', 503);
   assert.equal(noKey.retryable, false);
 });
+
+// --- 3. 余力の出しかた ------------------------------------------------------
+//
+// 画面には「1分 undefined/undefined点」と出ていました。中の返事が
+// { ok, usage } の形なのに、それをそのまま /status の usage へ入れて
+// いたので、外から見ると usage.usage になっていたためです。
+
+test("/status の usage は、そのまま読める形で返す", async () => {
+  // 数を持つ側（Durable Object）の代わり。
+  const store = new Map();
+  const state = {
+    storage: {
+      get: async (k) => store.get(k),
+      put: async (k, v) => { store.set(k, v); },
+      deleteAll: async () => store.clear(),
+      setAlarm: async () => {},
+    },
+    blockConcurrencyWhile: (fn) => fn(),
+  };
+  const limiter = new RateLimiter(state);
+  const env = {
+    ALLOW_ORIGIN: ORIGIN,
+    // 本物のスタブは文字列でも受けます。ここでは Request に包みます。
+    RATE: {
+      idFromName: () => "id",
+      get: () => ({ fetch: (u) => limiter.fetch(new Request(u)) }),
+    },
+  };
+
+  const res = await worker.fetch(new Request("https://p/status", {
+    method: "POST", headers: { origin: ORIGIN, "cf-connecting-ip": "1.2.3.4" },
+  }), env);
+  const body = await res.json();
+
+  assert.ok(body.usage, "usage がありません");
+  assert.equal(typeof body.usage.minute, "number",
+    "usage.minute が数ではありません（包みが1枚多いままです）");
+  assert.equal(typeof body.usage.minuteLimit, "number");
+  assert.equal(typeof body.usage.hour, "number");
+  assert.equal(typeof body.usage.hourLimit, "number");
+  assert.equal(body.usage.usage, undefined, "usage が二重に包まれています");
+});

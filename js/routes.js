@@ -220,7 +220,8 @@ const breaker = { fails: 0, open: false, reason: "" };
  */
 const transitBudget = { spent: 0 };
 // Yahoo!路線情報に聞いた回数（Googleの回数とは別勘定）。
-const yahooBudgetSpent = { spent: 0 };
+// hits は、そのうち時刻が取れた区間の数です。legs は調べた区間の数。
+const yahooBudgetSpent = { spent: 0, hits: 0, legs: 0 };
 
 // 断られたときに待ち直す回数の上限。1回およそ1分です。
 // 待てば入る時刻を、待たずに「目安」にするほうが損です。
@@ -245,7 +246,13 @@ const usage = { calls: 0, failures: 0, lastError: "", skipped: 0 };
 
 export function routesUsage() {
   return { ...usage, breakerOpen: breaker.open, breakerReason: breaker.reason,
-           transitSpent: transitBudget.spent };
+           transitSpent: transitBudget.spent,
+           // 電車・バスはGoogleではなくYahoo!に聞きます。ここを数えて
+           // いなかったので、30区間を調べた旅程でも画面には何も出ず、
+           // 「一度しか問い合わせていないのでは」と見えていました。
+           yahooAsks: yahooBudgetSpent.spent,
+           yahooLegs: yahooBudgetSpent.legs,
+           yahooHits: yahooBudgetSpent.hits };
 }
 
 /**
@@ -264,6 +271,8 @@ export function routesBreakerState() {
 export function resetRoutesBreaker() {
   transitBudget.spent = 0;
   yahooBudgetSpent.spent = 0;
+  yahooBudgetSpent.hits = 0;
+  yahooBudgetSpent.legs = 0;
   // 回数制限の待ちは、**消しません**。
   //
   // ここは旅程を組むたびに呼ばれます。前回の終わりに回数制限へ当たって
@@ -644,6 +653,8 @@ async function computeViaStations(points, opts) {
   }));
 
   const searched = yahooLegs.filter(Boolean).length;
+  yahooBudgetSpent.legs += n;
+  yahooBudgetSpent.hits += searched;
   const viaStations = plans.filter((p) => p.fromStop && p.toStop).length;
   const parts = [];
   if (searched) {

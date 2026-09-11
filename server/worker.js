@@ -607,11 +607,18 @@ async function rateCheck(env, ip, cost) {
   return (await stub.fetch(`https://rate/check?cost=${cost}`)).json();
 }
 
-/** いま何点使っているか（画面に出すため）。減らしません。 */
+/**
+ * いま何点使っているか（画面に出すため）。減らしません。
+ *
+ * 中の返事は { ok, usage } の形です。それをそのまま /status の usage に
+ * 入れていたので、外から見ると usage.usage になり、画面には
+ * 「1分 undefined/undefined点」と出ていました。ここで開いて渡します。
+ */
 async function rateUsage(env, ip) {
   if (!env.RATE) return null;
   const id = env.RATE.idFromName(ip); const stub = env.RATE.get(id);
-  return (await stub.fetch("https://rate/usage")).json();
+  const body = await (await stub.fetch("https://rate/usage")).json();
+  return body?.usage ?? body ?? null;
 }
 
 export class RateLimiter {
