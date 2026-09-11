@@ -541,10 +541,18 @@ async function proxyBudget() {
     // どちらの形でも読めるようにしておきます。
     const u = st?.usage?.usage ?? st?.usage;
     if (!Number.isFinite(u?.minute)) return "";
-    return `この端末から 1分 ${u.minute}/${u.minuteLimit}点`
-      + `・1時間 ${u.hour}/${u.hourLimit}点`
-      + "（重い処理ほど点が高くなります。AIとGoogleの経路が5点、"
-      + "Yahoo!が1点です）"
+    // 枠は2つです。見出しは、使い切ると止まる側（お金のかかる処理）。
+    // 電車・バスは費用がかからないので、大きく取ってあります。
+    const paid = u.paid ?? u;
+    const free = u.free;
+    return `AI・経路API: 1分 ${paid.minute}/${paid.minuteLimit}点`
+      + `・1時間 ${paid.hour}/${paid.hourLimit}点`
+      + (free
+        ? `\n電車・バス（Yahoo!路線情報）: 1分 ${free.minute}/${free.minuteLimit}`
+          + `・1時間 ${free.hour}/${free.hourLimit}`
+        : "")
+      + "\n※ 電車・バスはこちらに費用がかからないので、別枠で大きく"
+      + "取ってあります。旅程1本で30区間ほど調べても届きません。"
       + "\n1日の合計は Cloudflare のダッシュボードでご確認ください"
       + "（無料枠は10万リクエスト／日）。";
   } catch {
