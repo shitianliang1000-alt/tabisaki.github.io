@@ -116,3 +116,37 @@ test("キーの入れ場所は、Bindings と Builds を取り違えないよう
   // npx が使えない人のために、ダッシュボードの道順を先に書きます。
   assert.ok(help.indexOf("Bindings") < help.indexOf("npx"), help);
 });
+
+// --- 中継へは、本文にモデル名を入れる ---------------------------------------
+//
+// Googleへ直に投げるときは、モデル名はURLに入ります
+// （/models/gemma-4-26b-a4b-it:generateContent）。中継の入口は
+// /gemini/generate の1本きりなので、URLでは伝わりません。中継は本文の
+// model を見て投げ先を決めます。
+//
+// ここを入れ忘れていたので、中継は model="" を受け取り、どのモデルを
+// 指定しても「そのモデルは使えません」（400）で断っていました。
+// **モデル名の問題ではなく、名前が届いていませんでした。**
+
+test("中継を通すときは、本文に model を入れる", async () => {
+  const { PROXY_URL } = await import("../js/config.js");
+  assert.ok(PROXY_URL, "この確認は中継を使う設定が前提です");
+
+  const sent = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    sent.push({ url: String(url), body: JSON.parse(init.body) });
+    return { ok: true, status: 200,
+             json: async () => ({ candidates: [{ content: { parts: [{ text: "OK" }] } }] }) };
+  };
+  try {
+    const { callModel } = await import("../js/ai.js");
+    await callModel("OK", { temperature: 0 });
+  } finally {
+    globalThis.fetch = real;
+  }
+  assert.equal(sent.length > 0, true, "呼ばれていません");
+  const { url, body } = sent[0];
+  assert.match(url, /\/gemini\/generate$/, url);
+  assert.ok(body.model, "本文に model がありません（中継が投げ先を決められません）");
+});

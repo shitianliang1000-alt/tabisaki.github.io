@@ -27,8 +27,10 @@ import { joinAreaNames } from "./stays.js";
  */
 function net() {
   const c = effectiveConfig();
+  // from（その値がどこから来たか）も持って回ります。落としていたので、
+  // 中継を通していても診断に「中継なし（直接）」と出ていました。
   return { proxyUrl: c.proxyUrl, geminiKey: c.geminiKey,
-           localBaseUrl: LOCAL_BASE_URL };
+           localBaseUrl: LOCAL_BASE_URL, from: c.from };
 }
 
 /**
@@ -443,6 +445,23 @@ async function callCloudflare(model, prompt, opts = {}) {
   return out;
 }
 
+/**
+ * 中継を通すときは、**本文にモデル名を入れます**。
+ *
+ * Googleへ直に投げるときは、モデル名はURLに入ります
+ * （/models/gemma-4-26b-a4b-it:generateContent）。中継の入口は
+ * /gemini/generate の1本きりなので、URLでは伝わりません。中継は
+ * 本文の model を見て投げ先を決め、上流へ渡す前にその項目を落とします。
+ *
+ * ここを入れ忘れていたので、中継は model="" を受け取り、
+ * 「そのモデルは使えません」で全部断っていました。**モデル名の問題では
+ * なく、名前が届いていませんでした。**どのモデルを指定しても同じ400が
+ * 返るので、候補を順に落として「接続できませんでした」になります。
+ */
+function withModel(body, model, cfg) {
+  return usingProxy(cfg) ? { ...body, model } : body;
+}
+
 async function callOnce(model, prompt, opts = {}) {
   const { signal } = opts;
   const cfg = net();
@@ -453,7 +472,8 @@ async function callOnce(model, prompt, opts = {}) {
       "Content-Type": "application/json",
       ...keyHeaders("gemini", cfg),
     },
-    body: JSON.stringify(buildModelRequest(prompt, { ...opts, model })),
+    body: JSON.stringify(withModel(buildModelRequest(prompt, { ...opts, model }),
+                                   model, cfg)),
     signal,
   });
   if (!res.ok) {
@@ -681,7 +701,10 @@ export async function embedQuery(text, opts = {}) {
         ...keyHeaders("gemini", cfg),
       },
       body: JSON.stringify({
-        model: `models/${EMBED_MODEL}`,
+        // 中継は本文の model を見て投げ先を決め、上流へ渡す前に落とします。
+        // 「models/」を付けた名前は中継の許可リストに無いので、そのまま
+        // 渡すと 400 になります。直に投げるときだけ付けます。
+        model: usingProxy(cfg) ? EMBED_MODEL : `models/${EMBED_MODEL}`,
         content: { parts: [{ text }] },
         taskType: "RETRIEVAL_QUERY",
         outputDimensionality: EMBED_DIM,
