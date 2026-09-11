@@ -538,7 +538,10 @@ async function computeViaStations(points, opts) {
   // 断られたあと、どれだけ待ってやり直したか。
   let waited = 0;
   // 引けなかった区間を、あとでもう一度聞くための出発時刻。
+  // 歩く区間には入れません（聞いていないので、聞き直すものもありません）。
   const askedAt = new Array(n).fill(null);
+  // 歩く区間の数。「◯区間中◯区間で時刻表」の分母から外します。
+  let walkLegs = 0;
   // 拾い直した区間の数（画面の注記に出します）。
   let retried = 0;
   for (let i = 0; i < n; i++) {
@@ -568,7 +571,21 @@ async function computeViaStations(points, opts) {
       await sleep(Math.min(cool.seconds + 1, 65) * 1000);
       waited++;
     }
-    const hit = (yahooBudget > 0 && !yahooCooldown().waiting)
+    // 歩く距離は、聞きません。
+    //
+    // 「高乗寺へ移動 07:46発→09:07着（1時間21分）・乗換2回・608円・
+    // 約0.6km」。600mを1時間21分かけて、2回乗り換えて行く人はいません。
+    // 歩けば8分です。全区間を聞くようにしたときに、**歩く区間まで
+    // 聞いてしまう**ようになったのが原因でした。時刻表に聞けば時刻表は
+    // 答えます。近すぎて直通がないので、遠回りの乗り継ぎが返ります。
+    //
+    // どこまで歩くかは、すでに決めてあります（TUNING.walkableKm、1.5km）。
+    // その内側は歩きとして扱い、聞きに行きません。速いうえに、
+    // 中継の回数もそのぶん残ります。
+    const legKm = haversineKm(points[i], points[i + 1]);
+    const onFoot = legKm <= (TUNING.walkableKm ?? 1.5);
+    if (onFoot) walkLegs++;
+    const hit = (!onFoot && yahooBudget > 0 && !yahooCooldown().waiting)
       ? await yahooLeg(points[i], points[i + 1],
                        { ...opts, departAt: at, tries: yahooBudget })
       : null;
@@ -581,6 +598,12 @@ async function computeViaStations(points, opts) {
     if (hit && !hit.miss) {
       yahooLegs[i] = hit;
       plans[i] = { minutes: hit.minutes, walkKm: 0,
+                   fromStop: null, toStop: null, walkMeasured: false };
+    } else if (onFoot) {
+      plans[i] = { minutes: estimateMinutes(points[i], points[i + 1],
+                                            { slow: isSlowTerrain(points[i])
+                                                 || isSlowTerrain(points[i + 1]) }),
+                   walkKm: 0, walk: true,
                    fromStop: null, toStop: null, walkMeasured: false };
     } else {
       askedAt[i] = at;
@@ -603,7 +626,7 @@ async function computeViaStations(points, opts) {
   // 同じ答えが返るだけです。
   if (yahooLegs.some(Boolean)) {
     for (let i = 0; i < n; i++) {
-      if (yahooLegs[i] || yahooBudget <= 0) continue;
+      if (yahooLegs[i] || !askedAt[i] || yahooBudget <= 0) continue;
       const cool2 = yahooCooldown();
       if (cool2.waiting) {
         if (!cool2.retryable || waited >= MAX_COOLDOWN_WAITS) continue;
@@ -646,6 +669,7 @@ async function computeViaStations(points, opts) {
     minutes: p.minutes,
     meters: Math.round(haversineKm(points[i], points[i + 1]) * 1000),
     line: null,
+    walk: p.walk === true,
     // 真ん中（乗車）が目安なので、区間としては実測扱いにしません。
     routed: false,
     stations: p.fromStop && p.toStop
@@ -654,20 +678,24 @@ async function computeViaStations(points, opts) {
   }));
 
   const searched = yahooLegs.filter(Boolean).length;
-  yahooBudgetSpent.legs += n;
+  // 数えるのは、聞くべき区間だけです。歩く区間を分母に入れると
+  // 「7区間中4区間」と出て、3区間を引きそこねたように読めます。
+  const rideLegs = n - walkLegs;
+  yahooBudgetSpent.legs += rideLegs;
   yahooBudgetSpent.hits += searched;
   const viaStations = plans.filter((p) => p.fromStop && p.toStop).length;
   const parts = [];
   if (searched) {
-    parts.push(`${n}区間のうち${searched}区間はYahoo!路線情報で検索`
+    parts.push(`${rideLegs}区間のうち${searched}区間はYahoo!路線情報で検索`
       + (retried ? `（${retried}区間は聞き直し）` : ""));
   }
+  if (walkLegs) parts.push(`${walkLegs}区間は徒歩`);
   if (viaStations) {
     parts.push(`${viaStations}区間は最寄りの駅・バス停どうしの移動として`
       + "見ています"
       + (measured ? `（うち${measured}区間は駅までの徒歩を実測）` : ""));
   }
-  return { legs, routed: searched === n, mode: "TRANSIT",
+  return { legs, routed: searched === rideLegs, mode: "TRANSIT",
            modeNote: parts.length ? parts.join("、") : null,
            requests: measured + searched };
 }
