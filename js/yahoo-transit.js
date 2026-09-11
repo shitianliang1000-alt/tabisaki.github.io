@@ -1,4 +1,4 @@
-import { endpointFor } from "./endpoints.js";
+import { endpointFor, readProxyError } from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
 
 /**
@@ -98,13 +98,15 @@ export async function searchYahooTransit(from, to, opts = {}) {
 
     // 番号だけを投げていました。「Yahoo Transit 429」と出ても、
     // 断ったのがYahoo!なのか、中継の回数制限なのかが分かりません。
-    // 待つ先が違うので、本文をそのまま添えます。
-    const why = await res.text().then(
-      (t) => { try { return JSON.parse(t)?.error?.message ?? ""; } catch { return ""; } },
-      () => "");
-    const err = new Error(why || `Yahoo Transit ${res.status}`);
+    // 待つ先が違うので、中継が付けてくれる手がかりごと受け取ります。
+    const raw = await res.text().catch(() => "");
+    const info = readProxyError(raw, res.status);
+    const err = new Error(info.message || `Yahoo Transit ${res.status}`);
     err.status = res.status;
-    err.retryAfter = Number(res.headers?.get?.("Retry-After")) || null;
+    err.code = info.code;
+    err.retryable = info.retryable;
+    err.retryAfter = info.retryAfter
+      || Number(res.headers?.get?.("Retry-After")) || null;
     lastError = err;
     // 断られた（429）か、上流が不調（5xx）のときだけ、待って試します。
     // 400番台のほかは、待っても同じ答えです。

@@ -13,7 +13,8 @@ import {
   FALLBACK_MODELS, EMBED_DIM, EMBED_MODEL, LOCAL_BASE_URL,
   CF_FALLBACK_MODELS, CF_MODEL, LOCAL_MODEL, MODEL, MODEL_PROVIDER,
 } from "./config.js";
-import { endpointFor, keyHeaders, proxyStatus, usingProxy } from "./endpoints.js";
+import { endpointFor, keyHeaders, missingSecretHelp, proxyStatus,
+         readProxyError, usingProxy } from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
 import { buildSearchText, extractKeywords } from "./keywords.js";
 import { meteredFetch } from "./quota.js";
@@ -26,8 +27,10 @@ import { joinAreaNames } from "./stays.js";
  */
 function net() {
   const c = effectiveConfig();
+  // from（その値がどこから来たか）も持って回ります。落としていたので、
+  // 中継を通していても診断に「中継なし（直接）」と出ていました。
   return { proxyUrl: c.proxyUrl, geminiKey: c.geminiKey,
-           localBaseUrl: LOCAL_BASE_URL };
+           localBaseUrl: LOCAL_BASE_URL, from: c.from };
 }
 
 /**
@@ -58,9 +61,21 @@ export function usingCloudflare() {
   return MODEL_PROVIDER === "cloudflare";
 }
 
-/** そのモデルで、Google 検索による裏取りができるか。 */
+/** そのモデルは Gemma か。Gemini とは、できることが違います。 */
+export function isGemma(model = MODEL) {
+  return /gemma/i.test(String(model ?? ""));
+}
+
+/**
+ * そのモデルで、Google 検索による裏取りができるか。
+ *
+ * **Gemma にはできません。** ツール（google_search）を受け取らないので、
+ * 付けて投げると 400 が返ります。ここが true のままだと、収録に無い
+ * 土地を調べる discover.js が毎回400を食らい、そのたびに「AIに聞け
+ * ませんでした」に落ちていました。
+ */
 export function canGround() {
-  return !usingLocalModel() && !usingCloudflare();
+  return !usingLocalModel() && !usingCloudflare() && !isGemma();
 }
 
 let resolved = null;      // 実際に使えたモデルID
@@ -109,10 +124,8 @@ export async function diagnoseGeminiKey(signal) {
     try {
       const st = await proxyStatus(cfg0, signal);
       if (st && st.secrets && st.secrets.GEMINI_API_KEY === false) {
-        return { ok: false, message:
-          "中継にAIのキーが設定されていません。"
-          + "\nWorker で次を実行してください:"
-          + "\n  npx wrangler secret put GEMINI_API_KEY" };
+        return { ok: false, message: missingSecretHelp("GEMINI_API_KEY",
+          "AIのキー") };
       }
     } catch { /* 状態を取れなくても、下の実地の確認は行います */ }
   }
@@ -175,6 +188,9 @@ export function aiStatus() {
 }
 
 export function resetAiStatus() { lastAiError = null; }
+
+/** 覚えた読み取りを捨てます（テストと、設定を変えたとき用）。 */
+export function clearAiMemo() { understood.clear(); }
 
 /** 呼び出し側の catch から使います。最初の理由だけを残します。 */
 export function noteAiError(e) {
@@ -274,7 +290,7 @@ export function buildModelRequest(prompt, {
   // かわりに「JSONだけを返してください」と本文で頼み、返事から JSON を
   // 拾います（extractJson）。もともと、切り詰められた応答のために
   // その道は用意してあります。
-  const gemma = /^gemma/i.test(String(model ?? ""));
+  const gemma = isGemma(model);
   const generationConfig = { temperature };
   if (Number.isFinite(topP)) generationConfig.topP = topP;
   if (schema && !search && !gemma) {
@@ -286,15 +302,25 @@ export function buildModelRequest(prompt, {
   if (Number.isFinite(thinking)) {
     generationConfig.thinkingConfig = { thinkingBudget: thinking };
   }
-  const text = schema && !search && gemma
+  let text = schema && !search && gemma
     ? `${prompt}\n\n出力は JSON だけにしてください。説明文や \`\`\` は付けないでください。`
     : prompt;
-  const body = {
-    contents: [{ role: "user", parts: [{ text }] }],
-    systemInstruction: { parts: [{ text: SYSTEM }] },
-    generationConfig,
-  };
-  if (search) body.tools = [{ google_search: {} }];
+  const body = { contents: [], generationConfig };
+  // Gemma には systemInstruction がありません。
+  //
+  // 付けて投げると 400（Developer instruction is not enabled）が返ります。
+  // モデルの候補を順に落として、最後は「AIに聞けませんでした」になる——
+  // Gemma に切り替えたのに使われていなかったのは、これです。
+  // 役割の指示は、本文の先頭に置きます。
+  if (gemma) {
+    text = `${SYSTEM}\n\n---\n\n${text}`;
+  } else {
+    body.systemInstruction = { parts: [{ text: SYSTEM }] };
+  }
+  body.contents.push({ role: "user", parts: [{ text }] });
+  // 検索の道具も Gemma は受け取りません。付けずに投げます
+  // （そのぶん、裏取りはできません。canGround() が false を返します）。
+  if (search && !gemma) body.tools = [{ google_search: {} }];
   return body;
 }
 
@@ -422,6 +448,40 @@ async function callCloudflare(model, prompt, opts = {}) {
   return out;
 }
 
+/**
+ * 中継の断り文句を、そのまま持てる形の例外にします。
+ *
+ * これまでは「400 {\"error\":{...}}」という生の文字列を例外にしていました。
+ * 画面にそのまま出るので、読んだ人には手がかりになりません。中継は
+ * code / retryable / 日本語の message を返すので、それを持ちます。
+ */
+function proxyError(res, body) {
+  const info = readProxyError(body, res.status);
+  const err = new Error(info.message || `${res.status}`);
+  err.status = res.status;
+  err.code = info.code;
+  err.retryable = info.retryable;
+  err.retryAfter = info.retryAfter;
+  return err;
+}
+
+/**
+ * 中継を通すときは、**本文にモデル名を入れます**。
+ *
+ * Googleへ直に投げるときは、モデル名はURLに入ります
+ * （/models/gemma-4-26b-a4b-it:generateContent）。中継の入口は
+ * /gemini/generate の1本きりなので、URLでは伝わりません。中継は
+ * 本文の model を見て投げ先を決め、上流へ渡す前にその項目を落とします。
+ *
+ * ここを入れ忘れていたので、中継は model="" を受け取り、
+ * 「そのモデルは使えません」で全部断っていました。**モデル名の問題では
+ * なく、名前が届いていませんでした。**どのモデルを指定しても同じ400が
+ * 返るので、候補を順に落として「接続できませんでした」になります。
+ */
+function withModel(body, model, cfg) {
+  return usingProxy(cfg) ? { ...body, model } : body;
+}
+
 async function callOnce(model, prompt, opts = {}) {
   const { signal } = opts;
   const cfg = net();
@@ -432,15 +492,11 @@ async function callOnce(model, prompt, opts = {}) {
       "Content-Type": "application/json",
       ...keyHeaders("gemini", cfg),
     },
-    body: JSON.stringify(buildModelRequest(prompt, { ...opts, model })),
+    body: JSON.stringify(withModel(buildModelRequest(prompt, { ...opts, model }),
+                                   model, cfg)),
     signal,
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    const err = new Error(`${res.status} ${text.slice(0, 200)}`);
-    err.status = res.status;
-    throw err;
-  }
+  if (!res.ok) throw proxyError(res, await res.text().catch(() => ""));
   const data = await res.json();
   const parts = data?.candidates?.[0]?.content?.parts ?? [];
   const text = parts.map((p) => p.text ?? "").join("").trim();
@@ -586,10 +642,27 @@ const FALLBACK_PLAN = {
   keywords: ["観光", "名所"], avoid: [],
 };
 
+/**
+ * 同じ希望文を、二度読み取らせない。
+ *
+ * 「もっとゆっくり」を押す、案を選び直す、条件を少し変えて作り直す——
+ * どれも希望文は同じままです。それでも毎回モデルに読み取らせていたので、
+ * 押すたびに1回ぶんの枠と、その待ち時間を使っていました。読み取りの
+ * 結果は同じ入力なら同じでよいので、その回のあいだは覚えておきます。
+ *
+ * 覚えるのはこのページを開いているあいだだけです（読み込み直せば消えます）。
+ * 希望文・興味・時間のどれかが変われば、別のものとして聞き直します。
+ */
+const understood = new Map();
+const UNDERSTOOD_MAX = 12;
+
 export async function understandRequest(note, interests, hours, opts = {}) {
   const text = String(note ?? "").trim();
   if (!text && interests.length === 0) return { ...FALLBACK_PLAN, interests };
   if (!hasApiKey()) return keywordFallback(text, interests);
+
+  const key = JSON.stringify([text, [...interests].sort(), Math.round(hours)]);
+  if (understood.has(key)) return { ...understood.get(key) };
 
   const prompt = [
     "利用者の希望から、旅先を検索するための条件を抽出してください。",
@@ -610,7 +683,7 @@ export async function understandRequest(note, interests, hours, opts = {}) {
     // 抽出は当てものではないので、温度は低く固定します。
     const p = await callModelJson(prompt,
       { temperature: 0.1, topP: 0.8, schema: UNDERSTAND_SCHEMA, ...opts });
-    return {
+    const out = {
       searchText: p.searchText || FALLBACK_PLAN.searchText,
       interests: Array.isArray(p.interests) ? p.interests : interests,
       pace: ["relaxed", "balanced", "packed"].includes(p.pace) ? p.pace : "balanced",
@@ -619,6 +692,11 @@ export async function understandRequest(note, interests, hours, opts = {}) {
       keywords: Array.isArray(p.keywords) ? p.keywords : [],
       avoid: Array.isArray(p.avoid) ? p.avoid : [],
     };
+    if (understood.size >= UNDERSTOOD_MAX) {
+      understood.delete(understood.keys().next().value);
+    }
+    understood.set(key, out);
+    return { ...out };
   } catch (e) {
     noteAiError(e);
     return keywordFallback(text, interests);
@@ -660,7 +738,10 @@ export async function embedQuery(text, opts = {}) {
         ...keyHeaders("gemini", cfg),
       },
       body: JSON.stringify({
-        model: `models/${EMBED_MODEL}`,
+        // 中継は本文の model を見て投げ先を決め、上流へ渡す前に落とします。
+        // 「models/」を付けた名前は中継の許可リストに無いので、そのまま
+        // 渡すと 400 になります。直に投げるときだけ付けます。
+        model: usingProxy(cfg) ? EMBED_MODEL : `models/${EMBED_MODEL}`,
         content: { parts: [{ text }] },
         taskType: "RETRIEVAL_QUERY",
         outputDimensionality: EMBED_DIM,

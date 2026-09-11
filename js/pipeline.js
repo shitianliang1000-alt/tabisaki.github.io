@@ -28,7 +28,7 @@ import { analyzeCoverage, coverageMessage, seasonalNotes } from "./match.js";
 import { balanceByTier, mixTargets } from "./mix.js";
 import { tripReliability } from "./reliability.js";
 import { buildItinerary } from "./planner.js";
-import { computeRoute, legDetailLookup, legLookupAll, pickMode }
+import { MAX_POINTS, computeRoute, legDetailLookup, legLookupAll, pickMode }
   from "./routes.js";
 import { SPOTS_PER_DAY, planStays, suggestRegionCount } from "./stays.js";
 import { dayEnd, endPlace, nightsOf } from "./trip.js";
@@ -614,6 +614,19 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   return itin;
 }
 
+/**
+ * その区間に乗って、着く時刻。
+ *
+ * Yahoo!が返す minutes は「頼んだ時刻から着くまで」で、**便を待つ時間を
+ * すでに含んでいます**（4:00発で頼んで6:28発の便なら、8:49着まで
+ * 4時間49分）。ここに waitMinutes をもう一度足していたので、着いてから
+ * 2時間28分が空白になっていました（8:49着なのに、次の予定が11:17）。
+ */
+export function arrivalAfter(departAt, leg) {
+  const min = Number.isFinite(leg?.minutes) ? leg.minutes : 0;
+  return new Date(departAt.getTime() + min * 60000);
+}
+
 /** 旅の d 日目の、hour 時ちょうど。 */
 function dayTime(trip, day, hour) {
   const d = new Date(trip.departAt.getTime() + day * 86400000);
@@ -627,33 +640,6 @@ function returnDeparture(trip, nights, points) {
                                points[points.length - 1]);
   const limit = trip.arriveBy ?? dayTime(trip, nights, 20);
   return new Date(limit.getTime() - back * 60000);
-}
-
-/**
- * エリア内の各区間を、実際に通る日時に割り当てます。
- *
- * 立ち寄りには「何日目に回るか」（dayFloorById）が決まっています。
- * その日の朝から、1か所あたり1.8時間ずつ進めた時刻を使います。
- * 正確な時刻はこのあと planner.js が決めますが、**便を調べるには
- * 日と時間帯が合っていれば足ります**。丸1日ずれているのが問題でした。
- */
-function localDepartures(points, { trip, spots, dayFloorById, dayStart,
-                                   nights }) {
-  const out = [];
-  let seenOnDay = 0;
-  let prevDay = 0;
-  for (let i = 0; i < points.length - 1; i++) {
-    // 最後の1本は帰り道です。
-    if (i === points.length - 2) {
-      out.push(returnDeparture(trip, nights, [points[i], points[i + 1]]));
-      continue;
-    }
-    const day = Math.min(nights, dayFloorById.get(spots[i]?.id) ?? prevDay);
-    if (day !== prevDay) { seenOnDay = 0; prevDay = day; }
-    out.push(dayTime(trip, day, Math.min(21, dayStart + seenOnDay * 1.8)));
-    seenOnDay++;
-  }
-  return out;
 }
 
 /**
@@ -878,9 +864,6 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   const dayStart = Number.isFinite(trip.dayStartHour)
     ? trip.dayStartHour : TUNING.dayStartHour;
   const first = stays[0].station;
-  const localPoints = [first, ...spots, end];
-  const stationPoints = stays.length > 1
-    ? [...stays.map((s) => s.station), end] : null;
 
   let outRoute = null;
   let localRoute = null;
@@ -890,53 +873,19 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   let outbound = { minutes: estimateMinutes(trip.origin, first),
                    routed: false, line: null };
 
+  // ここでは**まだ聞きません**。
+  //
+  // 以前はこの段階で、拠点どうしとエリア内の経路をYahoo!に聞いていました。
+  // ところが、このあと trimToFit が時間の合わない立ち寄りを落とすので、
+  // 聞いた区間の何本かは旅程に残りません。逆に、落ちた場所をまたぐ
+  // 新しい区間は誰も聞いていません。**聞いた区間と、並ぶ区間が違う**
+  // というのが、19区間のうち10区間しか実際の便になっていなかった理由です。
+  //
+  // 順番を決めるだけなら距離の目安で足ります。実際の便は、並びが
+  // 決まってから、端から端まで一度に聞きます（measureFinalOrder）。
   if (useRoutes) {
-    outRoute = await computeRoute([trip.origin, first],
-      { departAt: trip.departAt,
-        mode: pickMode([trip.origin, first], trip.transport) });
-    outbound = outRoute.legs[0];
-
-    // 拠点どうしの移動を先に取ります。
-    // 経路検索の回数には上限があるので、長い区間（＝取り違えると
-    // その日がまるごと崩れる区間）から先に使い切ります。
-    const entries = [];
-    if (stationPoints) {
-      // **その区間を実際に通る日時**で聞きます。
-      //
-      // ここは長いあいだ「旅の初日の10時」でした。区間ごとに時刻を
-      // ずらす仕掛けはありましたが、ずらすのは所要時間ぶんだけなので、
-      // 3日目に移る区間も初日の昼として調べられます。旅程には
-      // 「3日目 4:00 名古屋駅 → 難波駅」と出て、中身は「12:16発→13:40着」。
-      // **同じ行の中で食い違います。**
-      //
-      // 拠点を移すのは、その滞在が始まる日の朝です。
-      stationRoute = await computeRoute(stationPoints, {
-        mode: pickMode(stationPoints, trip.transport),
-        departAt: dayTime(trip, stays[1]?.dayFrom ?? 0, dayStart),
-        departTimes: stationPoints.slice(1).map((_, i) => {
-          const stay = stays[i + 1];
-          // 最後の1本は帰り道です。最終日の、帰りにかかる時間を見て
-          // 出る時刻にします。
-          if (!stay) return returnDeparture(trip, nights, stationPoints);
-          return dayTime(trip, stay.dayFrom, dayStart);
-        }),
-      });
-      entries.push([stationPoints, stationRoute.legs]);
-    }
-
-    // エリア内の経路。こちらも、その立ち寄りを回る日の時刻で聞きます。
-    // 1日目の朝から所要時間だけを足していくと、5か所目には「まだ午前中」、
-    // 3日目には「もう真夜中」になり、返ってくる便が実際とずれます。
-    localRoute = await computeRoute(localPoints, {
-      mode: pickMode(localPoints, trip.transport),
-      departAt: new Date(trip.departAt.getTime() + outbound.minutes * 60000),
-      departTimes: localDepartures(localPoints, {
-        trip, spots, dayFloorById, dayStart, nights,
-      }),
-    });
-    entries.unshift([localPoints, localRoute.legs]);
-    travelFn = legLookupAll(entries);
-    legDetail = legDetailLookup(entries);
+    outbound = { minutes: estimateMinutes(trip.origin, first),
+                 routed: false, line: null };
   }
 
   // その日の並び順を決めます。
@@ -960,15 +909,13 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
 
   // 1日目の起点は、**実際に着く時刻**です。
   //
-  // 「4:00出発・所要30分」で 4:30 としていました。ところが往路には
-  // 「4:49発の便に乗る」という待ちがあります（Yahoo!もGoogleも、次に
-  // 乗れる便を返します）。着くのは 5:19 です。30分の差で、旅程には
-  // 「4:11 浅草神社」と、まだ東京にいるはずの時刻が並んでいました。
-  const outWait = outbound.waitMinutes ?? 0;
+  // Yahoo!が返す minutes は「頼んだ時刻から着くまで」で、便を待つ時間を
+  // **すでに含んでいます**（4:00発で頼んで6:28発の便なら、8:49着まで
+  // 4時間49分）。ここに waitMinutes をもう一度足していたので、着いて
+  // からの2時間28分が空白になっていました（8:49着、次の予定11:17）。
   const ctx = {
     start: first,
-    startAt: new Date(trip.departAt.getTime()
-      + (outbound.minutes + outWait) * 60000),
+    startAt: arrivalAfter(trip.departAt, outbound),
     end, endBy: trip.arriveBy, pace: trip.pace, travelFn,
     nights, baseByDay, dayFloorById, dayCeilById, day0: trip.departAt,
     // 選んでもらった時間帯を、そのまま2日目以降の枠にします。
@@ -1023,19 +970,19 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   // 旅程を早く出すより、実際の便が入った旅程を待つほうがよい、という
   // 判断です。
   if (useRoutes && opts.measureFinal !== false) {
-    const measured = await measureFinalOrder(trimmed, ctx, trip, {
-      stays, outbound, travelFn, legDetail,
-    });
+    const measured = await measureFinalOrder(trimmed, ctx, trip,
+                                             { stays, outbound });
     if (measured) {
       trimmed = measured.trimmed;
       travelFn = measured.travelFn;
       legDetail = measured.legDetail;
       localRoute = measured.route ?? localRoute;
+      outbound = measured.outbound ?? outbound;
     }
   }
 
   const inbound = localRoute?.legs.at(-1) ?? outbound;
-  const routeError = outRoute?.error ?? localRoute?.error ?? stationRoute?.error;
+  const routeError = localRoute?.error ?? outRoute?.error ?? stationRoute?.error;
   return {
     result: trimmed.result, dropped: trimmed.dropped,
     conflicts: trimmed.conflicts ?? [], stays,
@@ -1052,24 +999,46 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
  *            route:object}|null} 取れなければ null（そのままにします）
  */
 async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
-  const { stays, outbound, travelFn, legDetail } = ctxIn;
+  const { stays, outbound } = ctxIn;
   const visits = trimmed.result?.visits ?? [];
   if (!visits.length) return null;
 
-  // 実際に並ぶ順の地点。拠点（駅）から始めて、立ち寄りを順に、最後は終点。
-  const points = [stays[0].station, ...visits.map((v) => v.spot), ctx.end]
-    .filter(Boolean);
-  if (points.length < 2) return null;
-
-  // 区間ごとの出発時刻。組み上がった旅程が持っているので、そのまま使います
-  // （「その区間を実際に通る日時」で聞く、が守れます）。
-  const times = visits.map((v) => new Date(v.arrive.getTime()
-    - (v.travel + v.wait) * 60000));
+  // **旅程に並ぶとおりの、端から端までの一本道**を作ります。
+  //
+  // ここは以前「拠点 → 立ち寄り… → 終点」だけでした。拠点を移す区間
+  // （2日目の朝に別の街へ渡る、など）はこの並びに入らないので、
+  // 調べ直しの対象から外れ、そのまま「推定」で残っていました。
+  // 19区間のうち10区間しか実際の便になっていなかったのは、これです。
+  //
+  //   往路（出発地→最初の拠点）
+  //   その日の立ち寄り…
+  //   拠点を移す区間（滞在が変わる日の朝）
+  //   次の街の立ち寄り…
+  //   帰り（最後の立ち寄り→終点）
+  const points = [trip.origin, stays[0].station];
+  const times = [new Date(trip.departAt)];
+  let stayIdx = 0;
+  for (const v of visits) {
+    // 滞在が変わる日に入ったら、その朝の拠点移動を挟みます。
+    while (stayIdx + 1 < stays.length
+           && (v.day ?? 0) >= (stays[stayIdx + 1].dayFrom ?? Infinity)) {
+      stayIdx++;
+      times.push(dayTime(trip, stays[stayIdx].dayFrom,
+                         ctx.dayStartHour ?? TUNING.dayStartHour));
+      points.push(stays[stayIdx].station);
+    }
+    times.push(new Date(v.arrive.getTime() - (v.travel + v.wait) * 60000));
+    points.push(v.spot);
+  }
   times.push(new Date(visits.at(-1).end));
+  points.push(ctx.end);
+
+  const usable = points.filter(Boolean);
+  if (usable.length !== points.length || usable.length < 2) return null;
 
   let route;
   try {
-    route = await computeRoute(points, {
+    route = await routeChain(points, {
       mode: pickMode(points, trip.transport),
       departAt: times[0], departTimes: times,
     });
@@ -1078,17 +1047,49 @@ async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
   }
   if (!route?.legs?.length) return null;
 
-  const entries = [[points, route.legs]];
-  const nextTravel = legLookupAll(entries);
-  const nextDetail = legDetailLookup(entries);
-  // 実際の所要時間で、もう一度時刻を組み直します。行きの便が10分延びれば、
-  // その日の予定はすべて10分後ろにずれます。
+  const merged = [[points, route.legs]];
+  const nextTravel = legLookupAll(merged);
+  const nextDetail = legDetailLookup(merged);
+
+  // 実際の時刻で、もう一度組み直します。
+  //
+  // 1日目の起点も引き直します。往路が「4:00発で、乗れるのは6:28の便、
+  // 8:49着」なら、その日は8:49から始まります。目安のままだと、
+  // 着く前に見学が始まる旅程になります。
+  const measuredOut = route.legs[0] ?? outbound;
+  const startAt = arrivalAfter(trip.departAt, measuredOut);
   const again = trimToFit(visits.map((v) => v.spot),
-                          { ...ctx, travelFn: nextTravel });
+                          { ...ctx, startAt, travelFn: nextTravel });
   return {
     trimmed: again.result?.visits?.length ? again : trimmed,
     travelFn: nextTravel, legDetail: nextDetail, route,
+    outbound: measuredOut,
   };
+}
+
+/**
+ * 長い一本道を、経路APIの上限に合わせて切りながら引きます。
+ *
+ * 公共交通（Yahoo!路線情報）は区間ごとに聞くので、何地点あっても構い
+ * ません。車と徒歩（Googleの経路API）は1回12地点までで、超えると
+ * まるごと推定に落ちます。旅程は20地点を超えるので、そのままでは
+ * **車の旅がいつも推定**になります。つなぎ目を重ねて切ります。
+ */
+async function routeChain(points, opts) {
+  if (opts.mode === "TRANSIT" || points.length <= MAX_POINTS) {
+    return computeRoute(points, opts);
+  }
+  const legs = [];
+  const step = MAX_POINTS - 1;
+  for (let i = 0; i < points.length - 1; i += step) {
+    const chunk = points.slice(i, i + MAX_POINTS);
+    const times = opts.departTimes?.slice(i, i + step);
+    const part = await computeRoute(chunk, {
+      ...opts, departTimes: times, departAt: times?.[0] ?? opts.departAt,
+    });
+    legs.push(...part.legs);
+  }
+  return { legs, routed: legs.every((l) => l.routed), mode: opts.mode };
 }
 
 /**

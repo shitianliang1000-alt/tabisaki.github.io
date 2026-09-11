@@ -53,17 +53,18 @@ export const LOCAL_BASE_URL = "http://localhost:11434";
 
 // Gemini API 経由で呼ぶモデル。
 //
-// **E2B は Gemini API では配信されていません。**Gemma 4 は E2B / E4B /
-// 26B-A4B / 31B の4つですが、API で呼べるのは 26B-A4B と 31B です
-// （E2B は端末側＝LiteRT・Ollama 向け）。ここには E2B を先頭に置き、
-// 呼べなければ下へ落ちるようにしています。ai.js は 400/404 を受けると
-// 次の候補へ進むので、配信が始まればそのまま E2B が使われます。
-// 手元の E2B を使いたい場合は MODEL_PROVIDER を "local" にしてください。
+// **Gemma 4 を使います。**E2B は端末向け（LiteRT・Ollama）なので、
+// API で呼べるのは 26B-A4B と 31B です。手元の E2B を使いたい場合は
+// MODEL_PROVIDER を "local" にしてください。
+//
+// 控えには Gemma 3 を置きます。ai.js は 404（そのモデルが無い）を
+// 受けると次の候補へ進むので、Gemma 4 がまだ配信されていない時期でも
+// 旅程は作れます。どれで通ったかは「接続の確認」に出ます。
 export const MODEL = "gemma-4-26b-a4b-it";
 export const FALLBACK_MODELS = [
+  "gemma-4-31b-it",
   "gemma-3-27b-it",
   "gemma-3-12b-it",
-  "gemma-4-31b-it",
 ];
 export const EMBED_MODEL = "gemini-embedding-001";
 export const EMBED_DIM = 768;

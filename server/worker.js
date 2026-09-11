@@ -12,6 +12,28 @@ function allowList(env) {
   const raw = String(env?.ALLOW_ORIGIN ?? "").trim();
   return (raw || DEFAULT_ALLOW_ORIGIN).split(/[,\s]+/).filter(Boolean);
 }
+// 重み付きの回数制限。
+//
+// 回数だけで数えると、/status を20回叩くのと Gemini を20回叩くのが
+// 同じ扱いになります。後ろにあるものの重さが違うので、**点**で数えます。
+//
+//   /status      0点  こちらで完結します
+//   Yahoo!       1点  取りに行きますが、無料です
+//   Routes API   3点  Googleの従量課金
+//   Gemini       5点  1日14,400回の枠を分け合います
+//   Workers AI   5点  1日10,000ニューロンの枠
+//
+// 1分20点・1時間200点。旅程1本はだいたい30〜60点なので、続けて作ろうと
+// すると待ちが入ります。待たせるのは、止まるよりましだからです
+// （無料枠を使い切ると、その日は誰も使えません）。
+const COST = {
+  "/status": 0,
+  "/yahoo/transit": 1,
+  "/routes": 3,
+  "/gemini/generate": 5,
+  "/gemini/embed": 1,
+  "/cf/generate": 5,
+};
 const PER_MINUTE = 20;
 const PER_HOUR = 200;
 const MAX_BODY = 512 * 1024;
@@ -55,12 +77,17 @@ export default {
         origin, ["*"]);
     }
     const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
-    const gate = await rateCheck(env, ip);
-    if (!gate.ok) return cors(text("呼び出しが多すぎます。しばらく待ってからお試しください。", 429,
-      { "Retry-After": String(gate.retryAfter) }), origin, allow);
+    const path = new URL(request.url).pathname.replace(/\/+$/, "");
+    // 重さに応じて数えます（Geminiの1回と /status の1回は別ものです）。
+    const gate = await rateCheck(env, ip, costOf(path));
+    if (!gate.ok) {
+      return cors(fail(429, "RATE_LIMITED",
+        "いま利用が集中しています。1分ほどおいてから、もう一度お試しください。",
+        { retryable: true, retryAfter: gate.retryAfter,
+          headers: { "Retry-After": String(gate.retryAfter) } }), origin, allow);
+    }
     const declared = Number(request.headers.get("Content-Length") ?? 0);
     if (declared > MAX_BODY) return cors(text("本文が大きすぎます", 413), origin, allow);
-    const path = new URL(request.url).pathname.replace(/\/+$/, "");
     try {
       if (path.endsWith("/gemini/generate")) return cors(await gemini(request, env, "generateContent"), origin, allow);
       if (path.endsWith("/gemini/embed")) return cors(await gemini(request, env, "embedContent"), origin, allow);
@@ -80,6 +107,9 @@ export default {
           // Workers AI が使えるなら、AIのキーは要りません。
           workersAi: Boolean(env.AI),
           allowOrigin: allow,
+          // あと何点使えるか。無料枠は使い切ると**その日は誰も使えません**。
+          // 止まってから気づくのでは遅いので、先に見えるようにします。
+          usage: await rateUsage(env, ip),
         }), origin, allow);
       }
     } catch (e) {
@@ -102,7 +132,11 @@ function hasSecret(env, name) {
 function missingSecret(env, name) {
   if (hasSecret(env, name)) return null;
   return text(`中継に ${name} が設定されていません。`
-    + `Worker で \`npx wrangler secret put ${name}\` を実行してください`, 503);
+    + "Cloudflare のダッシュボードで、Workers & Pages → この Worker → "
+    + `上の「Bindings」タブ → Add → Secret として ${name} を足してください`
+    + "（Settings → Builds の欄ではありません。あちらはビルド中だけの値で、"
+    + "動いている Worker からは見えません）。"
+    + `コマンドなら \`npx wrangler secret put ${name}\` です`, 503);
 }
 
 /**
@@ -201,7 +235,7 @@ async function gemini(request, env, method) {
     headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
     body: JSON.stringify(payload), signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
-  return passthrough(res);
+  return passthrough(res, "gemini");
 }
 
 async function yahooTransit(request) {
@@ -485,6 +519,37 @@ function clockMinutes(hm) { const [h, m] = hm.split(":").map(Number); return h *
 function clockDiff(from, to) { return (clockMinutes(to) - clockMinutes(from) + 1440) % 1440; }
 function tokyoClockMinutes(date) { const p = tokyoParts(date); return Number(p.hour) * 60 + Number(p.minute); }
 
+/**
+ * 同じ問い合わせは、覚えておいて返します。
+ *
+ * 経路は**同じ地点・同じ条件なら同じ答え**です（少なくとも1時間は）。
+ * それでも毎回Googleへ投げると、そのぶん課金され、そのぶん遅くなります。
+ * 旅程を作り直すたび、同じ「駅までの徒歩」を何度も聞いていました。
+ *
+ * 覚える鍵は、本文を並べ替えて作ります。項目の順が違うだけの同じ問い
+ * 合わせを、別ものと数えないためです。
+ */
+const ROUTES_TTL_SEC = 3600;
+
+async function routesCacheKey(body, mask) {
+  const stable = JSON.stringify(sortDeep(body)) + "|" + mask;
+  const digest = await crypto.subtle.digest("SHA-256",
+                                            new TextEncoder().encode(stable));
+  const hex = [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0")).join("");
+  return new Request(`https://routes.cache/${hex}`, { method: "GET" });
+}
+
+/** 鍵と配列の順を揃えます（同じ中身なら同じ文字列になるように）。 */
+function sortDeep(value) {
+  if (Array.isArray(value)) return value.map(sortDeep);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort()
+      .map((k) => [k, sortDeep(value[k])]));
+  }
+  return value;
+}
+
 async function routes(request, env) {
   // 鍵が無いまま投げると、Googleから「API key not valid」が返ります。
   // 読んだ人は、自分の入力を疑います。**ここに鍵が無いだけ**なので、
@@ -494,11 +559,32 @@ async function routes(request, env) {
   const body = await readJson(request);
   if (!body?.origin || !body?.destination) return text("経路の起点と終点が必要です", 400);
   const mask = (request.headers.get("X-Goog-FieldMask") ?? "").slice(0, 500);
+
+  const cache = globalThis.caches?.default;
+  const key = cache ? await routesCacheKey(body, mask) : null;
+  const hit = key ? await cache.match(key) : null;
+  if (hit) {
+    const out = new Response(await hit.text(), { status: 200,
+      headers: { "Content-Type": "application/json" } });
+    out.headers.set("X-Tabisaki-Cache", "hit");
+    return out;
+  }
+
   const res = await fetch(ROUTES_URL, {
     method: "POST", headers: { "Content-Type": "application/json", "X-Goog-Api-Key": env.MAPS_API_KEY, "X-Goog-FieldMask": mask },
     body: JSON.stringify(body), signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
-  return passthrough(res);
+  const out = await passthrough(res, "routes");
+  // 覚えるのは、ちゃんと答えが返ったときだけです。断られた返事を
+  // 1時間持っていても、誰の役にも立ちません。
+  if (key && out.status === 200) {
+    const copy = out.clone();
+    await cache.put(key, new Response(await copy.text(), {
+      headers: { "Content-Type": "application/json",
+                 "Cache-Control": `max-age=${ROUTES_TTL_SEC}` },
+    }));
+  }
+  return out;
 }
 async function readJson(request) {
   const raw = await request.text();
@@ -507,25 +593,135 @@ async function readJson(request) {
   if (!body || typeof body !== "object" || Array.isArray(body)) { const e = new Error("bad body"); e.code = "BAD_BODY"; throw e; }
   return body;
 }
-async function rateCheck(env, ip) {
+/** その入口の重さ。表に無いものは1点として数えます。 */
+export function costOf(path) {
+  for (const [suffix, cost] of Object.entries(COST)) {
+    if (path.endsWith(suffix)) return cost;
+  }
+  return 1;
+}
+
+async function rateCheck(env, ip, cost) {
   if (!env.RATE) return { ok: true };
   const id = env.RATE.idFromName(ip); const stub = env.RATE.get(id);
-  return (await stub.fetch("https://rate/check")).json();
+  return (await stub.fetch(`https://rate/check?cost=${cost}`)).json();
 }
+
+/** いま何点使っているか（画面に出すため）。減らしません。 */
+async function rateUsage(env, ip) {
+  if (!env.RATE) return null;
+  const id = env.RATE.idFromName(ip); const stub = env.RATE.get(id);
+  return (await stub.fetch("https://rate/usage")).json();
+}
+
 export class RateLimiter {
   constructor(state) { this.state = state; }
-  async fetch() { return this.state.blockConcurrencyWhile(async () => {
-    const now = Date.now(); const hits = (await this.state.storage.get("hits")) ?? [];
-    const recent = hits.filter((t) => now - t < 3_600_000); const lastMinute = recent.filter((t) => now - t < 60_000);
-    if (lastMinute.length >= PER_MINUTE) { await this.state.storage.put("hits", recent); return json({ ok: false, retryAfter: 60 }); }
-    if (recent.length >= PER_HOUR) { await this.state.storage.put("hits", recent); return json({ ok: false, retryAfter: 600 }); }
-    recent.push(now); await this.state.storage.put("hits", recent); await this.state.storage.setAlarm(now + 3_600_000); return json({ ok: true });
-  }); }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const cost = Math.max(0, Number(url.searchParams.get("cost") ?? 1) || 0);
+    const peek = url.pathname === "/usage";
+    return this.state.blockConcurrencyWhile(async () => {
+      const now = Date.now();
+      // 記録は [時刻, 点数] の組です。前は時刻だけだったので、古い記録は
+      // 1点として読み替えます（配備の切り替わりで落ちないように）。
+      const raw = (await this.state.storage.get("hits")) ?? [];
+      const hits = raw.map((h) => (Array.isArray(h) ? h : [h, 1]));
+      const recent = hits.filter(([t]) => now - t < 3_600_000);
+      const sum = (list) => list.reduce((a, [, c]) => a + c, 0);
+      const lastMinute = recent.filter(([t]) => now - t < 60_000);
+      const usage = {
+        minute: sum(lastMinute), minuteLimit: PER_MINUTE,
+        hour: sum(recent), hourLimit: PER_HOUR,
+      };
+      if (peek) return json({ ok: true, usage });
+
+      if (sum(lastMinute) + cost > PER_MINUTE) {
+        await this.state.storage.put("hits", recent);
+        return json({ ok: false, retryAfter: 60, usage });
+      }
+      if (sum(recent) + cost > PER_HOUR) {
+        await this.state.storage.put("hits", recent);
+        return json({ ok: false, retryAfter: 600, usage });
+      }
+      if (cost > 0) {
+        recent.push([now, cost]);
+        await this.state.storage.put("hits", recent);
+        await this.state.storage.setAlarm(now + 3_600_000);
+      }
+      return json({ ok: true, usage: { ...usage, minute: usage.minute + cost,
+                                       hour: usage.hour + cost } });
+    });
+  }
+
   async alarm() { await this.state.storage.deleteAll(); }
 }
 function json(obj) { return new Response(JSON.stringify(obj), { headers: { "Content-Type": "application/json" } }); }
-async function passthrough(res) { return new Response(await res.text(), { status: res.status, headers: { "Content-Type": "application/json" } }); }
-function text(message, status, extra = {}) { return new Response(JSON.stringify({ error: { message } }), { status, headers: { "Content-Type": "application/json", ...extra } }); }
+/**
+ * 上流の返事を、そのまま渡します。
+ *
+ * ただし「混んでいる・枠を使い切った」だけは読み替えます。番号
+ * （429・quota付きの403）で分かるので、受け取る側が推し量らなくて
+ * 済むように、共通の形にして返します。
+ */
+async function passthrough(res, service = "upstream") {
+  const body = await res.text();
+  if (res.status === 429 || (res.status === 403 && /quota|rate/i.test(body))) {
+    const retryAfter = Number(res.headers.get("Retry-After")) || 60;
+    return fail(429, "UPSTREAM_LIMIT",
+      "いま利用が集中しています。時間をおいてから、もう一度お試しください。",
+      { service, retryable: true, retryAfter,
+        headers: { "Retry-After": String(retryAfter) } });
+  }
+  return new Response(body, { status: res.status,
+                              headers: { "Content-Type": "application/json" } });
+}
+/**
+ * 断るときの返事は、いつも同じ形にします。
+ *
+ * これまでは入口ごとにばらばらでした（Googleは500、Geminiは502、
+ * Yahoo!は429、Workers AIは503）。受け取る側は、どれがやり直せば通る
+ * ものなのかを、番号から推し量るしかありません。
+ *
+ *   code      … 何が起きたか（機械が見る）
+ *   service   … どこで起きたか
+ *   retryable … 時間をおけば通る見込みがあるか
+ *   message   … そのまま画面に出せる日本語
+ *
+ * message は前からある形（error.message）のままです。読む側を壊さずに、
+ * 手がかりだけを足します。
+ */
+function fail(status, code, message, opts = {}) {
+  const body = {
+    ok: false,
+    error: {
+      code,
+      service: opts.service ?? "proxy",
+      retryable: opts.retryable ?? false,
+      message,
+      ...(opts.retryAfter ? { retryAfter: opts.retryAfter } : {}),
+    },
+  };
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...(opts.headers ?? {}) },
+  });
+}
+
+function text(message, status, extra = {}) {
+  // 古い呼び出し（コードを渡さないもの）。番号から見当をつけます。
+  const code = status === 429 ? "RATE_LIMITED"
+    : status === 403 ? "FORBIDDEN"
+    : status === 404 ? "NOT_FOUND"
+    : status === 405 ? "METHOD_NOT_ALLOWED"
+    : status === 413 ? "BODY_TOO_LARGE"
+    : status === 400 ? "BAD_REQUEST"
+    : status === 503 ? "NOT_CONFIGURED"
+    : status === 504 ? "UPSTREAM_TIMEOUT"
+    : "UPSTREAM_ERROR";
+  return fail(status, code, message,
+              { retryable: status === 429 || status >= 500, headers: extra });
+}
 export function cors(res, origin, allow = [DEFAULT_ALLOW_ORIGIN]) {
   const h = new Headers(res.headers);
   // 許した出どころには、その出どころをそのまま返します。固定の1つを

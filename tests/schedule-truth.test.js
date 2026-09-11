@@ -285,7 +285,10 @@ test("電車・バスの一行は、発着と乗換と運賃だけにする", as
     resetRoutesBreaker();
   }
   const line = route.legs[0].line;
-  assert.equal(line, "04:49発→05:19着（30分）・乗換1回・375円", line);
+  // 出すのは「乗っている時間」です。yahoo.minutes（30分）は4:00から
+  // 数えた時間で、便を待つ13分を含みます。それを出すと、発着の時刻と
+  // 引き算が合いません。
+  assert.equal(line, "04:49発→05:19着（17分）・乗換1回・375円", line);
   assert.ok(!line.includes("km"), line);
 });
 
@@ -320,4 +323,26 @@ test("空白は、宿のあとを数えない", () => {
       end: new Date("2026-09-14T09:00") },
   ] };
   assert.equal(longestGap({ days: [day] }), 0);
+});
+
+// ------------------------------------------------ 着いた時刻から始める --
+//
+// 画面にこう出ていました。
+//
+//   6:28  東京駅 → 長野原草津口駅
+//         06:28発→08:49着（4時間49分）
+//   11:17 常布の滝へ移動          ← 着いてから2時間28分、何も無い
+//
+// Yahoo!が返す minutes は「頼んだ時刻から着くまで」で、便を待つ時間を
+// すでに含んでいます（4:00発で頼んで6:28発の便なら4時間49分）。そこへ
+// waitMinutes をもう一度足していました。
+
+import { arrivalAfter } from "../js/pipeline.js";
+
+test("着く時刻は、待ち時間を二度数えない", () => {
+  const depart = d("2026-09-13T04:00");
+  const leg = { minutes: 289, rideMinutes: 141, waitMinutes: 148 };
+  const arrive = arrivalAfter(depart, leg);
+  assert.equal(arrive.getHours(), 8, `${arrive}`);
+  assert.equal(arrive.getMinutes(), 49, `${arrive}`);
 });
