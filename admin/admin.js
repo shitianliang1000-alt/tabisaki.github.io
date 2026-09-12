@@ -27,7 +27,11 @@ function el(tag, attrs = {}, ...kids) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === "class") node.className = v;
-    else if (v !== null && v !== undefined && v !== false) node.setAttribute(k, v);
+    else if (k === "href" && typeof v === "string" && v.trim().toLowerCase().startsWith("javascript:")) {
+      node.setAttribute(k, "about:blank");
+    } else if (v !== null && v !== undefined && v !== false) {
+      node.setAttribute(k, v);
+    }
   }
   for (const c of kids.flat()) {
     if (c === null || c === undefined || c === false) continue;
