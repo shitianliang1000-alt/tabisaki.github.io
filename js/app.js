@@ -970,24 +970,28 @@ function renderStardust(value) {
   // （増えているのは分かるが、それが「定番」なのか「穴場」なのか）。
   // 10か所行くとしたら何対何になるのか、数で先に言います。
   //
+  // 以前は「5 定番／2 穴場」と数字を並べ、残りの「知る人ぞ知る」だけ
+  // 別の文で「残り3か所は…」と言っていました。3つの数を、1つの文の
+  // 中で同じ扱いで言うほうが分かりやすいとのことなので、そろえます。
+  //
   // **実際に選ぶ関数から引きます。** ここで別の式を持つと、画面には
   // 「穴場10」と出ているのに定番のほうが多く返る、ということが起きます
   // （実際そうなっていて、スライダーの向きが逆に見えていました）。
   const t = mixTargets(10, value / 100);
   const set = (id, text) => { const e = $(id); if (e) e.textContent = text; };
   set("#mix-classic-n", String(t.major));
-  set("#mix-hidden-n", String(t.hidden));
   set("#mix-known-n", String(t.known));
-  // 帯の左は「定番」です。実際の割り当てに合わせて境目を置きます。
+  set("#mix-hidden-n", String(t.hidden));
+  // 帯は3段。定番→知る人ぞ知る→穴場の順に、そのまま割合で埋めます。
+  // 「穴場」を帯の地色（塗っていない残り）として見せていたのをやめ、
+  // 3つとも塗った区画にします。塗っていない部分が「何か」を、
+  // 読む人が推測しなくて済みます。
   const fill = $("#mix-fill");
   if (fill) fill.style.width = `${t.major * 10}%`;
   const mid = $("#mix-known-fill");
   if (mid) mid.style.width = `${t.known * 10}%`;
-  const view = $("#mix-view");
-  if (view) {
-    view.classList.toggle("to-hidden", value > 55);
-    view.classList.toggle("to-classic", value < 45);
-  }
+  const last = $("#mix-hidden-fill");
+  if (last) last.style.width = `${t.hidden * 10}%`;
 
   const help = $("#hidden-bias-help");
   if (help) {
