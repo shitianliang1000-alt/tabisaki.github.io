@@ -112,7 +112,11 @@ AI                     プログラム
 ```text
 .
 ├── index.html                 # アプリ本体
-├── icon.svg                   # アプリアイコン
+├── icon.svg                   # アプリアイコン（ブラウザのタブ用）
+├── icon-180.png               # iOS のホーム画面用（SVG は読まれません）
+├── icon-192.png               # Android / PWA
+├── icon-512.png               # Android / PWA
+├── icon-maskable-512.png      # Android の切り抜き対応（内側80%に収めたもの）
 ├── og.svg                     # SNS共有時のOG画像（元データ）
 ├── og.png                     # og.svg を 1200×630 に焼き出したもの（共有先が読むのはこちら）
 ├── manifest.webmanifest       # PWA用マニフェスト
@@ -207,7 +211,7 @@ AI                     プログラム
 │
 ├── tests/
 │   ├── *.test.js              # Node.js標準テストランナーによるテスト
-│   └── e2e/                   # ブラウザを使うE2Eテスト
+│   └── e2e/                   # ブラウザを使うE2Eテスト（画面操作と、読み上げ・色）
 │
 ├── README.md
 └── API_KEYS.md                # APIキー設定の詳しい説明
@@ -394,11 +398,20 @@ node --test tests/*.test.js
 画面操作まで確認するテストは `tests/e2e/` に分離しています。
 
 ```bash
-npm i -D playwright-core
+npm i -D playwright-core axe-core
 npx playwright install chromium
 python3 -m http.server 8000 &
 node tests/e2e/run.mjs
 E2E_OFFLINE=1 node tests/e2e/run.mjs   # 外へ出られない環境では、こちら
+```
+
+### 読み上げ・色・構造のテスト
+
+薄すぎる文字や、ボタンの中のボタンは、目で見ているぶんには気づけません。
+axe-core に測らせます。
+
+```bash
+node tests/e2e/a11y.mjs
 ```
 
 詳細は [tests/e2e/README.md](./tests/e2e/README.md) を参照してください。

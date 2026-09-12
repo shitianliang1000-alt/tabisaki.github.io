@@ -33,7 +33,10 @@
 <meta name="twitter:image" content="https://shitianliang1000-alt.github.io/tabisaki.github.io/og.png">
 
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icon.svg">
+<!-- iOS は apple-touch-icon に SVG を読みません。SVG だけを置いていたころは、
+     ホーム画面に追加すると、しるしではなくページの縮小画像が並んでいました。
+     PNG を渡します（Android 側は manifest の icons を見ます）。 -->
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="旅さき">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -95,13 +98,15 @@
 </head>
 <body data-view="form">
 
-<a class="sr-only" href="#form-pane">条件の入力へ移動</a>
-
-
-
-<!-- 見出しは画面には出しません（名前と説明を上に置くと、条件の入力が
-     そのぶん下がります）。文書としての h1 は残します。 -->
-<h1 class="sr-only">旅さき</h1>
+<!-- 名乗りと飛ばし先。画面には出しませんが、読み上げと文書の構造には
+     要ります。<header> に入れておかないと、支援技術の「見出し・目印で
+     移動する」操作からこの2つだけが外れます。 -->
+<header>
+  <a class="sr-only" href="#form-pane">条件の入力へ移動</a>
+  <!-- 見出しは画面には出しません（名前と説明を上に置くと、条件の入力が
+       そのぶん下がります）。文書としての h1 は残します。 -->
+  <h1 class="sr-only">旅さき</h1>
+</header>
 
 <main class="layout">
 
@@ -124,7 +129,7 @@
          3か月前の旅程をそのまま出すと閉まっている店へ案内します。 -->
     <section class="recent" id="recent" hidden aria-labelledby="recent-title">
       <div class="recent-head">
-        <h3 id="recent-title">前につくった旅</h3>
+        <h2 id="recent-title">前につくった旅</h2>
         <button type="button" class="linkish" id="recent-clear">すべて消す</button>
       </div>
       <ul class="recent-list" id="recent-list"></ul>
@@ -136,9 +141,9 @@
          きっかけであって、こちらが用意した6通りに寄せるためのもの
          ではありません。 -->
     <section class="step" aria-labelledby="step1-title">
-      <h3 class="step-title" id="step1-title">
+      <h2 class="step-title" id="step1-title">
         <span class="step-num" aria-hidden="true">1</span>どんな旅にしたい？
-      </h3>
+      </h2>
 
       <label class="md-field note-field">
         <span class="sr-only">やりたいこと</span>
@@ -153,9 +158,9 @@
 
     <!-- ② いつ・どこから -->
     <section class="step" aria-labelledby="step2-title">
-      <h3 class="step-title" id="step2-title">
+      <h2 class="step-title" id="step2-title">
         <span class="step-num" aria-hidden="true">2</span>いつ・どこから？
-      </h3>
+      </h2>
 
       <label class="md-field">
         <span class="md-field-label">出発地</span>
@@ -196,12 +201,15 @@
          「定番と穴場のまぜかた」も「混雑」も、旅の中身が変わる設定です。
          「もう少しくわしく決める」の中に隠すようなものではありません。 -->
     <section class="step" aria-labelledby="step3-title">
-      <h3 class="step-title" id="step3-title">
+      <h2 class="step-title" id="step3-title">
         <span class="step-num" aria-hidden="true">3</span>旅の好み
-      </h3>
+      </h2>
 
       <div class="tune-group">
-        <span class="tune-label" id="bias-label">定番と穴場のまぜかた</span>
+        <!-- つまみの名前は <label for> で結びます。span + aria-labelledby でも
+             読み上げは通りますが、名前を押してつまみに触れる・支援技術が
+             「名前のある入力欄」として数える、といった当たり前が付きません。 -->
+        <label class="tune-label" id="bias-label" for="hidden-bias">定番と穴場のまぜかた</label>
         <!-- どちらへ寄っているのかを、数と絵で同時に見せます。 -->
         <!-- 10か所行くとしたら何対何になるか。ここの数は、実際に選ぶ
              関数（mixTargets）から引いています。 -->
@@ -221,7 +229,7 @@
         <div class="stardust" id="stardust" aria-hidden="true"></div>
         <input type="range" class="md-slider" id="hidden-bias"
                min="0" max="100" value="40"
-               aria-labelledby="bias-label" aria-describedby="hidden-bias-help">
+               aria-describedby="hidden-bias-help">
         <p class="md-field-help" id="hidden-bias-help">定番より</p>
       </div>
 

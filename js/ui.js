@@ -1185,24 +1185,34 @@ function renderItem(item, index, itin, handlers, sunNote) {
   }
 
   if (item.kind === "spot" && handlers.onSpot) {
-    // クリックだけでなくキーボードでも開けるようにします
-    body.setAttribute("role", "button");
-    body.setAttribute("tabindex", "0");
+    // カードそのものはボタンにしません。
+    //
+    // 以前は role="button" と tabindex="0" をカードに付けていました。
+    // ところがカードの中には Wikipedia や地図へのリンク、「選んだ理由」の
+    // 折りたたみが入っています。**ボタンの中に押せるものは置けません。**
+    // 読み上げでは中身がボタンの名前として1つに読まれ、中のリンクへは
+    // 行けなくなります。
+    //
+    // 開く操作は、右下の「›」を本物の <button> にして受け持たせます。
+    // 見た目は同じで、キーボードでも順に辿れます。マウスでカードの
+    // どこを押しても開くのは、これまでどおりです。
     const open = (e) => {
-      if (e.target.closest("a")) return;
+      if (e.target.closest("a, button, summary")) return;
       handlers.onSpot(item);
     };
     body.addEventListener("click", open);
-    body.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); }
-    });
+    const more = el("button", {
+      type: "button", class: "chev",
+      "aria-label": `${item.title}をくわしく見る`,
+    }, el("span", { "aria-hidden": "true" }, "›"));
+    more.addEventListener("click", () => handlers.onSpot(item));
     if (handlers.onHover) {
       li.addEventListener("mouseenter", () => handlers.onHover(item, true));
       li.addEventListener("mouseleave", () => handlers.onHover(item, false));
-      body.addEventListener("focus", () => handlers.onHover(item, true));
-      body.addEventListener("blur", () => handlers.onHover(item, false));
+      more.addEventListener("focus", () => handlers.onHover(item, true));
+      more.addEventListener("blur", () => handlers.onHover(item, false));
     }
-    body.append(el("span", { class: "chev", "aria-hidden": "true" }, "›"));
+    body.append(more);
   }
 
   li.append(body);
