@@ -18,7 +18,7 @@ import {
 } from "./ai.js";
 import { areaNote, areaScope, detectAreas, unknownPlaceTerms } from "./areas.js";
 import { readIntent } from "./intent.js";
-import { nightTrainLeg } from "./night-train.js";
+import { nightTrainLeg } from "./trains.js";
 import { TUNING } from "./config.js";
 import { discoverArea, resolveDestination } from "./discover.js";
 import { atHour, estimateMinutes, haversineKm } from "./feasibility.js";
@@ -114,9 +114,17 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 地名は他の検索語と性質が違います。「四国」を無視して銚子を出すのは、
   // 近いものを返しているのではなく、別の質問に答えているのと同じです。
   // 「地名の指定を外す」を選ばれたときは、地名を見ません。
+  // 名前のある列車は、行き先そのものです。
+  //
+  // 「サフィール踊り子に乗りたい」と書いた人は、伊豆へ行きたいはずです。
+  // 列車の名前はどのエリア名とも一致しないので、これまでは地名の指定が
+  // 無いことになり、点の高い順に返っていました。時刻は知らなくても、
+  // **どこへ向かう列車かは分かります**。そこを行き先にします。
+  const towardText = intent.toward.length
+    ? `${trip.note} ${intent.toward.join(" ")}` : trip.note;
   let scope = opts.ignoreAreas
     ? { regionIds: null, matched: [], missing: [] }
-    : areaScope(detectAreas(trip.note, kb));
+    : areaScope(detectAreas(towardText, kb));
 
   // 収録に無い土地は、AIに調べさせてから候補に入れます。
   //
@@ -908,7 +916,7 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   //
   // Yahoo!路線情報は「その時刻に出たら」で答えるので、夜行を狙って
   // 引くのは向きません（朝10時に出れば新幹線が返ります）。夜行は毎日
-  // 同じ時刻で走る定期列車なので、表から引きます（js/night-train.js）。
+  // 同じ時刻で走る定期列車なので、表から引きます（js/trains.js）。
   //
   // **決めるのは、日程を組む前です。** あとから差し替えると、
   // 「21:50に東京を出る」旅程なのに、その日の16時に出雲で観光している

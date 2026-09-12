@@ -501,3 +501,27 @@ test("サンライズと書いたら、夜行で組む", async () => {
   const firstNight = itin.days[0].items.find((i) => i.kind === "lodging");
   assert.equal(firstNight, undefined, "車中泊の晩に宿を取っています");
 });
+
+test("名前のある列車を書いたら、その列車の行き先を地名として読む", async () => {
+  // ここは収録の小さいほう（サンプル）で走ります。伊豆の収録は
+  // 「熱海」しか無いので、2日ぶんの立ち寄りが足りずに範囲が広がる
+  // ことがあります。**寄せられているか**を見るのは areas の側の仕事に
+  // して、ここでは「読み取ったことが伝わるか」を見ます。
+  const { detectAreas } = await import("../js/areas.js");
+  const { readIntent } = await import("../js/intent.js");
+  const toward = readIntent("サフィール踊り子に乗りたい").toward;
+  const areas = detectAreas(`サフィール踊り子に乗りたい ${toward.join(" ")}`, kb);
+  assert.ok(areas.length,
+    "列車の行き先が、地名として読めていません");
+  assert.ok(areas.every((a) => a.prefectures.includes("静岡県")),
+    `伊豆以外が混ざっています: ${areas.map((a) => a.term).join(",")}`);
+
+  const itin = await planTrip({
+    trip: trip({ note: "サフィール踊り子に乗りたい",
+                 departAt: new Date("2026-09-12T09:00"),
+                 arriveBy: new Date("2026-09-13T20:00") }),
+    kb,
+  });
+  assert.ok(itin.warnings.some((w) => /サフィール踊り子/.test(w)),
+    "どの列車を読み取ったかが、どこにも書かれていません");
+});

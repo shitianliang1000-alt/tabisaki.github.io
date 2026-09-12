@@ -67,13 +67,13 @@ test("電車の指定は、公共交通として見る", () => {
 
 test("夜行は、狙っている列車として読み取る", () => {
   // 夜行は毎日同じ時刻で走るので、旅程の区間として組めます
-  // （js/night-train.js）。ここでは「どれを狙っているか」だけを拾います。
+  // （js/trains.js）。ここでは「どれを狙っているか」だけを拾います。
   assert.equal(readIntent("サンライズに乗って山陰へ").nightTrain, "any");
   assert.equal(readIntent("サンライズ出雲で出雲大社").nightTrain,
     "sunrise-izumo");
   assert.equal(readIntent("サンライズ瀬戸で四国へ").nightTrain, "sunrise-seto");
-  // 乗り物までは決めません。現地では在来線もバスも使います。
-  assert.equal(readIntent("サンライズに乗って山陰へ").transport, null);
+  // 列車で行くと書かれているので、電車・バスで回る旅として組みます。
+  assert.equal(readIntent("サンライズに乗って山陰へ").transport, "transit");
 });
 
 test("組み込めない列車は、組み込めないと言う", () => {
@@ -89,4 +89,31 @@ test("何も書かれていなければ、何も決めない", () => {
   const plain = readIntent("温泉でゆっくりしたい");
   assert.equal(plain.transport, null);
   assert.deepEqual(plain.notes, []);
+});
+
+// --- 区間だけ収録している列車 -----------------------------------------------
+
+test("名前のある列車から、行き先を寄せる", () => {
+  // 「サフィール踊り子に乗りたい」と書いた人は、伊豆へ行きたいはずです。
+  // 列車の名前はどのエリア名とも一致しないので、これまでは地名の指定が
+  // 無いことになり、点の高い順に返っていました。
+  const saphir = readIntent("サフィールに乗りたい");
+  assert.ok(saphir.toward.includes("下田市"),
+    `行き先が寄っていません: ${saphir.toward.join(",")}`);
+  assert.equal(saphir.transport, "transit");
+  assert.ok(saphir.notes.some((n) => /サフィール踊り子/.test(n)));
+});
+
+test("乗ること自体が目的の列車では、行き先を寄せない", () => {
+  // ななつ星は数日かけて九州を回るクルーズトレインです。抽選申し込みが
+  // 要るので、「九州へ行く旅」に寄せてしまうと話が違います。
+  const cruise = readIntent("ななつ星に乗りたい");
+  assert.deepEqual(cruise.toward, []);
+  assert.ok(cruise.notes.some((n) => /抽選/.test(n)),
+    "申し込みの話が出ていません");
+});
+
+test("もう走っていない列車は、走っていないと言う", () => {
+  const gone = readIntent("ムーンライトながらで行きたい");
+  assert.ok(gone.notes.some((n) => /走っていません/.test(n)));
 });

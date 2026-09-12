@@ -98,7 +98,7 @@ export function buildItinerary(input) {
   // 4:00に家を出ることにすると、旅程は 4:00発・3時間55分。ところが
   // 説明には「14:50発→18:40着」と出ます。**同じ行の中で食い違います。**
   // 実際に乗れるのは次の便なので、そちらに合わせて時刻を動かします。
-  // 夜行は、乗る時刻も着く時刻も表から決まっています（js/night-train.js）。
+  // 夜行は、乗る時刻も着く時刻も表から決まっています（js/trains.js）。
   // 「出発できる時刻＋所要時間」では着きません。
   const overnight = legs?.outbound?.overnight ? legs.outbound : null;
   const board = overnight?.boardAt_
