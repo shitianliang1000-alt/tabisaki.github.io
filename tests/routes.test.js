@@ -580,7 +580,13 @@ test("両端の最寄りが同じでも、次の候補で聞き直す", () =>
         "同じ停留所どうしで聞いています");
       assert.equal(r.legs[0].routed, true,
         "候補を変えれば引けるのに、目安のままです");
-      assert.equal(r.legs[0].minutes, 14);
+      // 乗車14分に、停留所までの前後の徒歩が乗ります。乗っている時間
+      // だけを所要時間にすると、1.9kmの区間が「1分」になります。
+      assert.equal(r.legs[0].rideMinutes, 14);
+      assert.ok(r.legs[0].minutes > 14,
+        "停留所までの徒歩が足されていません");
+      assert.equal(r.legs[0].minutes,
+        14 + r.legs[0].walkA + r.legs[0].walkB);
     }));
 
 test("最初の名前で引けなければ、別の停留所名で試す", () =>
@@ -773,4 +779,73 @@ test("歩く区間は、「◯区間中◯区間で時刻表」の分母から�
     assert.match(r.modeNote ?? "", /1区間は徒歩/);
     // 聞くべき区間はすべて引けているので、区間全体としては実測扱いです。
     assert.equal(r.routed, true);
+  }));
+
+// --- 停留所までの徒歩を、所要時間に入れる ---------------------------------
+//
+// 画面とGoogleを並べると、こうでした。
+//
+//   このアプリ  多摩森林科学園 → 浄泉寺   1分・140円
+//   Google      同じ区間                  30分・200円（うち徒歩27分）
+//
+// Yahoo!に聞いているのは「停留所から停留所」で、「いまいる場所から次の
+// 場所」ではありません。停留所どうしがたまたま隣で、乗っているのが1分
+// だったというだけで、歩く27分をどちらの端にも数えていませんでした。
+
+// 停留所から1kmほど離れた2地点。あいだの停留所どうしは隣です。
+const FAR_FROM_STOP_A = { lat: 35.6450, lng: 139.6950, name: "森林科学園" };
+const FAR_FROM_STOP_B = { lat: 35.6700, lng: 139.7150, name: "浄泉寺" };
+
+test("停留所までの徒歩を、区間の所要時間に足す", () =>
+  withYahoo(CLUSTER, () => ({
+    routed: true, minutes: 1, rideMinutes: 1, waitMinutes: 0,
+    summary: "10:07 発→ 10:08 着 1分",
+    meta: { departure: "10:07", arrival: "10:08", transfers: 0, fareYen: 140,
+            legs: [], alternatives: [] },
+  }), async () => {
+    const r = await computeRoute([FAR_FROM_STOP_A, FAR_FROM_STOP_B], {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    const leg = r.legs[0];
+    assert.equal(leg.rideMinutes, 1, "乗車時間が変わっています");
+    assert.ok(leg.walkA > 0 && leg.walkB > 0,
+      "どちらかの端の徒歩が0になっています");
+    assert.equal(leg.minutes, 1 + leg.walkA + leg.walkB);
+    assert.ok(leg.minutes > 15,
+      `3km近い区間が${leg.minutes}分になっています`);
+    // 一行にも書きます。「1分」とだけ出すと、歩く時間が無いように読めます。
+    assert.match(leg.line, /徒歩/,
+      `前後の徒歩が一行に出ていません: ${leg.line}`);
+  }));
+
+test("出発地そのものが駅なら、その端の徒歩は数えない", () =>
+  withYahoo(STOPS, () => ({
+    routed: true, minutes: 90, rideMinutes: 82, waitMinutes: 8,
+    summary: "10:08 発→ 11:30 着 1時間22分",
+    meta: { departure: "10:08", arrival: "11:30", transfers: 1, fareYen: 1190,
+            legs: [], alternatives: [] },
+  }), async () => {
+    const r = await computeRoute([SHINJUKU_ST, HAKONE_YUMOTO], {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    assert.equal(r.legs[0].walkA, 0, "駅から駅まで歩かせています");
+    assert.equal(r.legs[0].minutes, 90);
+  }));
+
+test("乗るより歩くほうが早いなら、歩く", () =>
+  withYahoo(CLUSTER, () => ({
+    // 2km先へ行くのに、遠回りして1時間かかる乗り継ぎ。
+    routed: true, minutes: 60, rideMinutes: 60, waitMinutes: 0,
+    summary: "10:00 発→ 11:00 着 1時間",
+    meta: { departure: "10:00", arrival: "11:00", transfers: 2, fareYen: 600,
+            legs: [], alternatives: [] },
+  }), async () => {
+    // 約2.2km。歩けば35分ほどの距離です。
+    const near = { lat: 35.6700, lng: 139.7150, name: "公園C" };
+    const r = await computeRoute([NEAR_A, near], {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    assert.equal(r.legs[0].walk, true,
+      "1時間かけて乗せています（歩けば35分ほどです）");
+    assert.ok(r.legs[0].minutes < 60);
   }));

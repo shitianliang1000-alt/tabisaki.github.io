@@ -238,6 +238,20 @@ const MAX_COOLDOWN_WAITS = 8;
 const YAHOO_NAME_TRIES = 3;
 /** 片側につき、候補として拾う停留所の数。 */
 const YAHOO_STOP_CANDIDATES = 3;
+/** これより近ければ、停留所まで「歩いた」とは数えません（駅前の数十m）。 */
+const NEAR_STOP_KM = 0.15;
+/** ここを超えたら、速くても歩きません。 */
+const MAX_WALK_KM = 3;
+
+/**
+ * その距離を歩いたら何分か。時速4.2km、信号や坂のぶんを少し足します。
+ *
+ * estimateMinutes は 1km を超えると乗り物の速さに切り替わるので、
+ * 「歩いたらどうか」を知りたいときには使えません。
+ */
+function walkMinutes(km) {
+  return Math.max(5, Math.round((km / 4.2) * 60) + 4);
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -748,11 +762,47 @@ async function yahooLeg(a, b, opts) {
       }
     }
     if (!yahoo) return { spent, miss: true };
+
+    // **停留所までの徒歩を足します。**
+    //
+    // ここが抜けていました。Yahoo!に聞いているのは「停留所から停留所」で
+    // あって、「いまいる場所から次の場所」ではありません。足さないと
+    //
+    //   多摩森林科学園 → 浄泉寺（1.9km）を「1分」
+    //
+    // と出ます。Googleで同じ区間を引くと30分、うち27分が徒歩です。
+    // 停留所どうしがたまたま隣で、乗っているのが1分だったというだけで、
+    // 歩く27分をどちらの端にも数えていませんでした。
+    //
+    // 出発地そのものが駅なら（東京駅発など）、その端の徒歩は0です。
+    const walkA = haversineKm(a, from) < NEAR_STOP_KM
+      ? 0 : estimateMinutes(a, from, { slow: isSlowTerrain(a) });
+    const walkB = haversineKm(to, b) < NEAR_STOP_KM
+      ? 0 : estimateMinutes(to, b, { slow: isSlowTerrain(b) });
+    const total = walkA + yahoo.minutes + walkB;
+
+    // 歩いたほうが早いなら、歩きます。
+    //
+    // 前後の徒歩を足すと、乗るより歩くほうが早い区間が出てきます
+    // （上の例は、乗って30分・歩いて35分でほぼ互角です）。乗り換えて
+    // 1分だけ乗るために20分歩く旅程は、読んだ人が従いません。
+    //
+    // 比べる相手は**本当に歩いた時間**です。estimateLegRough は 1.5km を
+    // 超えると時速22kmの乗り物として見るので、それと比べると、実際に
+    // 調べた時刻を作り話の目安に負けさせることになります。
+    const straightKm = haversineKm(a, b);
+    const onFoot = walkMinutes(straightKm);
+    if (straightKm <= MAX_WALK_KM && onFoot <= total) {
+      return { spent, minutes: onFoot, walk: true, routed: false,
+               meters: Math.round(straightKm * 1000) };
+    }
+
     return {
       spent,
-      minutes: yahoo.minutes,
+      minutes: total,
       rideMinutes: yahoo.rideMinutes ?? yahoo.minutes,
       waitMinutes: yahoo.waitMinutes ?? 0,
+      walkA, walkB,
       meters: Math.round(haversineKm(a, b) * 1000),
       // 画面に出す一行は、こちらで組み立てます。
       //
@@ -763,7 +813,8 @@ async function yahooLeg(a, b, opts) {
       //
       // 旅程の1行としては長すぎます。読む人が知りたいのは、何時に出て
       // 何時に着くか、乗り換えが何回か、いくらか、の3つです。
-      line: transitLine(yahoo) ?? yahoo.summary ?? "Yahoo!路線情報",
+      line: transitLine(yahoo, walkA + walkB, total)
+        ?? yahoo.summary ?? "Yahoo!路線情報",
       routed: true,
       searchedAt: yahoo.searchedAt ?? null,
       stations: { from: from.name, to: to.name, walkMeasured: false },
@@ -785,7 +836,7 @@ async function yahooLeg(a, b, opts) {
  * 地図で見れば分かり、乗車時間は「30分のうち何分座っているか」で、
  * 予定を立てるのには使いません。
  */
-function transitLine(yahoo) {
+function transitLine(yahoo, walkMin = 0, totalMin = 0) {
   const m = yahoo?.meta ?? {};
   if (!m.departure || !m.arrival) return null;
   const parts = [`${m.departure}発→${m.arrival}着`];
@@ -800,6 +851,14 @@ function transitLine(yahoo) {
     parts.push(m.transfers > 0 ? `乗換${m.transfers}回` : "乗換なし");
   }
   if (m.fareYen > 0) parts.push(`${m.fareYen.toLocaleString("ja-JP")}円`);
+  // 停留所までの徒歩も書きます。
+  //
+  // 「10:07発→10:08着（1分）」とだけ書いてあると、1.9km先へ1分で
+  // 行けるように読めます。実際は前後に歩きがあって、そちらのほうが
+  // 長いことさえあります（この区間はGoogleで30分、うち徒歩27分）。
+  if (walkMin > 0) {
+    parts.push(`前後の徒歩${fmtMinutes(walkMin)}を含めて${fmtMinutes(totalMin)}`);
+  }
   return parts.join("・");
 }
 
