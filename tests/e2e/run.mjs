@@ -341,6 +341,7 @@ await check("共有と印刷の情報が入っている（OGP）", async () => {
       ogTitle: get('meta[property="og:title"]'),
       ogImage: get('meta[property="og:image"]'),
       icon: get('link[rel="icon"]', "href"),
+      apple: get('link[rel="apple-touch-icon"]', "href"),
       manifest: get('link[rel="manifest"]', "href"),
     };
   });
@@ -352,6 +353,30 @@ await check("共有と印刷の情報が入っている（OGP）", async () => {
   assert(!/\.svg$/i.test(meta.ogImage), "og:image が SVG です（共有先が画像として扱いません）");
   assert(meta.icon, "アイコンの指定がありません");
   assert(meta.manifest, "manifest の指定がありません");
+  // iOS は apple-touch-icon の SVG を読みません（ページの縮小画像が並びます）。
+  assert(/\.png$/i.test(meta.apple),
+    `ホーム画面用のアイコンが PNG ではありません: ${meta.apple}`);
+});
+
+await check("ホーム画面に追加したときのアイコンが揃っている", async () => {
+  const doc = await page.evaluate(async () => {
+    const href = document.querySelector('link[rel="manifest"]').getAttribute("href");
+    const res = await fetch(href);
+    return res.ok ? res.json() : null;
+  });
+  assert(doc, "manifest を読めません");
+  const png = (doc.icons ?? []).filter((i) => i.type === "image/png");
+  assert(png.some((i) => i.sizes === "192x192"), "192px の PNG がありません");
+  assert(png.some((i) => i.sizes === "512x512"), "512px の PNG がありません");
+  assert((doc.icons ?? []).some((i) => String(i.purpose).includes("maskable")),
+    "切り抜き用（maskable）のアイコンがありません");
+  // 実際に取れること。manifest に書いてあっても、404 なら同じです。
+  const codes = await page.evaluate(async (srcs) => {
+    const out = [];
+    for (const s of srcs) out.push((await fetch(s)).status);
+    return out;
+  }, doc.icons.map((i) => i.src));
+  assert(codes.every((c) => c === 200), `アイコンが取れません: ${codes.join(",")}`);
 });
 
 await check("つくった旅が、一覧に残る", async () => {

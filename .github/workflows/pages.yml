@@ -35,6 +35,7 @@ jobs:
           set -eu
           mkdir -p dist
           cp index.html icon.svg og.svg og.png manifest.webmanifest \
+             icon-180.png icon-192.png icon-512.png icon-maskable-512.png \
              robots.txt sitemap.xml sw.js dist/
           cp -r css js kb admin dist/
           # 作業の残骸（エディタの .orig など）は入れません

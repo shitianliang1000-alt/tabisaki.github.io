@@ -26,6 +26,7 @@ const SHELL_FILES = [
   "./index.html",
   "./manifest.webmanifest",
   "./icon.svg",
+  "./icon-192.png",
   "./css/hig-tokens.css",
   "./css/hig.css",
   "./css/app.css",
