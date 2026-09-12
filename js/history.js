@@ -100,9 +100,12 @@ export function freezeItinerary(itin) {
  * どの項目が日時かは名前で決めます。中身を見て「日時っぽい文字列」を
  * 探すと、説明文の中の「2026-09-10」まで日時にしてしまいます。
  */
+// date は planner.js が日ごとに置く「その日」（Date）です。ここに無いと、
+// 「前につくった旅」を開いたときに日付の見出しで落ちていました
+// （toLocaleDateString is not a function）。
 const TIME_KEYS = new Set(["start", "end", "departAt", "arriveBy", "at",
                            "checkIn", "checkOut", "savedAt", "sunrise",
-                           "sunset"]);
+                           "sunset", "date"]);
 
 export function thawItinerary(itin) {
   const walk = (value, key) => {

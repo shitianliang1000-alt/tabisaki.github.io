@@ -17,6 +17,8 @@
 // そのかわり、取れた／取れなかったの両方を30日ブラウザに保存して、
 // 同じ場所を何度も取りに行かないようにしています。
 
+import { requestSignal } from "./endpoints.js";
+
 const KEY = "tabisaki.photos";
 const TTL_MS = 30 * 24 * 3600 * 1000;
 const API = "https://ja.wikipedia.org/api/rest_v1/page/summary/";
@@ -68,7 +70,8 @@ export async function photoFor(spot, opts = {}) {
   let url = null;
   try {
     const res = await send(API + encodeURIComponent(title),
-      { headers: { Accept: "application/json" }, signal: opts.signal });
+      { headers: { Accept: "application/json" },
+        signal: requestSignal(opts.signal, 20_000) });
     if (res?.ok) {
       const data = await res.json();
       url = data?.thumbnail?.source ?? null;

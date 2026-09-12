@@ -27,7 +27,11 @@ export function fmtTime(d) {
 }
 
 export function fmtDay(d) {
-  return d.toLocaleDateString("ja-JP",
+  // 保存から戻した旅程では文字列で届くことがあります。見出し1つの
+  // ために画面ごと落とすより、読める形にして出します。
+  const date = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("ja-JP",
     { month: "long", day: "numeric", weekday: "short" });
 }
 

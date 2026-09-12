@@ -10,7 +10,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { endpointFor, keyHeaders, usingProxy } from "../js/endpoints.js";
+import { endpointFor, keyHeaders, requestSignal, usingProxy }
+  from "../js/endpoints.js";
+import { ApiQuota, meteredFetch } from "../js/quota.js";
 
 const DIRECT = { proxyUrl: "", geminiKey: "AIzaTEST", mapsKey: "AIzaMAPS" };
 const PROXY = { proxyUrl: "https://api.example.test/tabisaki",
@@ -106,4 +108,50 @@ test("ローカルモデルにキーは載せない", () => {
   // Google のキーを送ることになります。
   assert.deepEqual(keyHeaders("gemini", { localBaseUrl: "http://localhost:11434" }),
                    {});
+});
+
+// --- 待つ時間に上限を置く ---------------------------------------------------
+// 相手が黙ったままだと fetch は何分でも待ちます。旅程1本で数十回聞くので、
+// 1回ごとに上限が無いと、画面が「組み立てています…」のまま止まります。
+
+test("時間切れで signal が中止になる", async () => {
+  const signal = requestSignal(undefined, 20);
+  assert.ok(signal, "signal が返っていません");
+  assert.equal(signal.aborted, false);
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(signal.aborted, true, "時間が過ぎても中止になっていません");
+  assert.equal(signal.reason?.name, "TimeoutError", String(signal.reason));
+});
+
+test("呼び出し側の中止も、そのまま伝わる", () => {
+  const ctrl = new AbortController();
+  const signal = requestSignal(ctrl.signal, 60_000);
+  assert.equal(signal.aborted, false);
+  ctrl.abort(new Error("やめた"));
+  assert.equal(signal.aborted, true);
+  assert.equal(signal.reason?.message, "やめた");
+});
+
+test("すでに中止されていれば、投げる前に中止になっている", () => {
+  const ctrl = new AbortController();
+  ctrl.abort();
+  assert.equal(requestSignal(ctrl.signal, 60_000).aborted, true);
+});
+
+test("上限が無ければ、呼び出し側の signal をそのまま返す", () => {
+  const ctrl = new AbortController();
+  assert.equal(requestSignal(ctrl.signal, 0), ctrl.signal);
+  assert.equal(requestSignal(undefined, 0), undefined);
+});
+
+test("meteredFetch は、時間切れの signal を付けて投げる", async () => {
+  let got = null;
+  const fake = async (url, init) => { got = init; return { ok: true }; };
+  const q = new ApiQuota({ every: 50, ask: async () => true, storage: null });
+  await meteredFetch("routes", "https://example.test/a",
+    { method: "POST" }, { quota: q, fetchImpl: fake, timeoutMs: 20 });
+  assert.equal(got.method, "POST", "元の init が失われています");
+  assert.ok(got.signal instanceof AbortSignal, "signal が付いていません");
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(got.signal.aborted, true, "時間切れで中止になっていません");
 });

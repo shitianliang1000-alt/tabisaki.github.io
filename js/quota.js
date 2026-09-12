@@ -8,6 +8,8 @@
 // 止めても旅程は作れます（距離からの推定と語句検索に落ちます）。
 // 精度は下がりますが、黙って課金し続けるよりはるかにましです。
 
+import { requestSignal } from "./endpoints.js";
+
 const DEFAULT_EVERY = 50;
 const KEY = "tabisaki.apiQuota";
 
@@ -147,16 +149,22 @@ export class QuotaBlockedError extends Error {
  * 数えるだけの実装にすると、確認画面を出しながら課金が続きます。
  * 止める判断と、通信の入口を同じ場所に置くのはそのためです。
  *
+ * 待つ時間にも上限を置きます。相手が黙ったままだと fetch は何分でも
+ * 待つので、ここを通る呼び出しはすべて時間切れで切れるようにします
+ * （endpoints.js の requestSignal）。
+ *
  * @param {string} kind "routes" / "gemini"
  * @param {string} url
  * @param {object} [init] fetch にそのまま渡します
- * @param {{quota?:ApiQuota, fetchImpl?:Function}} [deps] 試験用の差し替え口
+ * @param {{quota?:ApiQuota, fetchImpl?:Function, timeoutMs?:number}} [deps]
+ *        試験用の差し替え口
  */
 export async function meteredFetch(kind, url, init = {}, deps = {}) {
   const gate = deps.quota ?? quota;
   const send = deps.fetchImpl ?? globalThis.fetch;
   if (!(await gate.take(kind))) throw new QuotaBlockedError(kind);
-  return send(url, init);
+  const signal = requestSignal(init.signal, deps.timeoutMs);
+  return send(url, signal ? { ...init, signal } : init);
 }
 
 /** 使用状況を、そのまま画面に出せる一文にします。 */

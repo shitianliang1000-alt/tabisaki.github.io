@@ -2,11 +2,14 @@
 #
 # 管理画面は認証がありません。索引にも載せません。
 # （そもそも公開する場所に置かないでください。ここは念のためです）
+#
+# robots.txt はホストの根（https://shitianliang1000-alt.github.io/robots.txt）
+# のものが読まれます。プロジェクトページ（/tabisaki.github.io/ の下）に
+# 置いたこのファイルは、多くのクローラが見ません。念のための書きぶりです。
+# 自分のドメインに移したら、パスの頭の /tabisaki.github.io を外してください。
 
 User-agent: *
 Allow: /
-Disallow: /admin/
-Disallow: /server/
-Disallow: /tools/
+Disallow: /tabisaki.github.io/admin/
 
-Sitemap: /sitemap.xml
+Sitemap: https://shitianliang1000-alt.github.io/tabisaki.github.io/sitemap.xml

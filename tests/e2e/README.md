@@ -16,8 +16,7 @@
 npm i -D playwright-core          # 1度だけ
 npx playwright install chromium   # 1度だけ
 
-cd web
-python3 -m http.server 8000 &     # 別の端末でも可
+python3 -m http.server 8000 &     # リポジトリの根で。別の端末でも可
 node tests/e2e/run.mjs            # http://localhost:8000 を見にいきます
 ```
 
@@ -26,6 +25,18 @@ node tests/e2e/run.mjs            # http://localhost:8000 を見にいきます
 ```bash
 CHROME=/path/to/chrome BASE_URL=http://localhost:8000 node tests/e2e/run.mjs
 ```
+
+外へ出られない環境（CI など）では `E2E_OFFLINE=1` を付けます。
+外部への通信をブラウザの側で即座に切るので、相手が黙って応えない
+ときの数十秒×区間数を待たずに済みます。「外が使えなくても旅程が
+できるか」を見るのが目的なので、切られること自体は失敗になりません。
+
+```bash
+E2E_OFFLINE=1 node tests/e2e/run.mjs
+```
+
+GitHub Actions では `.github/workflows/test.yml` の `e2e` ジョブが、
+この形で毎回動かします。
 
 ## 見ていること
 

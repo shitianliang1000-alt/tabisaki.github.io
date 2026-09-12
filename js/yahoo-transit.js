@@ -1,4 +1,4 @@
-import { endpointFor, readProxyError } from "./endpoints.js";
+import { endpointFor, readProxyError, requestSignal } from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
 
 /**
@@ -122,9 +122,10 @@ export async function searchYahooTransit(from, to, opts = {}) {
     if (opts.pace !== false) await pace();
     let res;
     try {
+      // 中継が黙ったままでも、区間ごとに何分も待たないようにします。
       res = await fetch(url, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body, signal: opts.signal,
+        body, signal: requestSignal(opts.signal, opts.timeoutMs),
       });
     } catch (e) {
       if (opts.signal?.aborted) throw e;

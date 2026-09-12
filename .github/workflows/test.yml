@@ -17,3 +17,29 @@ jobs:
         run: for f in js/*.js sw.js; do node --check "$f"; done
       - name: Unit tests
         run: node --test tests/*.test.js
+
+  # 画面のテスト。関数が全部正しくても、ボタンが繋がっていなければ
+  # 旅程は作れません（tests/e2e/README.md）。外へは出ない前提で動かします。
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install browser
+        run: |
+          npm install --no-save playwright-core
+          npx playwright-core install --with-deps chromium
+      - name: Serve the site
+        run: |
+          python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 &
+          for i in $(seq 1 20); do
+            curl -sSf -o /dev/null http://127.0.0.1:8000/index.html && break
+            sleep 0.5
+          done
+      - name: Browser test
+        env:
+          BASE_URL: http://127.0.0.1:8000
+          E2E_OFFLINE: "1"
+        run: node tests/e2e/run.mjs
