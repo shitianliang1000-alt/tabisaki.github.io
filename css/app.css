@@ -340,7 +340,7 @@ p, li { text-wrap: pretty; }
 .or-line {
   display: flex; align-items: center; gap: 12px;
   margin: 18px 0 12px;
-  font-size: 12px; color: var(--hig-label-3);
+  font-size: 12px; color: var(--hig-label-2);
 }
 .or-line::before, .or-line::after {
   content: ""; flex: 1; height: .5px; background: var(--hig-separator);
@@ -377,8 +377,13 @@ p, li { text-wrap: pretty; }
   transform: scale(1.12);
 }
 .mix.to-classic .mix-hidden, .mix.to-hidden .mix-classic {
-  opacity: .5; transform: scale(.92);
+  transform: scale(.92);
 }
+/* 寄っていない側は、小さくするだけにします。
+   以前は側ごと opacity:.5 で薄くしていました。下に添えた「定番」「穴場」の
+   字は 11px の補助色なので、そこからさらに半分にすると 2:1 まで落ちて、
+   明るいところでは読めません。数字は22pxの太字なので、薄くしても残ります。 */
+.mix.to-classic .mix-hidden b, .mix.to-hidden .mix-classic b { opacity: .6; }
 
 /* 帯。左が定番（藍）、まん中が「知る人ぞ知る」（藍を薄めた色）、
    右が穴場（青緑）。境目が動きます。 */
@@ -505,7 +510,7 @@ p, li { text-wrap: pretty; }
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 12px; margin-bottom: 8px;
 }
-.recent-head h3 {
+.recent-head h2 {
   margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .02em;
   color: var(--hig-label-2);
 }
@@ -589,6 +594,9 @@ p, li { text-wrap: pretty; }
   text-align: center; padding: 24px; line-height: 1.8;
   color: var(--md-sys-color-on-surface-variant);
 }
+/* 地図が出せないときは、一文ぶんの高さにします。320px の空き箱を
+   置いても、読む人にできることはありません。旅程を上へ寄せます。 */
+.map.map-fallback, .home-map.map-fallback { height: auto; font-size: 14px; }
 .home-hint {
   margin: 12px 8px 4px; text-align: center;
   font-size: 12px; color: var(--md-sys-color-on-surface-variant);
@@ -739,6 +747,9 @@ p, li { text-wrap: pretty; }
   text-align: center; padding: 24px; line-height: 1.8;
   color: var(--md-sys-color-on-surface-variant);
 }
+/* 地図が出せないときは、一文ぶんの高さにします。320px の空き箱を
+   置いても、読む人にできることはありません。旅程を上へ寄せます。 */
+.map.map-fallback, .home-map.map-fallback { height: auto; font-size: 14px; }
 .map-expand {
   position: absolute; right: 12px; top: 12px; z-index: 500;
   background: var(--md-sys-color-surface-container-high);
@@ -909,7 +920,7 @@ p, li { text-wrap: pretty; }
 .variant .v-score {
   display: block; margin-top: 6px; padding-top: 6px;
   border-top: .5px solid var(--hig-separator);
-  font-size: 12px; color: var(--hig-label-3);
+  font-size: 12px; color: var(--hig-label-2);
 }
 .variant .v-badge {
   margin-left: auto; padding: 2px 9px;
@@ -956,12 +967,11 @@ p, li { text-wrap: pretty; }
   background: var(--hig-elevated);
 }
 /* 「利用できます」「未設定」を色でも示します。文字だけでも読めますが、
-   一覧をひと目で追うには色の助けがあるほうが速い。 */
+   一覧をひと目で追うには色の助けがあるほうが速い。
+   明るい配色用の緑は --hig-green そのものが濃いので、ここで上書きしません
+   （以前ここに置いていた #1E8E3E は、紙の上で 4.1:1 しかありませんでした）。 */
 .md-list-support.ok { color: var(--hig-green); }
-.md-list-support.ng { color: var(--hig-label-3); }
-@media (prefers-color-scheme: light) {
-  .md-list-support.ok { color: #1E8E3E; }
-}
+.md-list-support.ng { color: var(--hig-label-2); }
 .key-result, .keys-note, .routes-usage {
   margin: 0 0 10px; padding: 10px 14px;
   border-radius: var(--hig-r-sm);
@@ -1413,9 +1423,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .tl .sun { margin: 8px 0 0; font-size: 13px; color: var(--md-sys-color-tertiary); }
 .tl .chev {
-  position: absolute; right: 16px; bottom: 16px;
-  color: var(--md-sys-color-on-surface-variant);
+  position: absolute; right: 12px; bottom: 12px;
+  display: grid; place-items: center;
+  width: 36px; height: 36px; padding: 0;
+  border: 0; border-radius: var(--hig-r-full);
+  background: none; color: var(--md-sys-color-on-surface-variant);
+  font: inherit; font-size: 20px; line-height: 1; cursor: pointer;
+  transition: background-color var(--md-sys-motion-short) var(--md-sys-motion-standard);
 }
+.tl .chev:hover { background: var(--hig-fill); }
 .tl.transit .chev, .tl.free .chev { display: none; }
 
 .item-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
