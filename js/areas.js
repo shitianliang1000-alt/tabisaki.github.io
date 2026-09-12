@@ -81,6 +81,39 @@ const SHORT_PREF = PREFECTURES
  * @returns {Array<{term:string, kind:"macro"|"prefecture"|"region",
  *                  prefectures:string[], regionIds:string[]}>}
  */
+/**
+ * その収録エリア名を、書かれうる形に開きます。
+ *
+ * 収録は「横浜市」ですが、人は「横浜」と書きます。完全な名前しか
+ * 探していなかったので、
+ *
+ *     横浜の人が少ない静かな場所で自然を感じたい
+ *       → 江東区（東京都）
+ *
+ * となっていました。収録には 横浜みなとみらい・横浜市・横浜町 の3つが
+ * あるのに、**1つも見つかっていません**。
+ *
+ * 落とすのは「市」と「区」だけです。
+ *
+ *   横浜市 → 横浜、渋谷区 → 渋谷   … こう書く人のほうが多い
+ *   横浜町 → （落とさない）        … 青森県の町です。「横浜」と書いた人が
+ *                                    指しているのは、まず横浜市のほうです
+ *
+ * 2文字未満になるものは返しません（「港区」→「港」は、空港にも港町にも
+ * 当たってしまいます）。
+ */
+export function variantsOf(name) {
+  const full = String(name ?? "");
+  const out = [full, ...full.split(/[・]/)];
+  for (const part of [...out]) {
+    const short = part.replace(/[市区]$/, "");
+    if (short.length >= 2 && short !== part && !out.includes(short)) {
+      out.push(short);
+    }
+  }
+  return out;
+}
+
 export function detectAreas(text, kb) {
   // ローマ字で書かれた地名を、収録の表記に足してから探します。
   //
@@ -91,23 +124,58 @@ export function detectAreas(text, kb) {
   const s = withJapanesePlaces(text);
   if (!s.trim()) return [];
   const found = [];
-  const seen = new Set();
+  const seen = new Map();
 
+  // 同じ地名に当たるエリアは、**まとめます**。
+  //
+  // ここは2つ目以降を捨てていました。「横浜」には 横浜市 と
+  // 横浜みなとみらい の両方が当たるのに、先に見つかったほうだけが
+  // 残ります。収録が細かくなるほど、取りこぼしが増えます
+  // （大阪は「大阪・ミナミ」と「大阪市」に分かれています）。
   const push = (term, kind, prefectures, regionIds, groups = null) => {
-    if (seen.has(term)) return;
-    seen.add(term);
-    found.push({ term, kind, prefectures, regionIds, groups });
+    const had = seen.get(term);
+    if (had) {
+      for (const p of prefectures) {
+        if (!had.prefectures.includes(p)) had.prefectures.push(p);
+      }
+      for (const id of regionIds ?? []) {
+        if (!had.regionIds.includes(id)) had.regionIds.push(id);
+      }
+      return;
+    }
+    const entry = { term, kind, prefectures: [...prefectures],
+                    regionIds: [...(regionIds ?? [])], groups };
+    seen.set(term, entry);
+    found.push(entry);
   };
 
   // 収録エリア名（「箱根」「道後」など）がいちばん具体的なので先に見る
   for (const r of kb?.regions ?? []) {
-    for (const name of [r.name, ...String(r.name).split(/[・]/)]) {
+    for (const name of variantsOf(r.name)) {
       if (name.length >= 2 && s.includes(name)) {
         push(name, "region", [r.prefecture], [r.id]);
         break;
       }
     }
   }
+  // 同じ地名で始まるエリアも、同じ県内なら一緒に見ます。
+  //
+  // 「横浜」には 横浜市 が当たりますが、収録にはもう1つ
+  // 「横浜みなとみらい」（77スポット）があります。名前の頭は同じでも
+  // 完全一致ではないので、これまでは外れていました。**収録を細かく
+  // するほど、書いた地名から遠ざかる**という妙なことになります。
+  //
+  // 県をそろえるのは、青森県の「横浜町」を巻き込まないためです。
+  // 「横浜」と書いた人が指しているのは、まず神奈川のほうです。
+  for (const hit of found.filter((f) => f.kind === "region")) {
+    for (const r of kb?.regions ?? []) {
+      if (hit.regionIds.includes(r.id)) continue;
+      if (!String(r.name).startsWith(hit.term)) continue;
+      if (!hit.prefectures.includes(r.prefecture)) continue;
+      hit.regionIds.push(r.id);
+    }
+  }
+
   // 決まった言い回し（「3大都市」「日本三景」）は、指す先が決まっています。
   // 広い地方名より先に見ます。「三大都市」を「都市」の一般語として
   // 扱うと、結局は点の高い順に戻ってしまいます。

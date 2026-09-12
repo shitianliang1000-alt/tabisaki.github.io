@@ -79,10 +79,25 @@ p, li { text-wrap: pretty; }
 .layout {
   display: grid;
   grid-template-columns: minmax(360px, 440px) 1fr;
+  /* iOS Safari では 100vh が「ツールバーが隠れているときの高さ」です。
+     ツールバーが出ている状態だと、その高さぶんだけ画面からはみ出し、
+     **いちばん下が browser の帯の裏に入って読めません**（実際に
+     「旅程をつくる」の下の説明文と、旅程の最後の行が隠れていました）。
+     dvh は、いま見えている高さです。読めない部分が出ません。 */
   height: 100vh;
+  height: 100dvh;
   gap: 0;
 }
-.pane { min-width: 0; min-height: 0; overflow-y: auto; }
+.pane {
+  min-width: 0; min-height: 0; overflow-y: auto;
+  /* 帯の裏に最後の行が入らないよう、下を空けます。
+     スクロールできる面なので、余白ぶんは指で送れば読めます。 */
+  padding-bottom: env(safe-area-inset-bottom);
+  /* 指で送ったときに、面の中だけが動くようにします。端まで来たときに
+     ページ全体が引っぱられると、下の帯が出たり消えたりして落ち着きません。 */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
 
 /* 縦の flex にはしません。中身が縦にあふれると、flex は各要素を
    縮めにいくため、横スクロールのレール（高さ92px）が潰れました。 */
@@ -726,7 +741,10 @@ p, li { text-wrap: pretty; }
   box-shadow: var(--md-sys-elevation-1);
   color: var(--md-sys-color-on-surface);
 }
-.result.map-full .map { height: calc(100vh - 140px); }
+.result.map-full .map {
+  height: calc(100vh - 140px);
+  height: calc(100dvh - 140px);
+}
 .result.map-full .itin { max-height: 240px; overflow-y: auto; }
 
 .itin { padding: 20px; }
@@ -1679,7 +1697,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   .map { height: 260px; margin: 12px 12px 0; }
   .itin { padding: 16px 12px 40px; }
   .tl .time { width: 54px; }
-  .result.map-full .map { height: 60vh; }
+  .result.map-full .map { height: 60vh; height: 60dvh; }
   .result.map-full .itin { max-height: none; }
 }
 
