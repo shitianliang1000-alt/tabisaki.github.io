@@ -113,7 +113,8 @@ AI                     プログラム
 .
 ├── index.html                 # アプリ本体
 ├── icon.svg                   # アプリアイコン
-├── og.svg                     # SNS共有時のOG画像
+├── og.svg                     # SNS共有時のOG画像（元データ）
+├── og.png                     # og.svg を 1200×630 に焼き出したもの（共有先が読むのはこちら）
 ├── manifest.webmanifest       # PWA用マニフェスト
 ├── robots.txt
 ├── sitemap.xml
@@ -344,11 +345,13 @@ PROXY_URL
 
 ## 🚀 公開する（GitHub Pages）
 
-`.github/workflows/pages.yml` が、`main` への push ごとにリポジトリの中身をそのまま GitHub Pages へ配置します。ビルド工程はありません。
+`.github/workflows/pages.yml` が、`main` への push ごとに GitHub Pages へ配置します。ビルド工程はありませんが、**公開するのはブラウザが読むものだけ**です（`index.html`・`css/`・`js/`・`kb/`・`admin/` と、アイコン・manifest・robots・sitemap・sw.js）。`tests/`・`tools/`・`server/`・`data/` や README は公開されません。公開に要るファイルを増やしたら、`pages.yml` の「Stage site files」にも足してください。
 
 初回だけ、リポジトリの **Settings → Pages → Source** を「GitHub Actions」にしてください。
 
-`.github/workflows/test.yml` は push / pull request ごとに単体テストを走らせます。
+公開する URL を変えたら、`index.html` の OGP（`og:url` / `og:image` / canonical）と `sitemap.xml`・`robots.txt` の絶対 URL も合わせて書き換えてください。
+
+`.github/workflows/test.yml` は push / pull request ごとに単体テストと、ブラウザを使う E2E テスト（外へは出ない設定）を走らせます。
 
 ## ▶️ ローカルで動かす
 
@@ -395,6 +398,7 @@ npm i -D playwright-core
 npx playwright install chromium
 python3 -m http.server 8000 &
 node tests/e2e/run.mjs
+E2E_OFFLINE=1 node tests/e2e/run.mjs   # 外へ出られない環境では、こちら
 ```
 
 詳細は [tests/e2e/README.md](./tests/e2e/README.md) を参照してください。

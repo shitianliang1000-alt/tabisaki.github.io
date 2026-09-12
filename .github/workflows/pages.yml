@@ -24,13 +24,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 公開するのは、ブラウザが読むものだけです。
+      #
+      # リポジトリをそのまま上げると、tests/ の固定データ、tools/ の
+      # Python、server/ の中継の実装、README や API_KEYS.md まで
+      # 同じ URL の下に公開されます。ブラウザが要るのは下の一覧だけで、
+      # それ以外は置く理由がありません（配信量も、探られる面も増えます）。
+      - name: Stage site files
+        run: |
+          set -eu
+          mkdir -p dist
+          cp index.html icon.svg og.svg og.png manifest.webmanifest \
+             robots.txt sitemap.xml sw.js dist/
+          cp -r css js kb admin dist/
+          # 作業の残骸（エディタの .orig など）は入れません
+          find dist -type f \( -name '*.orig' -o -name '*.rej' -o -name '*.patch' \) -delete
+          touch dist/.nojekyll
+          du -sh dist
+          find dist -type f | sort
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: dist
 
       - name: Deploy to GitHub Pages
         id: deployment

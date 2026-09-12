@@ -65,6 +65,28 @@ const page = await (await browser.newContext({
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));
 
+// 外へ出られない環境（CI のサンドボックスなど）では、外の相手を
+// 待たずに切ります。相手が黙って応えないと、切断まで1件ごとに数十秒
+// かかり、旅程1本に何分も待つことになります。ここで見たいのは
+// 「外が使えないときも旅程ができるか」なので、届かないことは即座に
+// 分からせます。E2E_OFFLINE=1 で有効になります。
+if (process.env.E2E_OFFLINE) {
+  const origin = new URL(BASE).origin;
+  await page.route((u) => u.origin !== origin,
+    (route) => route.abort("connectionrefused"));
+}
+
+// 「もう少し詳しく調べますか」には、利用者として「詳しく調べる」と
+// 答え続けます。外へ出られない環境では失敗した呼び出しも数に入るので、
+// 旅程を数本つくると確認が出ます。出たままだと、後ろの操作が全部
+// 「ダイアログに遮られました」で落ちます。
+const answering = setInterval(() => {
+  page.evaluate(() => {
+    const dlg = document.getElementById("quota-dialog");
+    if (dlg?.open) document.getElementById("quota-go")?.click();
+  }).catch(() => {});
+}, 500);
+
 console.log(`旅さき — 画面のテスト（${BASE}）\n`);
 
 await page.goto(`${BASE}/index.html`, { waitUntil: "domcontentloaded" });
@@ -120,9 +142,13 @@ await check("どちらへ寄っているかが、数で分かる", async () => {
   await page.$eval("#hidden-bias", (e) => {
     e.value = 80; e.dispatchEvent(new Event("input"));
   });
+  // 「定番 / 知る人ぞ知る / 穴場」の3つに割ります。10か所行くとしたら
+  // 何対何対何か、が画面に出ます。
   const classic = await page.$eval("#mix-classic-n", (e) => Number(e.textContent));
+  const known = await page.$eval("#mix-known-n", (e) => Number(e.textContent));
   const hidden = await page.$eval("#mix-hidden-n", (e) => Number(e.textContent));
-  assert(classic + hidden === 10, `${classic} + ${hidden} が10になりません`);
+  assert(classic + known + hidden === 10,
+    `${classic} + ${known} + ${hidden} が10になりません`);
   assert(hidden > classic, "穴場寄りにしたのに、定番のほうが多い表示です");
   // 帯の向きが数字と合っていること（以前は逆を向いていました）
   const w = await page.$eval("#mix-fill", (e) => parseFloat(e.style.width));
@@ -130,20 +156,42 @@ await check("どちらへ寄っているかが、数で分かる", async () => {
     `定番 ${classic} 割なのに、帯が ${w}% です`);
 });
 
-await check("1日に動ける時間を選べる", async () => {
-  const dial = await page.$("#day-dial");
-  assert(dial, "時間のダイヤルが見つかりません");
-  await page.$eval("#day-hours", (e) => {
-    e.value = 6; e.dispatchEvent(new Event("input"));
+await check("1日のうち、動く時間帯を選べる", async () => {
+  // 長さ（ダイヤル）ではなく、朝は何時から・夜は何時までを時刻で聞きます。
+  const start = await page.$("#day-start");
+  const end = await page.$("#day-end");
+  assert(start && end, "時間帯の入力が見つかりません");
+  await page.$eval("#day-start", (e) => {
+    e.value = "09:00"; e.dispatchEvent(new Event("input"));
   });
-  const text = await page.$eval("#day-dial", (e) => e.textContent);
-  assert(text.includes("6"), `ダイヤルが追随していません: ${text}`);
+  await page.$eval("#day-end", (e) => {
+    e.value = "15:00"; e.dispatchEvent(new Event("input"));
+  });
+  const text = await page.$eval("#day-hours-help", (e) => e.textContent);
+  assert(text.includes("6時間"), `説明が追随していません: ${text}`);
+
+  // 終わりが始めより前なら、そう言うこと（黙って組むと夜中の旅程になります）。
+  await page.$eval("#day-end", (e) => {
+    e.value = "08:00"; e.dispatchEvent(new Event("input"));
+  });
+  const warn = await page.$eval("#day-hours-help", (e) => e.textContent);
+  assert(/後に/.test(warn), `逆順なのに注意が出ません: ${warn}`);
 });
 
 await check("何をしてくれるサイトかが書いてある", async () => {
-  const pitch = await page.$eval(".pitch", (e) => e.textContent.trim())
-    .catch(() => "");
-  assert(pitch.length > 10, "キャッチコピーがありません");
+  // 見出しは画面に出しません（条件の入力が下がるため）。代わりに、
+  // 結果が出る場所に「つくりかた」を置いて、何が返ってくるかを先に
+  // 見せます。文書としての h1 も残っていること。
+  const h1 = await page.$eval("h1", (e) => e.textContent.trim()).catch(() => "");
+  assert(h1.includes("旅さき"), "h1 がありません");
+  const steps = await page.$$eval("#home-hint li", (els) =>
+    els.map((e) => e.textContent.trim()));
+  assert(steps.length >= 3, `つくりかたが ${steps.length} 段しかありません`);
+  assert(steps.some((t) => t.includes("旅程")),
+    `何が出てくるのか書かれていません: ${steps.join(" / ")}`);
+  const visible = await page.$eval("#home-hint",
+    (e) => e.getBoundingClientRect().height > 0);
+  assert(visible, "つくりかたが隠れています");
 });
 
 await check("開いただけでは、現在地を聞かない", async () => {
@@ -160,7 +208,8 @@ await check("開いただけでは、現在地を聞かない", async () => {
 });
 
 // カードを1枚選ぶだけで旅程が作れること。
-await page.$eval("#day-hours", (e) => { e.value = 9; e.dispatchEvent(new Event("input")); });
+await page.$eval("#day-start", (e) => { e.value = "09:00"; e.dispatchEvent(new Event("input")); });
+await page.$eval("#day-end", (e) => { e.value = "18:00"; e.dispatchEvent(new Event("input")); });
 await page.$eval("#hidden-bias", (e) => { e.value = 40; e.dispatchEvent(new Event("input")); });
 await page.click(".mood");
 await page.click("#make-plan");
@@ -258,6 +307,9 @@ await check("共有と印刷の情報が入っている（OGP）", async () => {
   assert(meta.title.includes("旅さき"), "題に名前が入っていません");
   assert(meta.desc.length > 20, "説明文がありません");
   assert(meta.ogTitle && meta.ogImage, "共有カードの指定がありません");
+  // 相対パスの絵は、貼った先が読みに来られません。
+  assert(/^https:\/\//.test(meta.ogImage), `og:image が絶対URLではありません: ${meta.ogImage}`);
+  assert(!/\.svg$/i.test(meta.ogImage), "og:image が SVG です（共有先が画像として扱いません）");
   assert(meta.icon, "アイコンの指定がありません");
   assert(meta.manifest, "manifest の指定がありません");
 });
@@ -315,6 +367,7 @@ await check("ページの例外が出ていない", () => {
   assert(pageErrors.length === 0, pageErrors.join(" / "));
 });
 
+clearInterval(answering);
 await browser.close();
 
 console.log(results.join("\n"));
