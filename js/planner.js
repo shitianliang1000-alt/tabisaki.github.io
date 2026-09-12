@@ -20,6 +20,11 @@ const nextId = () => `it-${++seq}`;
 
 /** これより短い待ちは、「自由時間」の行として立てません。 */
 const MIN_FREE_MIN = 20;
+/**
+ * 予定と予定のあいだが、これ以上あいたら「自由時間」として書きます。
+ * 30分の空きは移動の余裕ですが、2時間半は過ごしかたの話です。
+ */
+const MIN_IDLE_MIN = 60;
 
 /**
  * 移動の項目に、公共交通の中身（路線・乗換・待ち時間）を足します。
@@ -226,6 +231,22 @@ export function buildItinerary(input) {
     for (const entry of dayEntries) {
       if (entry.meal) {
         const m = entry.meal;
+        // 予定と予定のあいだが空くなら、空いていると書きます。
+        //
+        // 「14:59に見学が終わって、次は17:30の夕食」。そのあいだの
+        // 2時間31分は、何も書かれていませんでした。**書いていない時間は、
+        // 旅程ではありません。** 近くに足せる場所があれば足しますが
+        // （pipeline.js の fillEmptyDays）、足しきれないぶんは、
+        // 自由に使える時間として置きます。黙って空けるより役に立ちます。
+        const idle = Math.round((m.start - prevEnd) / 60000);
+        if (idle >= MIN_IDLE_MIN) {
+          items.push({
+            id: nextId(), kind: "free", start: new Date(prevEnd),
+            end: new Date(m.start), title: "自由時間",
+            detail: freeTimeHint(region, idle),
+            costYen: 0, reason: "次の予定まで時間があるため",
+          });
+        }
         items.push(mealItem(m.start, m.end,
           m.kind === "dinner" ? "夕食" : "昼食", region));
         totalCost += TUNING.mealYen;

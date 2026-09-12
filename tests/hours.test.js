@@ -248,3 +248,32 @@ test("休みの曜日が決まっていない分類には、注意を出さな�
   assert.equal(hoursFor({ category: "神社" }, d(MON)).riskyDay, false);
   assert.equal(hoursFor({ category: "公園" }, d(MON)).riskyDay, false);
 });
+
+// --- 夜景は、夜に ------------------------------------------------------------
+//
+// 「函館山からの函館市街地の夜景」が 10:37 に入っていました。時刻表も
+// 営業時間も間違っていません。ただ、朝に見る夜景はありません。
+
+test("夜景の場所は、日が暮れてからの時間帯にする", () => {
+  const night = { id: "n", name: "函館山からの函館市街地の夜景",
+                  category: "町並み", lat: 41.76, lng: 140.70 };
+  const day = hoursFor(night, new Date("2026-09-01T09:00"));
+  assert.ok(day.open, "いつでも見られる扱いのままです");
+  assert.ok(day.open.getHours() >= 18,
+    `${day.open.getHours()}時から開く扱いになっています`);
+});
+
+test("収録に時間が書いてあれば、そちらを使う", () => {
+  const night = { id: "n", name: "◯◯の夜景", category: "展望台",
+                  lat: 35.0, lng: 135.0, hours: { open: 10, close: 21 } };
+  const day = hoursFor(night, new Date("2026-09-01T09:00"));
+  assert.equal(day.open.getHours(), 10,
+    "書いてある開館時刻を、推し量りで上書きしています");
+});
+
+test("夜景でない場所は、これまでどおり", () => {
+  const plain = { id: "p", name: "函館山展望台", category: "展望台",
+                  lat: 41.76, lng: 140.70 };
+  const day = hoursFor(plain, new Date("2026-09-01T09:00"));
+  assert.ok(!day.open || day.open.getHours() < 18);
+});

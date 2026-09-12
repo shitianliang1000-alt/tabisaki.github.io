@@ -734,7 +734,7 @@ function fillEmptyDays(visits, opt) {
     if (!end) continue;                       // 立ち寄りの無い日は別の話です
     const limit = atHour(end, dayEndHour);
     const freeMin = Math.round((limit - end) / 60000);
-    if (freeMin <= MAX_GAP_MIN) continue;
+    if (freeMin <= FILL_GAP_MIN) continue;
 
     // 空いた時間を、1か所あたり90分（見学＋移動）で割ります。
     const want = Math.min(4, Math.floor(freeMin / 90));
@@ -766,7 +766,17 @@ function fillEmptyDays(visits, opt) {
 }
 
 // これ以上あくと、その日は「予定のある日」とは言えません。
+// ここを超えるとAIに案を作り直させます（聞き直すので、しきい値は高め）。
 const MAX_GAP_MIN = 300;
+/**
+ * 日の終わりにこれ以上あいたら、近くから足します。
+ *
+ * 作り直しと違って、足すのは手元の計算だけです。聞き直さないので、
+ * もっと早い段階で動かして構いません。300分にそろえていたので、
+ * 「13:34に見学が終わって、次は17:30の夕食」（296分）が、ちょうど
+ * すり抜けていました。2時間の空白は、予定表としては空白です。
+ */
+const FILL_GAP_MIN = 120;
 // 開くまでの待ちが、これを超える旅程は作り直します。
 const MAX_FREE_MIN = 20;
 

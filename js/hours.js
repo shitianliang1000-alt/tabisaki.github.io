@@ -37,6 +37,21 @@ const LAST_ENTRY_MIN = {
 
 const DEFAULT_LAST_ENTRY_MIN = 30;
 
+/** 夜景・ライトアップの時間帯。日が暮れてから、遅くまで。 */
+const NIGHT_FROM = 18;
+const NIGHT_TO = 22;
+
+/**
+ * 暗くなってからでないと意味のない場所か。
+ *
+ * 名前で見ます。分類（展望台・町並み）では分かりません。同じ展望台でも、
+ * 昼に登る場所と夜景の場所があるからです。
+ */
+export function isNightOnly(spot) {
+  const name = String(spot?.name ?? "");
+  return /夜景|ライトアップ|イルミネーション|ナイトクルーズ/.test(name);
+}
+
 /** その分類で、閉館の何分前に入場が締まるか。 */
 export function lastEntryOffsetFor(category) {
   return LAST_ENTRY_MIN[category] ?? DEFAULT_LAST_ENTRY_MIN;
@@ -134,6 +149,19 @@ export function hoursFor(spot, date, pace = "balanced") {
     openHour = byDay.open ?? openHour;
     closeHour = byDay.close ?? closeHour;
     if (byDay.lastEntry !== undefined) lastEntryHour = byDay.lastEntry;
+  }
+
+  // 暗くなってからでないと意味のない場所は、夜に回します。
+  //
+  // 「函館山からの函館市街地の夜景」が、10:37 に入っていました。時刻表も
+  // 営業時間も間違っていません。ただ、**朝に見る夜景はありません**。
+  // 名前がそう言っている場所だけを、日が暮れてからの時間帯にします。
+  // 収録に時間が書いてあるなら、そちらが勝ちます（そこまでは分かって
+  // 書かれた値なので、推し量りで上書きしません）。
+  if (isNightOnly(spot) && h.open === undefined && h.close === undefined) {
+    openHour = Math.max(openHour, NIGHT_FROM);
+    closeHour = Math.max(closeHour, NIGHT_TO) === 24 ? NIGHT_TO
+      : Math.max(closeHour, NIGHT_TO);
   }
 
   const alwaysOpen = openHour === 0 && closeHour === 24;
