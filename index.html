@@ -171,6 +171,13 @@
         現在地は、いちばん近い駅を出発地に入れるためだけに使います。
         どこにも送りません。</p>
 
+      <!-- 出発日の近道。時刻と、出発から帰着までの日数はそのまま保ちます。 -->
+      <div class="chip-set date-presets" role="group" aria-label="出発日の近道">
+        <button type="button" class="md-chip md-chip--assist md-state" data-day-preset="today">今日</button>
+        <button type="button" class="md-chip md-chip--assist md-state" data-day-preset="tomorrow">明日</button>
+        <button type="button" class="md-chip md-chip--assist md-state" data-day-preset="saturday">今週末（土）</button>
+        <button type="button" class="md-chip md-chip--assist md-state" data-day-preset="sunday">今週末（日）</button>
+      </div>
       <div class="when-row">
         <label class="md-field">
           <span class="md-field-label">出発</span>

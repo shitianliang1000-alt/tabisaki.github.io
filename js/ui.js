@@ -14,6 +14,7 @@ import { VARIANTS } from "./variants.js";
 import { qualityOf, spotFit, tripFit } from "./fit.js";
 import { currentStep } from "./today.js";
 import { photoFor } from "./photos.js";
+import { itineraryText } from "./share.js";
 
 const ICON = {
   transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕",
@@ -151,7 +152,7 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       + "に保存した旅程です。営業時間や混雑は、そのときのものです。");
     const box = el("section", { class: "panel saved-note" }, line);
     if (itin.onRebuild) {
-      const go = el("button", { type: "button", class: "adjust-chip" },
+      const go = el("button", { type: "button", class: "md-chip md-chip--assist md-state" },
                     "いまの条件で作り直す");
       go.addEventListener("click", () => itin.onRebuild());
       box.append(go);
@@ -592,7 +593,8 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       el("h3", {}, "この旅程を調整する"),
       el("div", { class: "adjust-row" },
         chips.map((c) => {
-          const b = el("button", { type: "button", class: "adjust-chip",
+          const b = el("button", { type: "button",
+                                   class: "md-chip md-chip--assist md-state",
                                    title: c.note }, c.label);
           b.addEventListener("click", () => handlers.onAdjust(c.key));
           return b;
@@ -606,16 +608,21 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
   // 旅程そのものは、これまでと同じエンジンが組み直します。
   if (handlers.onEdit) {
     const box = el("section", { class: "panel talk" });
+    // 入力欄と押すボタンは、条件の画面と同じ部品にします。
+    // 素のブラウザ部品のままだと、ここだけ別のアプリのように見えます。
     const input = el("input", {
-      type: "text", id: "edit-text",
+      type: "text", id: "edit-text", class: "md-field-input",
       placeholder: "例）もっとゆっくり／もう1泊増やして／松山城は外して",
-      autocomplete: "off",
+      autocomplete: "off", "aria-label": "どう直したいか",
     });
+    const field = el("label", { class: "md-field" }, input);
     // 直前に言葉で直した内容があれば、組み直したあとも残します。
     // 何を言ってこうなったのかが分からないと、次の一手が打てません。
     const out = el("p", { class: "talk-out" }, itin.editNote ?? "");
     out.hidden = !itin.editNote;
-    const send = el("button", { type: "button", class: "talk-go" }, "直す");
+    const send = el("button", { type: "button",
+                                class: "md-btn md-btn--filled md-state talk-go" },
+                    el("span", {}, "直す"));
     const go = async () => {
       const text = input.value.trim();
       if (!text) return;
@@ -639,7 +646,7 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     });
     box.append(
       el("h3", {}, "言葉で直す"),
-      el("div", { class: "talk-row" }, input, send),
+      el("div", { class: "talk-row" }, field, send),
       out,
       el("p", { class: "fine" },
         "書かれたことは「条件の書き換え」に翻訳されるだけで、"
@@ -725,20 +732,51 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     container.append(more);
   }
 
+  // 旅程を文字で渡す。同行者に送るのは LINE やメールなので、
+  // いま画面に出ているとおりの時刻と場所を、そのまま貼れる形にします。
+  // 共有シート（navigator.share）がある端末ではそれを開き、無ければ
+  // クリップボードに入れます。
+  const copyBtn = el("button", {
+    type: "button", class: "md-btn md-btn--filled md-state share-text",
+  }, el("span", {}, "旅程を送る / コピー"));
+  copyBtn.addEventListener("click", async () => {
+    const text = itineraryText(itin);
+    const label = copyBtn.querySelector("span");
+    try {
+      if (navigator.share && (!navigator.canShare || navigator.canShare({ text }))) {
+        await navigator.share({ title: itin.title ?? "旅程", text });
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      label.textContent = "コピーしました";
+    } catch (e) {
+      // 共有シートを閉じただけなら、何も言いません。
+      if (e?.name === "AbortError") return;
+      label.textContent = "コピーできませんでした";
+    }
+    setTimeout(() => { label.textContent = "旅程を送る / コピー"; }, 2600);
+  });
+
   container.append(...[el("div", { class: "actions" },
+    copyBtn,
     handlers.onSave
-      ? el("button", { class: "ghost keep", onClick: (e) => {
+      ? el("button", { type: "button", class: "md-btn md-btn--tonal md-state keep",
+                       onClick: (e) => {
           handlers.onSave();
-          e.currentTarget.textContent = "保存しました";
+          e.currentTarget.querySelector("span").textContent = "保存しました";
           e.currentTarget.disabled = true;
-        } }, "この旅を保存する")
+        } }, el("span", {}, "この旅を保存する"))
       : null,
-    el("button", { class: "ghost", onClick: handlers.onBack },
-      "条件を変えてつくり直す"),
-    el("button", { class: "ghost", onClick: () => window.print() },
-      "印刷 / PDFで保存"),
+    el("button", { type: "button", class: "md-btn md-btn--tonal md-state",
+                   onClick: handlers.onBack },
+      el("span", {}, "条件を変えてつくり直す")),
+    el("button", { type: "button", class: "md-btn md-btn--outlined md-state",
+                   onClick: () => window.print() },
+      el("span", {}, "印刷 / PDFで保存")),
     handlers.onShare
-      ? el("button", { class: "ghost", onClick: handlers.onShare }, "この条件を共有")
+      ? el("button", { type: "button", class: "md-btn md-btn--outlined md-state",
+                       onClick: handlers.onShare },
+          el("span", {}, "条件のリンクを共有"))
       : null)].filter(Boolean));
 }
 

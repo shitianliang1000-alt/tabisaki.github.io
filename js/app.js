@@ -232,6 +232,45 @@ function shiftPastDates() {
   updateWindowHelp();
 }
 
+/**
+ * 出発日を「今日」「明日」「今週末」に飛ばします。
+ *
+ * 時刻はいま入っているものを保ちます（9:00 発なら 9:00 発のまま）。
+ * 帰着は、出発からの日数を保って一緒に動かします。1泊2日で組んで
+ * いた人が「明日」を押して日帰りになる、ということが無いように。
+ *
+ * @param {"today"|"tomorrow"|"saturday"|"sunday"} preset
+ * @param {Date} [now]
+ */
+function applyDayPreset(preset, now = new Date()) {
+  const dep = $("#depart-at"), arr = $("#arrive-by");
+  const d0 = new Date(dep.value), d1 = new Date(arr.value);
+  const target = new Date(now); target.setHours(0, 0, 0, 0);
+  if (preset === "tomorrow") target.setDate(target.getDate() + 1);
+  if (preset === "saturday" || preset === "sunday") {
+    const want = preset === "saturday" ? 6 : 0;
+    // 「今週末」は、いちばん近い土曜・日曜です。今日が土曜なら今日。
+    const ahead = (want - target.getDay() + 7) % 7;
+    target.setDate(target.getDate() + ahead);
+  }
+  const h0 = Number.isFinite(d0.getTime()) ? [d0.getHours(), d0.getMinutes()] : [9, 0];
+  const nextDep = new Date(target); nextDep.setHours(h0[0], h0[1], 0, 0);
+  dep.value = localInput(nextDep);
+  if (Number.isFinite(d0.getTime()) && Number.isFinite(d1.getTime())) {
+    const start0 = new Date(d0); start0.setHours(0, 0, 0, 0);
+    const start1 = new Date(d1); start1.setHours(0, 0, 0, 0);
+    const spanDays = Math.max(0, Math.round((start1 - start0) / 86400000));
+    const nextArr = new Date(target); nextArr.setDate(nextArr.getDate() + spanDays);
+    nextArr.setHours(d1.getHours(), d1.getMinutes(), 0, 0);
+    arr.value = localInput(nextArr);
+  } else {
+    const nextArr = new Date(target); nextArr.setHours(19, 0, 0, 0);
+    arr.value = localInput(nextArr);
+  }
+  updateWindowHelp();
+  saveConditions();
+}
+
 /** <input type="datetime-local"> が読める形。UTC にはしません。 */
 function localInput(d) {
   const p = (n) => String(n).padStart(2, "0");
@@ -1140,6 +1179,18 @@ function wireForm() {
     });
   }
   $("#use-here").addEventListener("click", locateHere);
+  for (const chip of document.querySelectorAll("[data-day-preset]")) {
+    chip.addEventListener("click", () => applyDayPreset(chip.dataset.dayPreset));
+  }
+  // 書いた分だけ欄が伸びます。3行の枠に5行書くと、上が隠れて
+  // 自分が何を書いたか読めません。
+  const note = $("#note");
+  const grow = () => {
+    note.style.height = "auto";
+    note.style.height = `${Math.min(320, note.scrollHeight)}px`;
+  };
+  note.addEventListener("input", grow);
+  grow();
   $("#depart-at").addEventListener("change", updateWindowHelp);
   $("#depart-place").addEventListener("change", updateWindowHelp);
   $("#arrive-by").addEventListener("change", updateWindowHelp);
@@ -1355,6 +1406,17 @@ function unpack(code) {
 async function shareConditions() {
   const packed = pack(JSON.stringify(formState()));
   const url = `${location.origin}${location.pathname}?p=${packed}`;
+  // 共有シートのある端末（携帯）では、それを開きます。コピーして
+  // LINE を開いて貼る、の3手が1手になります。
+  if (navigator.share && (!navigator.canShare || navigator.canShare({ url }))) {
+    try {
+      await navigator.share({ title: "旅さき — この条件で旅程をつくる", url });
+      return;
+    } catch (e) {
+      if (e?.name === "AbortError") return;
+      // 共有できない端末は、下のコピーに落ちます
+    }
+  }
   try {
     await navigator.clipboard.writeText(url);
     setBadge("条件のリンクをコピーしました");
