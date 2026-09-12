@@ -22,6 +22,60 @@ const GEMINI_ROOT = "https://generativelanguage.googleapis.com/v1beta";
 const ROUTES_URL =
   "https://routes.googleapis.com/directions/v2:computeRoutes";
 
+/**
+ * 応答を待つ上限（ミリ秒）。
+ *
+ * ブラウザの fetch は、相手が黙ったままだと**何分でも**待ちます。
+ * 旅行者が使うのは移動中の回線で、つながったまま何も返ってこない、
+ * という壊れかたをします。旅程1本で AI を数回、乗換を数十回聞くので、
+ * 1回ごとに数分待つと、画面は「組み立てています…」のまま止まって
+ * 見えます。
+ *
+ * 中継の側は上流を30秒で見切ります（server/worker.js）。ここはその外側、
+ * **中継そのものが応えないとき**の歯止めです。AI の生成は、検索を伴うと
+ * 30秒近くかかることがあるので、それより十分に長くしてあります。
+ */
+export const REQUEST_TIMEOUT_MS = 60_000;
+
+/**
+ * 呼び出し側の中止（signal）と、時間切れを1つの signal にまとめます。
+ *
+ * AbortSignal.any は新しいブラウザにしか無いので、自前で束ねます。
+ * 時間切れは TimeoutError として届き、通信の失敗と同じ扱いになります
+ * （呼ぶ側は「届かなかった」として目安に落ちるか、やり直します）。
+ *
+ * @param {AbortSignal|null|undefined} signal 呼び出し側の中止
+ * @param {number} [ms]
+ * @returns {AbortSignal|undefined}
+ */
+export function requestSignal(signal, ms = REQUEST_TIMEOUT_MS) {
+  if (!(Number.isFinite(ms) && ms > 0) || typeof AbortController !== "function") {
+    return signal ?? undefined;
+  }
+  const ctrl = new AbortController();
+  const onAbort = () => ctrl.abort(signal.reason);
+  if (signal) {
+    if (signal.aborted) {
+      ctrl.abort(signal.reason);
+      return ctrl.signal;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
+  const timer = setTimeout(() => {
+    // 旅程1本で同じ signal を何十回も使うので、聞き終えたら外します。
+    signal?.removeEventListener("abort", onAbort);
+    const reason = typeof DOMException === "function"
+      ? new DOMException(`応答がありませんでした（${Math.round(ms / 1000)}秒）`,
+                         "TimeoutError")
+      : new Error("timeout");
+    ctrl.abort(reason);
+  }, ms);
+  // Node では、残ったタイマーがプロセスの終了を止めます。
+  timer.unref?.();
+  ctrl.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+  return ctrl.signal;
+}
+
 /** プロキシ経由かどうか。 */
 export function usingProxy(cfg = {}) {
   return Boolean(String(cfg.proxyUrl ?? "").trim());

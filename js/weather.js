@@ -16,6 +16,8 @@
 // 課金されないので quota.js のゲートは通していません。
 // そのかわり、上の3点で呼ぶ回数そのものを抑えています。
 
+import { requestSignal } from "./endpoints.js";
+
 const KEY = "tabisaki.weather";
 const API = "https://api.open-meteo.com/v1/forecast";
 
@@ -94,7 +96,7 @@ export async function forecastFor(at, date, opts = {}) {
   let value;
   try {
     const send = opts.fetchImpl ?? globalThis.fetch;
-    const res = await send(url, { signal: opts.signal });
+    const res = await send(url, { signal: requestSignal(opts.signal, 20_000) });
     if (!res?.ok) {
       return { ok: false, reason: `天気を取得できませんでした（${res?.status}）。` };
     }
