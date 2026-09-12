@@ -137,6 +137,24 @@ test("旅程そのものが保存され、日時も戻る", () => {
   assert.equal(item.start.getHours(), 10);
 });
 
+test("日ごとの「その日」も、Date に戻る", () => {
+  // planner.js は days[].date に Date を置きます。保存すると文字列になり、
+  // 戻さないまま開くと、日付の見出し（toLocaleDateString）で落ちます。
+  const store = fakeStore();
+  const itin = {
+    title: "京都",
+    days: [{ key: 1, date: new Date("2026-09-15T09:00"),
+             items: [{ kind: "spot", title: "清水寺",
+                       start: new Date("2026-09-15T10:00"),
+                       end: new Date("2026-09-15T11:00") }] }],
+  };
+  addHistory({ ...entry("京都"), itin }, store);
+  const back = thawItinerary(loadHistory(store)[0].itin);
+  assert.ok(back.days[0].date instanceof Date,
+    `その日が戻っていません: ${back.days[0].date}`);
+  assert.equal(back.days[0].date.getDate(), 15);
+});
+
 test("説明文の中の日付を、日時に変えてしまわない", () => {
   const back = thawItinerary({
     days: [{ items: [{ detail: "2026-09-15 に改装しました",
