@@ -256,6 +256,14 @@ export function buildItinerary(input) {
         // 調べた便が、この行の時刻に合っているか。合っていないなら
         // 発着時刻は出しません（間違った時刻より「分かりません」）。
         const fits = legFitsRow(leave, leg);
+        // 歩く区間かどうかは、**調べた側が決めています**。
+        //
+        // ここは距離だけで見ていました（1.5km以内なら徒歩）。ところが
+        // routes.js は「乗るより歩くほうが早い」区間も徒歩にします。
+        // 2.2kmを35分、2.9kmを46分——どちらも歩く速さの数字なのに、
+        // 距離が1.5kmを超えているので「移動約35分 🟡目安」と出ていました。
+        // 歩くと決めた区間を、調べられなかった区間と同じ顔で並べています。
+        const onFoot = leg?.walk === true || isWalkLeg(v.km);
         items.push(withTransit({
           id: nextId(), kind: "transit",
           start: board ?? leave,
@@ -271,10 +279,10 @@ export function buildItinerary(input) {
           detail: leg?.line && fits
             ? leg.line + (board ? `（${fmtHm(leave)}発の次の便）` : "")
               + (v.km ? `・約${v.km.toFixed(1)}km` : "")
-            : (isWalkLeg(v.km) ? "徒歩" : "移動") + `約${v.travel}分`
+            : (onFoot ? "徒歩" : "移動") + `約${v.travel}分`
               + (v.km ? `・約${v.km.toFixed(1)}km` : ""),
           from: cur, to: v.spot,
-          walk: isWalkLeg(v.km), km: v.km ?? 0,
+          walk: onFoot, km: v.km ?? 0,
           routed: routed && fits,
           yahoo: fits ? (leg?.yahoo ?? null) : null,
           alternatives: fits ? (leg?.alternatives ?? []) : [],

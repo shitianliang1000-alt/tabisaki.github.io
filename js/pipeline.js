@@ -835,7 +835,7 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     perDay: SPOTS_PER_DAY[trip.pace] ?? 4,
     avoid: new Set(trip.must?.avoidSpotIds ?? []),
   });
-  let spots = byStay.flat();
+  let spots = dropSamePlace(byStay.flat());
   // 「このスポットは何日目以降に回る」を滞在計画から決めておく。
   //
   // 滞在の初日にまとめて詰め込むと、3日いるエリアで「1日目に4か所、
@@ -943,7 +943,9 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
       dayFloorById, dayCeilById,
     });
     if (!more.length) break;
-    spots = spreadCrowds([...spots, ...more], {
+    // 埋めるときも、同じ場所を足しません。ここを通らないと、いったん
+    // 落とした二重の片割れが戻ってきます。
+    spots = spreadCrowds(dropSamePlace([...spots, ...more]), {
       dayFloorById, start: first, baseByDay, travelFn,
       pinnedIds: trip.must?.spotIds ?? [],
       useCrowd: trip.avoidCrowds !== false,
@@ -999,6 +1001,40 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
  * @returns {{trimmed:object, travelFn:Function, legDetail:Function,
  *            route:object}|null} 取れなければ null（そのままにします）
  */
+/**
+ * 同じ場所を、2回は置きません。
+ *
+ * 収録は複数の出典を継ぎ足して作っているので、同じ場所が別の名前で
+ * 入っていることがあります。名前でまとめる仕組み（tools/dedupe_spots.py）は
+ * ありますが、名前が違えば通り抜けます。
+ *
+ *   高尾山山頂（takao-2）と 高尾山（lm-60）は **21m** 離れているだけ
+ *
+ * 結果、旅程にはこう出ていました。
+ *
+ *   17:50  高尾山
+ *   20:43  高尾山山頂へ移動   徒歩約11分・約0.0km
+ *   20:54  高尾山山頂
+ *
+ * 同じ山頂に2回立ち、あいだの「0.0kmを11分」は歩きようがありません。
+ * 名前が違っても、これだけ近ければ人にとっては同じ場所です。
+ * 先に来たほうを残します（並びは選んだ側が決めています）。
+ *
+ * 収録データそのものは触りません。別の旅程では別々に出したい場面が
+ * ありうるうえ、どちらが正しい名前かはここでは決められないためです。
+ */
+const SAME_PLACE_KM = 0.12;
+
+export function dropSamePlace(spots) {
+  const kept = [];
+  for (const s of spots) {
+    const twin = kept.find((k) => haversineKm(k, s) < SAME_PLACE_KM);
+    if (twin) continue;
+    kept.push(s);
+  }
+  return kept;
+}
+
 /**
  * 旅程に並ぶとおりの、端から端までの一本道と、その各区間を通る時刻。
  *
