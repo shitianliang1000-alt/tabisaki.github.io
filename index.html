@@ -210,22 +210,21 @@
              読み上げは通りますが、名前を押してつまみに触れる・支援技術が
              「名前のある入力欄」として数える、といった当たり前が付きません。 -->
         <label class="tune-label" id="bias-label" for="hidden-bias">定番と穴場のまぜかた</label>
-        <!-- どちらへ寄っているのかを、数と絵で同時に見せます。 -->
-        <!-- 10か所行くとしたら何対何になるか。ここの数は、実際に選ぶ
-             関数（mixTargets）から引いています。 -->
+        <!-- 「7 定番／1 穴場、残り2は知る人ぞ知る」という比率の見せかたは
+             分かりにくいとのことでした。10か所のうち何か所が定番で、
+             何か所が穴場かを、そのまま1行の文で言います。
+             数は実際に選ぶ関数（mixTargets）から引いています。 -->
         <div class="mix" id="mix-view" aria-hidden="true">
-          <div class="mix-side mix-classic">
-            <b id="mix-classic-n">5</b><span>定番</span>
-          </div>
           <div class="mix-bar">
-            <i id="mix-fill"></i><i id="mix-known-fill"></i>
-          </div>
-          <div class="mix-side mix-hidden">
-            <b id="mix-hidden-n">2</b><span>穴場</span>
+            <i id="mix-fill" class="mix-fill-major"></i>
+            <i id="mix-known-fill" class="mix-fill-known"></i>
+            <i id="mix-hidden-fill" class="mix-fill-hidden"></i>
           </div>
         </div>
-        <p class="mix-known-note">
-          残り <b id="mix-known-n">3</b> か所は「知る人ぞ知る」場所です</p>
+        <p class="mix-summary">
+          10か所のうち、定番が <b id="mix-classic-n">5</b>か所、
+          知る人ぞ知る場所が <b id="mix-known-n">3</b>か所、
+          穴場が <b id="mix-hidden-n">2</b>か所くらいになります</p>
         <div class="stardust" id="stardust" aria-hidden="true"></div>
         <input type="range" class="md-slider" id="hidden-bias"
                min="0" max="100" value="40"
@@ -391,14 +390,11 @@
     </button>
 
     <div id="placeholder" class="placeholder">
+      <!-- 案内文（3つの手順）は、地図の下に重ねて置いていました。
+           狭い画面で地図が縮むと、その帯が地図の下端に食い込みます。
+           左側の「①②③」の見出しと同じ内容の繰り返しでもあるので、
+           右側では出さないことにします（地図だけにします）。 -->
       <div id="home-map" class="home-map"></div>
-      <!-- 何が返ってくるのかを、待っているあいだに見せます。
-           一行の案内だけだと、右半分が空白の理由が分かりません。 -->
-      <ol class="home-steps" id="home-hint" aria-label="つくりかた">
-        <li><i aria-hidden="true">1</i><span>行きたいことを、ひとこと書く</span></li>
-        <li><i aria-hidden="true">2</i><span>出発地と時刻を決める</span></li>
-        <li><i aria-hidden="true">3</i><span>行き先・順番・移動時間の入った旅程が、ここに出る</span></li>
-      </ol>
     </div>
 
     <div id="progress" class="planning" hidden role="status" aria-live="polite"></div>

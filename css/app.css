@@ -355,56 +355,41 @@ p, li { text-wrap: pretty; }
    10か所行くとしたら何対何になるのか、数で先に言います。
 */
 .mix {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center;
   margin-bottom: 10px;
 }
-.mix-side {
-  display: flex; flex-direction: column; align-items: center;
-  flex: none; width: 52px;
-  transition: transform var(--hig-mid) var(--hig-ease),
-              opacity var(--hig-mid) var(--hig-ease);
-}
-.mix-side b {
-  font-size: 22px; font-weight: 700; line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-}
-.mix-side span { font-size: 11px; color: var(--hig-label-2); }
-.mix-classic b { color: var(--tabi-indigo); }
-.mix-hidden b { color: var(--tabi-teal); }
-
-/* 寄っているほうを、少し大きくします。動かした向きが目で分かります。 */
-.mix.to-classic .mix-classic, .mix.to-hidden .mix-hidden {
-  transform: scale(1.12);
-}
-.mix.to-classic .mix-hidden, .mix.to-hidden .mix-classic {
-  transform: scale(.92);
-}
-/* 寄っていない側は、小さくするだけにします。
-   以前は側ごと opacity:.5 で薄くしていました。下に添えた「定番」「穴場」の
-   字は 11px の補助色なので、そこからさらに半分にすると 2:1 まで落ちて、
-   明るいところでは読めません。数字は22pxの太字なので、薄くしても残ります。 */
-.mix.to-classic .mix-hidden b, .mix.to-hidden .mix-classic b { opacity: .6; }
-
+/* 「寄っているほうを大きく／薄く」という側ごとの数字表示（.mix-side）は
+   やめました。3つの数を1つの文（.mix-summary）で言うようにしたので、
+   帯の左右に別々の数字を置く必要が無くなっています。 */
 /* 帯。左が定番（藍）、まん中が「知る人ぞ知る」（藍を薄めた色）、
-   右が穴場（青緑）。境目が動きます。 */
+   右が穴場（青緑）。3つとも塗った区画にします。以前は穴場だけ
+   「塗っていない残り」で表していて、何を表しているかが帯だけでは
+   分かりませんでした。 */
 .mix-bar {
   flex: 1; height: 12px; border-radius: 6px; overflow: hidden;
-  background: var(--tabi-teal);
+  background: var(--hig-fill-3, rgba(120, 120, 128, .16));
   position: relative;
   display: flex;
 }
 .mix-bar > i {
   display: block; height: 100%; flex: none;
-  background: var(--tabi-indigo);
   transition: width var(--hig-mid) var(--hig-ease);
 }
-.mix-bar > i#mix-known-fill {
+.mix-fill-major { background: var(--tabi-indigo); }
+.mix-fill-known {
   background: color-mix(in srgb, var(--tabi-indigo) 42%, var(--tabi-teal));
 }
-.mix-known-note {
-  margin: -4px 0 10px; font-size: 12px; color: var(--hig-label-2);
+.mix-fill-hidden { background: var(--tabi-teal); }
+
+/* 「10か所のうち、定番が5か所、知る人ぞ知る場所が3か所、穴場が2か所
+   くらいになります」。3つの数を、同じ扱いで1つの文に言います。
+   以前は「5 定番／2 穴場」を大きな数字で並べ、残りの「知る人ぞ知る」
+   だけ別の文で言っていて、比の読み取りに手間がかかりました。 */
+.mix-summary {
+  margin: 10px 0 10px; font-size: 13px; line-height: 1.7;
+  color: var(--hig-label-2);
 }
-.mix-known-note b { font-weight: 600; color: var(--hig-label); }
+.mix-summary b { font-weight: 700; color: var(--hig-label); }
 
 /* --- 1日のうち、動く時間帯 ------------------------------------------------ */
 /*
@@ -597,35 +582,9 @@ p, li { text-wrap: pretty; }
 /* 地図が出せないときは、一文ぶんの高さにします。320px の空き箱を
    置いても、読む人にできることはありません。旅程を上へ寄せます。 */
 .map.map-fallback, .home-map.map-fallback { height: auto; font-size: 14px; }
-.home-hint {
-  margin: 12px 8px 4px; text-align: center;
-  font-size: 12px; color: var(--md-sys-color-on-surface-variant);
-}
-/* 空の右半分に、何が出るのかを3行で。地図の下に横並びで置きます。 */
-.home-steps {
-  list-style: none; margin: 14px 4px 0; padding: 0;
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
-}
-.home-steps li {
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 12px 14px;
-  border-radius: var(--hig-r-md);
-  background: var(--hig-card);
-  box-shadow: var(--hig-shadow-1);
-  font-size: 13px; line-height: 1.55; color: var(--hig-label-2);
-}
-.home-steps li:last-child { color: var(--hig-label); font-weight: 600; }
-.home-steps li > i {
-  flex: none; width: 22px; height: 22px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  font: 700 12px/1 -apple-system, BlinkMacSystemFont, sans-serif;
-  color: #fff; background: var(--tabi-indigo);
-}
-.home-steps li:last-child > i { background: var(--tabi-teal); }
-@media (max-width: 1100px) {
-  .home-steps { grid-template-columns: 1fr; gap: 8px; }
-  .home-steps li { padding: 10px 12px; }
-}
+/* 案内文（.home-hint/.home-steps）は、地図の下に3つの箱で重ねて
+   出していました。狭い画面で地図が縮むと下端に食い込むうえ、左側の
+   「1・2・3」の見出しと同じ内容の繰り返しだったので、やめました。 */
 
 /* ------------------------------------------------------------ 生成中 --- */
 
