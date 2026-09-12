@@ -240,6 +240,20 @@ const YAHOO_NAME_TRIES = 3;
 const YAHOO_STOP_CANDIDATES = 3;
 /** これより近ければ、停留所まで「歩いた」とは数えません（駅前の数十m）。 */
 const NEAR_STOP_KM = 0.15;
+/**
+ * 停留所を探す半径。近い順に2段階。
+ *
+ * 5kmしか見ていませんでした。「岩尾内ダム」（北海道士別市）の5km以内に
+ * 停留所は1つもありません。すると問い合わせる名前が作れず、**一度も
+ * 聞かないまま「目安」**になります。画面には37.6kmが「約112分・目安」と
+ * だけ出て、調べられなかったのか調べていないのかが分かりません。
+ *
+ * 地方では、駅まで10km というのは珍しくありません。そこまで見ます。
+ * 駅までの徒歩は所要時間に足すので（歩けば2時間半です）、数字が
+ * 甘くなることはありません。
+ */
+const STOP_REACH_KM = 5;
+const STOP_REACH_FAR_KM = 15;
 /** ここを超えたら、速くても歩きません。 */
 const MAX_WALK_KM = 3;
 
@@ -556,6 +570,8 @@ async function computeViaStations(points, opts) {
   const askedAt = new Array(n).fill(null);
   // 歩く区間の数。「◯区間中◯区間で時刻表」の分母から外します。
   let walkLegs = 0;
+  // 近くに駅・バス停が1つも無い区間の数。車が要る区間です。
+  let noTransitLegs = 0;
   // 拾い直した区間の数（画面の注記に出します）。
   let retried = 0;
   for (let i = 0; i < n; i++) {
@@ -609,6 +625,7 @@ async function computeViaStations(points, opts) {
       yahooBudget -= hit.spent;
       yahooBudgetSpent.spent += hit.spent;
     }
+    if (hit?.noTransit) noTransitLegs++;
     if (hit && !hit.miss) {
       yahooLegs[i] = hit;
       plans[i] = { minutes: hit.minutes, walkKm: 0,
@@ -704,6 +721,10 @@ async function computeViaStations(points, opts) {
       + (retried ? `（${retried}区間は聞き直し）` : ""));
   }
   if (walkLegs) parts.push(`${walkLegs}区間は徒歩`);
+  if (noTransitLegs) {
+    parts.push(`${noTransitLegs}区間は近くに駅・バス停が見当たりません`
+      + "（車での移動になります）");
+  }
   if (viaStations) {
     parts.push(`${viaStations}区間は最寄りの駅・バス停どうしの移動として`
       + "見ています"
@@ -741,6 +762,13 @@ async function yahooLeg(a, b, opts) {
       }
     }
     pairs.sort((x, y) => x.rank - y.rank);
+    // 片側にも停留所が無いなら、公共交通では行けません。「調べたけれど
+    // 引けなかった」とは別ものなので、分けて返します。画面で
+    // 「目安」とだけ出すと、調べそこねたのか、そもそも便が無いのかが
+    // 読む人に分かりません。
+    if (!fromNames.length || !toNames.length) {
+      return { spent: 0, miss: true, noTransit: true };
+    }
     if (!pairs.length) return { spent: 0, miss: true };
 
     // 残りの回数を超えて試しません。1区間に使い切ると、後ろの区間が
@@ -899,7 +927,15 @@ async function stopNamesFor(point) {
       if (exact) push(exact);
     }
   }
-  for (const s of await nearbyStops(point, 5, YAHOO_STOP_CANDIDATES)) push(s);
+  for (const s of await nearbyStops(point, STOP_REACH_KM, YAHOO_STOP_CANDIDATES)) {
+    push(s);
+  }
+  // 近くに1つも無ければ、広げて探します。無いまま返すと、その区間は
+  // 一度も聞かれません。
+  if (!out.length) {
+    for (const s of await nearbyStops(point, STOP_REACH_FAR_KM,
+                                      YAHOO_STOP_CANDIDATES)) push(s);
+  }
   return out;
 }
 

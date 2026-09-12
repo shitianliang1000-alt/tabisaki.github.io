@@ -173,9 +173,17 @@ export async function nearbyStops(point, maxKm = 3, limit = 3) {
   const grid = await loadGrid();
   const cx = Math.round(point.lat / CELL_DEG);
   const cy = Math.round(point.lng / CELL_DEG);
+  // 見るマスの数は、探す半径から決めます。
+  //
+  // ここは ±1マス（約5.5km四方）で決め打ちでした。maxKm に 15 を
+  // 渡しても、7km先の停留所は**マスの外**なので見つかりません。
+  // 呼ぶ側は「15kmまで探した」つもりで、実際は5kmまでです。
+  // 地方では駅まで10kmが珍しくなく、そこが丸ごと「停留所なし」に
+  // なっていました。
+  const span = Math.max(1, Math.ceil(maxKm / (CELL_DEG * 111)));
   const found = [];
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
+  for (let dx = -span; dx <= span; dx++) {
+    for (let dy = -span; dy <= span; dy++) {
       const list = grid.get(`${cx + dx},${cy + dy}`);
       if (!list) continue;
       for (const s of list) {

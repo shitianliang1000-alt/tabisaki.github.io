@@ -11,6 +11,7 @@
 // の2つに分けます。黙って別の場所を出すのがいちばん困ります。
 
 import { wordRuns } from "./keywords.js";
+import { withJapanesePlaces } from "./romaji.js";
 
 /** 地方名 → 都道府県。 */
 export const MACRO_AREAS = {
@@ -81,7 +82,13 @@ const SHORT_PREF = PREFECTURES
  *                  prefectures:string[], regionIds:string[]}>}
  */
 export function detectAreas(text, kb) {
-  const s = String(text ?? "");
+  // ローマ字で書かれた地名を、収録の表記に足してから探します。
+  //
+  // 「I want to visit around Sendai」と書かれて、**旭川市・函館市**が
+  // 出ていました。仙台から700km離れています。ここは収録の名前
+  // （「仙台市」）をそのまま探すので、"Sendai" はどこにも一致せず、
+  // 地名の指定が無かったことになって、点の高い順に返っていました。
+  const s = withJapanesePlaces(text);
   if (!s.trim()) return [];
   const found = [];
   const seen = new Set();
@@ -210,6 +217,9 @@ const NOT_PLACE = new Set([
 ]);
 
 export function unknownPlaceTerms(text, kb) {
+  // ここも同じです。読み替えれば分かる地名を「知らない場所」として
+  // 報告すると、断り文句だけが出て旅程が組めません。
+  text = withJapanesePlaces(text);
   const s = String(text ?? "");
   if (!s.trim() || !kb?.spots?.length) return [];
   const haystack = kb.__searchHaystack ?? (kb.__searchHaystack = [

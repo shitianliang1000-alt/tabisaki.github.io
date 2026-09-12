@@ -849,3 +849,47 @@ test("乗るより歩くほうが早いなら、歩く", () =>
       "1時間かけて乗せています（歩けば35分ほどです）");
     assert.ok(r.legs[0].minutes < 60);
   }));
+
+// --- 近くに停留所が無い区間 -------------------------------------------------
+//
+// 「岩尾内ダム」（北海道士別市）の5km以内に、停留所は1つもありません。
+// 半径を5kmだけで見ていたので、問い合わせる名前が作れず、**一度も
+// 聞かないまま「目安」**になっていました。画面には37.6kmが
+// 「約112分・目安」とだけ出て、調べられなかったのか調べていないのかが
+// 読む人に分かりません。
+
+const REMOTE = { lat: 44.10, lng: 142.4333, name: "岩尾内ダム" };
+const TOWN = { lat: 44.0, lng: 142.50, name: "士別の町" };
+// 10km前後に1つだけ停留所がある、という土地。
+const SPARSE = [
+  [44.05, 142.37, "東六線"],
+  [44.02, 142.52, "和寒"],
+];
+
+test("5km以内に無ければ、広げて探す", () =>
+  withYahoo(SPARSE, () => ({
+    routed: true, minutes: 40, rideMinutes: 40, waitMinutes: 0,
+    summary: "10:00 発→ 10:40 着 40分",
+    meta: { departure: "10:00", arrival: "10:40", transfers: 0, fareYen: 700,
+            legs: [], alternatives: [] },
+  }), async (asked) => {
+    const r = await computeRoute([REMOTE, TOWN], {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    assert.ok(asked.length >= 1,
+      "5km以内に無いだけで、一度も聞いていません");
+    assert.equal(r.legs[0].routed, true);
+    // 駅まで歩く時間も足します（10kmなら2時間半です）。
+    assert.ok(r.legs[0].walkA > 0, "駅までの徒歩が0になっています");
+  }));
+
+test("どこにも停留所が無いなら、「目安」ではなくそう言う", () =>
+  withYahoo([], () => ({ routed: false }), async (asked) => {
+    const r = await computeRoute([REMOTE, TOWN], {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    assert.equal(asked.length, 0, "停留所が無いのに聞きに行っています");
+    assert.match(r.modeNote ?? "", /駅・バス停が見当たりません/,
+      `理由が出ていません: ${r.modeNote}`);
+    assert.match(r.modeNote ?? "", /車/);
+  }));

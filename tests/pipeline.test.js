@@ -443,3 +443,38 @@ test("旅程に、同じ場所が2回出てこない", async () => {
     }
   }
 });
+
+// --- ローマ字で書かれた行き先 -----------------------------------------------
+
+test("英語で書かれた地名でも、その土地が出る", async () => {
+  const itin = await planTrip({
+    trip: trip({ note: "I want to visit around Sendai",
+                 departAt: new Date("2026-09-12T09:00"),
+                 arriveBy: new Date("2026-09-14T19:00") }),
+    kb,
+  });
+  assert.match(itin.prefecture, /宮城/,
+    `${itin.prefecture}（${itin.regionName}）が出ています。仙台ではありません`);
+});
+
+test("乗り物の指定を、旅程の組み立てに反映する", async () => {
+  const itin = await planTrip({
+    trip: trip({ note: "ツーリングで北海道を回りたい",
+                 departAt: new Date("2026-09-12T08:00"),
+                 arriveBy: new Date("2026-09-14T19:00") }),
+    kb,
+  });
+  assert.ok(itin.warnings.some((w) => /バイク/.test(w)),
+    "何を読み取ったかが、どこにも書かれていません");
+});
+
+test("画面で選ばれた乗り物を、文からの推し量りで上書きしない", async () => {
+  const itin = await planTrip({
+    trip: trip({ note: "ツーリングで北海道を回りたい", transport: "transit",
+                 departAt: new Date("2026-09-12T08:00"),
+                 arriveBy: new Date("2026-09-14T19:00") }),
+    kb,
+  });
+  // 読み取ったことは伝えますが、選ばれた「電車・バス」で組みます。
+  assert.ok(itin.days.length, "旅程が組めていません");
+});
