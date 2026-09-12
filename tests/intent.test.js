@@ -65,18 +65,24 @@ test("電車の指定は、公共交通として見る", () => {
   assert.equal(readIntent("青春18きっぷで行く").transport, "transit");
 });
 
-test("組み込めない列車は、組み込めないと言う", () => {
-  // サンライズは寝台特急です。時刻は引けますが、席が取れるかは
-  // 分かりません。分かるところまでを伝えます。
-  const sunrise = readIntent("サンライズに乗って山陰へ");
-  assert.ok(sunrise.notes.some((n) => /寝台特急/.test(n)),
-    "サンライズを読み取っていません");
-  assert.equal(sunrise.transport, null,
-    "乗り物まで決めつけています（山陰へは在来線も使います）");
+test("夜行は、狙っている列車として読み取る", () => {
+  // 夜行は毎日同じ時刻で走るので、旅程の区間として組めます
+  // （js/night-train.js）。ここでは「どれを狙っているか」だけを拾います。
+  assert.equal(readIntent("サンライズに乗って山陰へ").nightTrain, "any");
+  assert.equal(readIntent("サンライズ出雲で出雲大社").nightTrain,
+    "sunrise-izumo");
+  assert.equal(readIntent("サンライズ瀬戸で四国へ").nightTrain, "sunrise-seto");
+  // 乗り物までは決めません。現地では在来線もバスも使います。
+  assert.equal(readIntent("サンライズに乗って山陰へ").transport, null);
+});
 
+test("組み込めない列車は、組み込めないと言う", () => {
+  // 観光列車は運転日が限られ、指定席が要ります。時刻表からは
+  // 「その日に走るか」が分かりません。分かるところまでを伝えます。
   const scenic = readIntent("観光列車に乗りたい");
   assert.ok(scenic.notes.some((n) => /運転日/.test(n)),
     "観光列車の注意が出ていません");
+  assert.equal(scenic.nightTrain, null);
 });
 
 test("何も書かれていなければ、何も決めない", () => {

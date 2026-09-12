@@ -18,6 +18,7 @@ import {
 } from "./ai.js";
 import { areaNote, areaScope, detectAreas, unknownPlaceTerms } from "./areas.js";
 import { readIntent } from "./intent.js";
+import { nightTrainLeg } from "./night-train.js";
 import { TUNING } from "./config.js";
 import { discoverArea, resolveDestination } from "./discover.js";
 import { atHour, estimateMinutes, haversineKm } from "./feasibility.js";
@@ -435,7 +436,8 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 採用が決まってから、実際の経路を取りにいきます（ここだけが課金対象）。
   onProgress(4, "採用した案の経路を確認しています");
   const routed = await verifyProposal(proposal, trip, candidates, kb,
-                                      { useRoutes: true });
+                                      { useRoutes: true,
+                                        nightTrain: intent.nightTrain });
   if (routed.result.visits.length) checked = routed;
 
   onProgress(5);
@@ -638,6 +640,10 @@ export async function planTrip({ trip, kb, onProgress = () => {},
  * 2時間28分が空白になっていました（8:49着なのに、次の予定が11:17）。
  */
 export function arrivalAfter(departAt, leg) {
+  // 夜行は、出発できる時刻に所要時間を足しても着きません。
+  // 21:50に東京を出る列車は、10時に家を出ても21:50発です。
+  // 着く時刻そのものを持っているなら、それを使います。
+  if (leg?.arriveAt instanceof Date) return new Date(leg.arriveAt);
   const min = Number.isFinite(leg?.minutes) ? leg.minutes : 0;
   return new Date(departAt.getTime() + min * 60000);
 }
@@ -898,6 +904,21 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   let outbound = { minutes: estimateMinutes(trip.origin, first),
                    routed: false, line: null };
 
+  // 夜行で行くと書かれていて、その区間に夜行があるなら、往路にします。
+  //
+  // Yahoo!路線情報は「その時刻に出たら」で答えるので、夜行を狙って
+  // 引くのは向きません（朝10時に出れば新幹線が返ります）。夜行は毎日
+  // 同じ時刻で走る定期列車なので、表から引きます（js/night-train.js）。
+  //
+  // **決めるのは、日程を組む前です。** あとから差し替えると、
+  // 「21:50に東京を出る」旅程なのに、その日の16時に出雲で観光している
+  // ことになります（着く時刻が変わるのに、組み直していないため）。
+  const nightOut = opts.nightTrain
+    ? nightTrainLeg(trip.origin, first, trip.departAt,
+                    opts.nightTrain === "any" ? null : opts.nightTrain)
+    : null;
+  if (nightOut) outbound = nightOut;
+
   // ここでは**まだ聞きません**。
   //
   // 以前はこの段階で、拠点どうしとエリア内の経路をYahoo!に聞いていました。
@@ -908,10 +929,10 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   //
   // 順番を決めるだけなら距離の目安で足ります。実際の便は、並びが
   // 決まってから、端から端まで一度に聞きます（measureFinalOrder）。
-  if (useRoutes) {
-    outbound = { minutes: estimateMinutes(trip.origin, first),
-                 routed: false, line: null };
-  }
+  // ここには、outbound を推定値へ「戻す」だけの行がありました。
+  // 上で入れたばかりの同じ値をもう一度入れるので、ふだんは何も起きません。
+  // けれど夜行を入れたあとに通ると、**それを消します**。
+  // 何もしない行は、いつか何かを壊します。
 
   // その日の並び順を決めます。
   //
@@ -999,15 +1020,18 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   // 判断です。
   if (useRoutes && opts.measureFinal !== false) {
     const measured = await measureFinalOrder(trimmed, ctx, trip,
-                                             { stays, outbound });
+                                             { stays, outbound, nightOut });
     if (measured) {
       trimmed = measured.trimmed;
       travelFn = measured.travelFn;
       legDetail = measured.legDetail;
       localRoute = measured.route ?? localRoute;
-      outbound = measured.outbound ?? outbound;
+      // 夜行は表から決めた便です。区間ごとの調べ直しで上書きしません
+      // （Yahoo!に聞けば、その時刻の新幹線が返ってきます）。
+      if (!nightOut) outbound = measured.outbound ?? outbound;
     }
   }
+
 
   const inbound = localRoute?.legs.at(-1) ?? outbound;
   const routeError = localRoute?.error ?? outRoute?.error ?? stationRoute?.error;
@@ -1173,7 +1197,7 @@ async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
     // 1日目の起点も引き直します。往路が「4:00発で、乗れるのは6:28の便、
     // 8:49着」なら、その日は8:49から始まります。目安のままだと、
     // 着く前に見学が始まる旅程になります。
-    const measuredOut = route.legs[0] ?? outbound;
+    const measuredOut = ctxIn.nightOut ?? route.legs[0] ?? outbound;
     const startAt = arrivalAfter(trip.departAt, measuredOut);
     const again = trimToFit(visits.map((v) => v.spot),
                             { ...ctx, startAt, travelFn: nextTravel });

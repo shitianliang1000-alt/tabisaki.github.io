@@ -478,3 +478,26 @@ test("画面で選ばれた乗り物を、文からの推し量りで上書き�
   // 読み取ったことは伝えますが、選ばれた「電車・バス」で組みます。
   assert.ok(itin.days.length, "旅程が組めていません");
 });
+
+test("サンライズと書いたら、夜行で組む", async () => {
+  const itin = await planTrip({
+    trip: trip({ note: "サンライズに乗って出雲大社へ",
+                 departAt: new Date("2026-09-12T10:00"),
+                 arriveBy: new Date("2026-09-15T20:00") }),
+    kb,
+  });
+  const items = itin.days.flatMap((d) => d.items);
+  const out = items.find((i) => i.kind === "transit" && i.overnight !== false
+    && /サンライズ/.test(i.detail ?? ""));
+  assert.ok(out, "夜行の区間がありません");
+  assert.equal(new Date(out.start).getHours(), 21, "21:50発になっていません");
+  // 乗る前に、着いた先で観光していないこと。
+  const board = new Date(out.start);
+  for (const s of items.filter((i) => i.kind === "spot")) {
+    assert.ok(new Date(s.start) >= board,
+      `${s.title} が乗車前（${new Date(s.start).getHours()}時）に入っています`);
+  }
+  // その晩の宿は取りません（車中泊）。
+  const firstNight = itin.days[0].items.find((i) => i.kind === "lodging");
+  assert.equal(firstNight, undefined, "車中泊の晩に宿を取っています");
+});

@@ -56,17 +56,16 @@ const VEHICLES = [
  * 分かるところまでを伝えて、確かめかたを添えます。
  */
 const NAMED_SERVICES = [
-  { re: /サンライズ(出雲|瀬戸)?|sunrise (izumo|seto)/i,
-    note: "サンライズ出雲・瀬戸は、東京を22時前に出る寝台特急です。"
-      + "旅程には夜行の区間として組み込めないので、初日を現地の朝から"
-      + "始める形にしています。寝台券はJRの窓口・えきねっとでご確認ください" },
+  // 夜行は、区間として組み込めます（js/night-train.js）。ここでは
+  // 「どの列車を狙っているか」だけを拾い、時刻はそちらの表から引きます。
+  { re: /サンライズ出雲|sunrise izumo/i, nightTrain: "sunrise-izumo" },
+  { re: /サンライズ瀬戸|sunrise seto/i, nightTrain: "sunrise-seto" },
+  { re: /サンライズ|寝台特急|sunrise/i, nightTrain: "any" },
   { re: /観光列車|トロッコ列車|SL|蒸気機関車|ジョイフルトレイン/,
     note: "観光列車は運転日が限られ、座席の指定が要るものがほとんどです。"
       + "旅程では普通の移動として見ているので、乗りたい列車が決まって"
       + "いれば、その時刻に合わせて前後をずらしてください" },
-  { re: /寝台|夜行バス|ムーンライト|overnight/i,
-    note: "夜行の移動は、旅程には組み込んでいません。"
-      + "着いた日の朝から始まる形で見てください" },
+  { re: /夜行|ムーンライト|overnight/i, nightTrain: "any" },
   { re: /フェリー|客船|ferry/i,
     note: "フェリーは便数が少なく、時刻表も別系統です。"
       + "航路がある区間は、運航会社の時刻表でご確認ください" },
@@ -76,8 +75,9 @@ const NAMED_SERVICES = [
  * 希望文から、乗り物と添える一言を読み取ります。
  *
  * @param {string} text
- * @returns {{transport: string|null, notes: string[]}}
+ * @returns {{transport: string|null, notes: string[], nightTrain: string|null}}
  *   transport が null なら、指定は読み取れていません（画面の選択に従います）。
+ *   nightTrain は狙っている夜行列車の id（"any" なら列車の指定なし）。
  */
 export function readIntent(text) {
   const s = String(text ?? "");
@@ -90,8 +90,14 @@ export function readIntent(text) {
     notes.push(v.note);
     break;                      // いちばん具体的な1つだけ
   }
+  let nightTrain = null;
   for (const n of NAMED_SERVICES) {
-    if (n.re.test(s)) notes.push(n.note);
+    if (!n.re.test(s)) continue;
+    if (n.note) notes.push(n.note);
+    // いちばん具体的な指定を採ります（「サンライズ出雲」>「サンライズ」）。
+    if (n.nightTrain && (!nightTrain || nightTrain === "any")) {
+      nightTrain = n.nightTrain;
+    }
   }
-  return { transport, notes };
+  return { transport, notes, nightTrain };
 }
