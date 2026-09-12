@@ -98,9 +98,15 @@ export function buildItinerary(input) {
   // 4:00に家を出ることにすると、旅程は 4:00発・3時間55分。ところが
   // 説明には「14:50発→18:40着」と出ます。**同じ行の中で食い違います。**
   // 実際に乗れるのは次の便なので、そちらに合わせて時刻を動かします。
-  const board = boardingTime(trip.departAt, legs?.outbound);
-  const outFits = legFitsRow(trip.departAt, legs?.outbound);
-  const arriveStation = addMinutes(trip.departAt, outMin);
+  // 夜行は、乗る時刻も着く時刻も表から決まっています（js/trains.js）。
+  // 「出発できる時刻＋所要時間」では着きません。
+  const overnight = legs?.outbound?.overnight ? legs.outbound : null;
+  const board = overnight?.boardAt_
+    ?? boardingTime(trip.departAt, legs?.outbound);
+  const outFits = overnight ? true : legFitsRow(trip.departAt, legs?.outbound);
+  const arriveStation = overnight?.arriveAt
+    ? new Date(overnight.arriveAt)
+    : addMinutes(trip.departAt, outMin);
   // 着く先の名前は、**その滞在の拠点**から取ります。エリアの station 欄
   // ではありません。出発地が拠点そのものになることがあり（東京駅発で
   // 1日目が千代田区なら、拠点は東京駅です）、そのときエリアの欄を見ると
@@ -123,7 +129,7 @@ export function buildItinerary(input) {
     // （待ち時間を含む・含まない）。実際の時刻があるほうを出します。
     detail: legs?.outbound?.line && outFits
       ? legs.outbound.line
-        + (board ? `（${fmtHm(trip.departAt)}発の次の便）` : "")
+        + (board && !overnight ? `（${fmtHm(trip.departAt)}発の次の便）` : "")
       : `約${outMin}分`,
     alternatives: outFits ? (legs?.outbound?.alternatives ?? []) : [],
     from: trip.origin,
@@ -134,7 +140,9 @@ export function buildItinerary(input) {
     yahoo: outFits ? (legs?.outbound?.yahoo ?? null) : null,
     km: haversineKm(trip.origin, firstStation),
     costYen: 0,
-    reason: legs?.outbound?.yahoo
+    reason: overnight
+      ? `${overnight.train}で夜のうちに移動します（車中泊）`
+      : legs?.outbound?.yahoo
       ? "Yahoo!路線情報で調べた実際の便"
       : legs?.outbound?.routed
         ? "Google マップの経路検索による所要時間"
@@ -360,8 +368,11 @@ export function buildItinerary(input) {
         items.push({
           id: nextId(), kind: "free",
           start: anchor, end: addMinutes(anchor, 60),
-          title: "移動中",
-          detail: `${firstRegion.name}へ向かう途中です（機内・車内泊）`,
+          title: overnight ? `${overnight.train}で移動中` : "移動中",
+          detail: overnight
+            ? `${overnight.boardAt} ${overnight.departure}発。`
+              + `翌朝 ${overnight.arrival} に ${overnight.alightAt} へ着きます`
+            : `${firstRegion.name}へ向かう途中です（機内・車内泊）`,
           costYen: 0,
           reason: "現地に着く前の夜のため、宿は取りません",
         });
@@ -499,7 +510,21 @@ function boardingTime(from, leg) {
   // 過ぎた時刻の便も置きません。調べたときより行が後ろへ動いた
   // ときに出るもので、もう乗れない便です。
   if (at < from) return null;
-  return at;
+  // **駅まで歩く時間を、前に戻します。**
+  //
+  // 行に出ていたのは、電車が出る時刻でした。
+  //
+  //   8:53  八ッ場ダムへ移動   19分
+  //         08:53発→08:58着（5分）…前後の徒歩14分を含めて23分
+  //   9:12  八ッ場ダム
+  //
+  // 8:53に「移動」が始まることになっていますが、駅までの徒歩が
+  // 先にあるので、**動き出すのは8:49**です。行の長さ（19分）と
+  // 中の数字（23分）も合いません。歩き始める時刻から始めます。
+  const walkA = leg?.walkA ?? 0;
+  if (!(walkA > 0)) return at;
+  const leave = new Date(at.getTime() - walkA * 60000);
+  return leave < from ? from : leave;
 }
 
 /**

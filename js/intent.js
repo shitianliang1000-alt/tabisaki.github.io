@@ -1,3 +1,4 @@
+import { findTrains } from "./trains.js";
 // 希望文から、乗り物と旅のしかたの指定を読み取る。
 //
 // 書かれていることの多くは「どこへ行きたいか」ですが、**どう行きたいか**
@@ -56,17 +57,14 @@ const VEHICLES = [
  * 分かるところまでを伝えて、確かめかたを添えます。
  */
 const NAMED_SERVICES = [
-  { re: /サンライズ(出雲|瀬戸)?|sunrise (izumo|seto)/i,
-    note: "サンライズ出雲・瀬戸は、東京を22時前に出る寝台特急です。"
-      + "旅程には夜行の区間として組み込めないので、初日を現地の朝から"
-      + "始める形にしています。寝台券はJRの窓口・えきねっとでご確認ください" },
+  // 名前のある列車は js/trains.js が拾います（ここでは重ねません）。
   { re: /観光列車|トロッコ列車|SL|蒸気機関車|ジョイフルトレイン/,
     note: "観光列車は運転日が限られ、座席の指定が要るものがほとんどです。"
       + "旅程では普通の移動として見ているので、乗りたい列車が決まって"
       + "いれば、その時刻に合わせて前後をずらしてください" },
-  { re: /寝台|夜行バス|ムーンライト|overnight/i,
-    note: "夜行の移動は、旅程には組み込んでいません。"
-      + "着いた日の朝から始まる形で見てください" },
+  { re: /ムーンライト/,
+    note: "ムーンライトながらなどの夜行快速は、いまは走っていません。"
+      + "夜行で移動したい区間があれば、高速バスもご検討ください" },
   { re: /フェリー|客船|ferry/i,
     note: "フェリーは便数が少なく、時刻表も別系統です。"
       + "航路がある区間は、運航会社の時刻表でご確認ください" },
@@ -76,13 +74,18 @@ const NAMED_SERVICES = [
  * 希望文から、乗り物と添える一言を読み取ります。
  *
  * @param {string} text
- * @returns {{transport: string|null, notes: string[]}}
+ * @returns {{transport: string|null, notes: string[], nightTrain: string|null,
+ *            toward: string[]}}
  *   transport が null なら、指定は読み取れていません（画面の選択に従います）。
+ *   nightTrain は狙っている夜行列車の id（"any" なら列車の指定なし）。
  */
 export function readIntent(text) {
   const s = String(text ?? "");
   const notes = [];
   let transport = null;
+  // 名前のある列車。時刻まで収録しているもの（サンライズ）と、
+  // 走る区間だけのもの（サフィール踊り子など）に分かれます。
+  const { timetabled, named } = findTrains(s);
 
   for (const v of VEHICLES) {
     if (!v.re.test(s)) continue;
@@ -91,7 +94,20 @@ export function readIntent(text) {
     break;                      // いちばん具体的な1つだけ
   }
   for (const n of NAMED_SERVICES) {
-    if (n.re.test(s)) notes.push(n.note);
+    if (n.re.test(s) && n.note) notes.push(n.note);
   }
-  return { transport, notes };
+  // 区間だけ収録している列車は、時刻を書きません。代わりに、どこへ
+  // 向かう列車かを伝えて、確かめかたを添えます。
+  for (const t of named) notes.push(t.note);
+  // 名前のある列車が書かれていれば、電車で回る旅です。
+  if (!transport && (timetabled || named.some((t) => t.bookable !== false))) {
+    transport = "transit";
+  }
+  return {
+    transport, notes,
+    nightTrain: timetabled,
+    // 行き先を寄せるための地名（「サフィール」なら伊豆）。
+    toward: named.filter((t) => t.bookable !== false)
+      .flatMap((t) => t.toward ?? []),
+  };
 }

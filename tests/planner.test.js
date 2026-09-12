@@ -1022,3 +1022,50 @@ test("短い空きには、自由時間の行を立てない", () => {
     && i.title === "自由時間" && (i.end - i.start) < 60 * 60000);
   assert.equal(frees.length, 0, "20分の空きに行を立てています");
 });
+
+test("駅まで歩く時間から、行を始める", () => {
+  // 画面にこう出ていました。
+  //
+  //   8:53  八ッ場ダムへ移動   19分
+  //         08:53発→08:58着（5分）…前後の徒歩14分を含めて23分
+  //   9:12  八ッ場ダム
+  //
+  // 8:53に「移動」が始まることになっていますが、駅までの徒歩が先に
+  // あるので、動き出すのは8:49です。行の長さ（19分）と中の数字（23分）も
+  // 合いません。
+  const trip = makeTrip({ origin: TOKYO, departAt: d("2026-09-12T08:00"),
+                          arriveBy: d("2026-09-12T20:00") });
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+  });
+  const bare = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(),
+    legs: { outbound: { minutes: 60, routed: false },
+            inbound: { minutes: 60, routed: false } },
+  });
+  const row = bare.days[0].items.find((i) => i.to?.id === "s2");
+  const leave = new Date(row.start);
+  const hm = (dt) => `${String(dt.getHours()).padStart(2, "0")}`
+    + `:${String(dt.getMinutes()).padStart(2, "0")}`;
+  // 動き出す10分後に出る電車。駅までの徒歩は6分。
+  const dep = new Date(leave.getTime() + 10 * 60000);
+  const legDetail = (a, b) => ((a?.id === "s1" && b?.id === "s2")
+    ? { minutes: 20, rideMinutes: 5, waitMinutes: 4, walkA: 6, walkB: 8,
+        routed: true, line: `${hm(dep)}発→…着（5分）`,
+        yahoo: { departure: hm(dep), arrival: hm(dep) } }
+    : null);
+  const itin = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(), legDetail,
+    legs: { outbound: { minutes: 60, routed: false },
+            inbound: { minutes: 60, routed: false } },
+  });
+  const hit = itin.days[0].items.find((i) => i.to?.id === "s2");
+  const started = new Date(hit.start);
+  const board = new Date(dep);
+  assert.ok(started < board,
+    `行が電車の発車時刻（${hm(board)}）から始まっています。`
+    + "駅までの徒歩が前にあります");
+  assert.equal(Math.round((board - started) / 60000), 6,
+    "駅までの徒歩ぶんだけ前へ戻していません");
+});
