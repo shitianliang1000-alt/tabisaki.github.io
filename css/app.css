@@ -216,6 +216,10 @@ p, li { text-wrap: pretty; }
 
 /* 出発と帰着は対で読むものなので、横に並べます。 */
 .when-row { display: flex; gap: 10px; }
+/* 出発日の近道。カレンダーを開いて日を探すより、「明日」「今週末」の
+   ほうが早いことがほとんどです。時刻は、いま入っているものを保ちます。 */
+.date-presets { margin: 0 0 12px; }
+.date-presets .md-chip { min-height: 32px; padding: 5px 12px; font-size: 13px; }
 .when-row .md-field { flex: 1; min-width: 0; margin-bottom: 8px; }
 .when-row .md-field > input { font-size: 15px; padding: 11px 10px; }
 #window-help {
@@ -336,7 +340,7 @@ p, li { text-wrap: pretty; }
 .or-line {
   display: flex; align-items: center; gap: 12px;
   margin: 18px 0 12px;
-  font-size: 12px; color: var(--hig-label-3);
+  font-size: 12px; color: var(--hig-label-2);
 }
 .or-line::before, .or-line::after {
   content: ""; flex: 1; height: .5px; background: var(--hig-separator);
@@ -373,8 +377,13 @@ p, li { text-wrap: pretty; }
   transform: scale(1.12);
 }
 .mix.to-classic .mix-hidden, .mix.to-hidden .mix-classic {
-  opacity: .5; transform: scale(.92);
+  transform: scale(.92);
 }
+/* 寄っていない側は、小さくするだけにします。
+   以前は側ごと opacity:.5 で薄くしていました。下に添えた「定番」「穴場」の
+   字は 11px の補助色なので、そこからさらに半分にすると 2:1 まで落ちて、
+   明るいところでは読めません。数字は22pxの太字なので、薄くしても残ります。 */
+.mix.to-classic .mix-hidden b, .mix.to-hidden .mix-classic b { opacity: .6; }
 
 /* 帯。左が定番（藍）、まん中が「知る人ぞ知る」（藍を薄めた色）、
    右が穴場（青緑）。境目が動きます。 */
@@ -501,7 +510,7 @@ p, li { text-wrap: pretty; }
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 12px; margin-bottom: 8px;
 }
-.recent-head h3 {
+.recent-head h2 {
   margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .02em;
   color: var(--hig-label-2);
 }
@@ -585,6 +594,9 @@ p, li { text-wrap: pretty; }
   text-align: center; padding: 24px; line-height: 1.8;
   color: var(--md-sys-color-on-surface-variant);
 }
+/* 地図が出せないときは、一文ぶんの高さにします。320px の空き箱を
+   置いても、読む人にできることはありません。旅程を上へ寄せます。 */
+.map.map-fallback, .home-map.map-fallback { height: auto; font-size: 14px; }
 .home-hint {
   margin: 12px 8px 4px; text-align: center;
   font-size: 12px; color: var(--md-sys-color-on-surface-variant);
@@ -735,6 +747,9 @@ p, li { text-wrap: pretty; }
   text-align: center; padding: 24px; line-height: 1.8;
   color: var(--md-sys-color-on-surface-variant);
 }
+/* 地図が出せないときは、一文ぶんの高さにします。320px の空き箱を
+   置いても、読む人にできることはありません。旅程を上へ寄せます。 */
+.map.map-fallback, .home-map.map-fallback { height: auto; font-size: 14px; }
 .map-expand {
   position: absolute; right: 12px; top: 12px; z-index: 500;
   background: var(--md-sys-color-surface-container-high);
@@ -817,10 +832,13 @@ p, li { text-wrap: pretty; }
   border-top: .5px solid var(--hig-separator);
   padding-top: 16px;
 }
-.stats > div { text-align: center; }
+.stats > div { text-align: center; min-width: 0; }
 .stats strong {
   display: block; font-size: 22px; font-weight: 400;
   color: var(--md-sys-color-on-surface);
+  /* 「9時間45分」を「9時間45 / 分」と折らない。数は1行で読むものです。 */
+  white-space: nowrap; word-break: keep-all;
+  font-variant-numeric: tabular-nums;
 }
 .stats span {
   font-size: 12px; letter-spacing: .5px;
@@ -902,7 +920,7 @@ p, li { text-wrap: pretty; }
 .variant .v-score {
   display: block; margin-top: 6px; padding-top: 6px;
   border-top: .5px solid var(--hig-separator);
-  font-size: 12px; color: var(--hig-label-3);
+  font-size: 12px; color: var(--hig-label-2);
 }
 .variant .v-badge {
   margin-left: auto; padding: 2px 9px;
@@ -949,12 +967,11 @@ p, li { text-wrap: pretty; }
   background: var(--hig-elevated);
 }
 /* 「利用できます」「未設定」を色でも示します。文字だけでも読めますが、
-   一覧をひと目で追うには色の助けがあるほうが速い。 */
+   一覧をひと目で追うには色の助けがあるほうが速い。
+   明るい配色用の緑は --hig-green そのものが濃いので、ここで上書きしません
+   （以前ここに置いていた #1E8E3E は、紙の上で 4.1:1 しかありませんでした）。 */
 .md-list-support.ok { color: var(--hig-green); }
-.md-list-support.ng { color: var(--hig-label-3); }
-@media (prefers-color-scheme: light) {
-  .md-list-support.ok { color: #1E8E3E; }
-}
+.md-list-support.ng { color: var(--hig-label-2); }
 .key-result, .keys-note, .routes-usage {
   margin: 0 0 10px; padding: 10px 14px;
   border-radius: var(--hig-r-sm);
@@ -1406,9 +1423,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .tl .sun { margin: 8px 0 0; font-size: 13px; color: var(--md-sys-color-tertiary); }
 .tl .chev {
-  position: absolute; right: 16px; bottom: 16px;
-  color: var(--md-sys-color-on-surface-variant);
+  position: absolute; right: 12px; bottom: 12px;
+  display: grid; place-items: center;
+  width: 36px; height: 36px; padding: 0;
+  border: 0; border-radius: var(--hig-r-full);
+  background: none; color: var(--md-sys-color-on-surface-variant);
+  font: inherit; font-size: 20px; line-height: 1; cursor: pointer;
+  transition: background-color var(--md-sys-motion-short) var(--md-sys-motion-standard);
 }
+.tl .chev:hover { background: var(--hig-fill); }
 .tl.transit .chev, .tl.free .chev { display: none; }
 
 .item-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
@@ -1475,6 +1498,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   display: block; font-size: 12px; line-height: 1.7;
   color: var(--md-sys-color-on-surface-variant);
 }
+
+/* 旅程の下の操作。並びは「送る → 保存 → 直す → 印刷 → リンク」。
+   いちばん使うもの（同行者に送る）だけを塗りにします。 */
+.actions {
+  display: flex; flex-wrap: wrap; gap: 8px 10px;
+  margin: 8px 0 0; padding-top: 16px;
+  border-top: .5px solid var(--hig-separator);
+}
+.saved-note .md-chip { margin-top: 10px; }
 
 .talk-row { display: flex; gap: 12px; align-items: flex-start; }
 /* min-width: 0 が無いと、入力欄が中身の幅より縮まず、
@@ -1696,6 +1728,18 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   .pane-form { padding-bottom: 24px; }
   .map { height: 260px; margin: 12px 12px 0; }
   .itin { padding: 16px 12px 40px; }
+  /* 3列に固定して、数字の大きさを幅に合わせます。auto-fit のままだと
+     390px で3列に入りきらず、「9時間45分」が2行に折れていました。 */
+  .stats { grid-template-columns: repeat(3, 1fr); gap: 12px 6px; }
+  .stats strong { font-size: clamp(15px, 4.6vw, 20px); }
+  .stats span { font-size: 11px; letter-spacing: 0; }
+  /* 歯車は、携帯ではページと一緒に流れます。固定のままだと、旅程を
+     読み進めるあいだずっと右上の文字や星に重なっていました。
+     上端にあるうちは、広い画面と同じ位置に見えます。 */
+  .settings-fab { position: absolute; }
+  /* 旅程の下の操作は、携帯では1列に伸ばします。半端な幅で折り返すと、
+     どれが主でどれが従か分からなくなります。 */
+  .actions .md-btn { flex: 1 1 100%; }
   .tl .time { width: 54px; }
   .result.map-full .map { height: 60vh; height: 60dvh; }
   .result.map-full .itin { max-height: none; }

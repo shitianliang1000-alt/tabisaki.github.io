@@ -178,6 +178,24 @@ await check("1日のうち、動く時間帯を選べる", async () => {
   assert(/後に/.test(warn), `逆順なのに注意が出ません: ${warn}`);
 });
 
+await check("出発日を「明日」「今週末」に飛ばせる", async () => {
+  // カレンダーを開いて日を探すより早い近道。時刻は保ち、帰着も一緒に動くこと。
+  await page.$eval("#depart-at", (e) => { e.value = "2026-09-13T09:30"; });
+  await page.$eval("#arrive-by", (e) => { e.value = "2026-09-14T19:00"; });
+  await page.click('[data-day-preset="tomorrow"]');
+  const dep = await page.$eval("#depart-at", (e) => e.value);
+  const arr = await page.$eval("#arrive-by", (e) => e.value);
+  const t = new Date(); t.setDate(t.getDate() + 1);
+  const p = (n) => String(n).padStart(2, "0");
+  const ymd = `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`;
+  assert(dep === `${ymd}T09:30`, `出発が明日 9:30 になっていません: ${dep}`);
+  const t2 = new Date(t); t2.setDate(t2.getDate() + 1);
+  const ymd2 = `${t2.getFullYear()}-${p(t2.getMonth() + 1)}-${p(t2.getDate())}`;
+  assert(arr === `${ymd2}T19:00`, `帰着が1泊ぶんずれていません: ${arr}`);
+  const sat = await page.$('[data-day-preset="saturday"]');
+  assert(sat, "今週末の近道がありません");
+});
+
 await check("何をしてくれるサイトかが書いてある", async () => {
   // 見出しは画面に出しません（条件の入力が下がるため）。代わりに、
   // 結果が出る場所に「つくりかた」を置いて、何が返ってくるかを先に
@@ -243,6 +261,28 @@ await check("要約 → 旅程 → 3案 → 言葉で直す → 詳細 の順に
   }
 });
 
+await check("旅程の下の操作が、ほかと同じ部品でできている", async () => {
+  // 素のブラウザのボタンが並ぶと、ここだけ別のアプリに見えます。
+  const raw = await page.$$eval(".actions button, .panel.adjust button, .panel.talk button",
+    (els) => els.filter((b) => !b.classList.contains("md-btn")
+                           && !b.classList.contains("md-chip")).length);
+  assert(raw === 0, `共通の部品になっていないボタンが ${raw} 個あります`);
+  const input = await page.$(".panel.talk .md-field > input");
+  if (await page.$(".panel.talk")) assert(input, "「言葉で直す」の入力欄が共通の部品ではありません");
+  const send = await page.$(".actions .share-text");
+  assert(send, "「旅程を送る / コピー」がありません");
+});
+
+await check("旅程を文字にして渡せる", async () => {
+  // 共有シートの無い環境では、クリップボードに入ります。
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.click(".actions .share-text");
+  await page.waitForTimeout(300);
+  const text = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
+  assert(text.includes("■"), `旅程の文字が入っていません: ${text.slice(0, 80)}`);
+  assert(/\d{1,2}:\d{2} /.test(text), `時刻の行がありません: ${text.slice(0, 80)}`);
+});
+
 await check("詳しい分析は、畳まれている", async () => {
   const more = await page.$(".more");
   if (!more) return;   // 詳細が1件も無い旅程なら、それでよい
@@ -301,6 +341,7 @@ await check("共有と印刷の情報が入っている（OGP）", async () => {
       ogTitle: get('meta[property="og:title"]'),
       ogImage: get('meta[property="og:image"]'),
       icon: get('link[rel="icon"]', "href"),
+      apple: get('link[rel="apple-touch-icon"]', "href"),
       manifest: get('link[rel="manifest"]', "href"),
     };
   });
@@ -312,6 +353,30 @@ await check("共有と印刷の情報が入っている（OGP）", async () => {
   assert(!/\.svg$/i.test(meta.ogImage), "og:image が SVG です（共有先が画像として扱いません）");
   assert(meta.icon, "アイコンの指定がありません");
   assert(meta.manifest, "manifest の指定がありません");
+  // iOS は apple-touch-icon の SVG を読みません（ページの縮小画像が並びます）。
+  assert(/\.png$/i.test(meta.apple),
+    `ホーム画面用のアイコンが PNG ではありません: ${meta.apple}`);
+});
+
+await check("ホーム画面に追加したときのアイコンが揃っている", async () => {
+  const doc = await page.evaluate(async () => {
+    const href = document.querySelector('link[rel="manifest"]').getAttribute("href");
+    const res = await fetch(href);
+    return res.ok ? res.json() : null;
+  });
+  assert(doc, "manifest を読めません");
+  const png = (doc.icons ?? []).filter((i) => i.type === "image/png");
+  assert(png.some((i) => i.sizes === "192x192"), "192px の PNG がありません");
+  assert(png.some((i) => i.sizes === "512x512"), "512px の PNG がありません");
+  assert((doc.icons ?? []).some((i) => String(i.purpose).includes("maskable")),
+    "切り抜き用（maskable）のアイコンがありません");
+  // 実際に取れること。manifest に書いてあっても、404 なら同じです。
+  const codes = await page.evaluate(async (srcs) => {
+    const out = [];
+    for (const s of srcs) out.push((await fetch(s)).status);
+    return out;
+  }, doc.icons.map((i) => i.src));
+  assert(codes.every((c) => c === 200), `アイコンが取れません: ${codes.join(",")}`);
 });
 
 await check("つくった旅が、一覧に残る", async () => {

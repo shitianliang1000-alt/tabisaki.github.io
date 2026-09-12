@@ -29,7 +29,7 @@ jobs:
           node-version: 22
       - name: Install browser
         run: |
-          npm install --no-save playwright-core
+          npm install --no-save playwright-core axe-core
           npx playwright-core install --with-deps chromium
       - name: Serve the site
         run: |
@@ -43,3 +43,10 @@ jobs:
           BASE_URL: http://127.0.0.1:8000
           E2E_OFFLINE: "1"
         run: node tests/e2e/run.mjs
+
+      # 読める状態かを測ります。薄い灰色の注意書きや、ボタンの中のボタンは、
+      # 目で見ているぶんには気づけません。
+      - name: Accessibility test
+        env:
+          BASE_URL: http://127.0.0.1:8000
+        run: node tests/e2e/a11y.mjs
