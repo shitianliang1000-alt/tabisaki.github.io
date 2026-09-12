@@ -18,6 +18,17 @@ import {
   profileOf,
 } from "./feasibility.js";
 
+/**
+ * 置いてきた拠点へ戻らないための線引き。
+ *
+ * 「前の拠点のほうが BACKTRACK_RATIO 倍以上近い」かつ「今日の拠点から
+ * BACKTRACK_MIN_KM 以上離れている」なら、戻る移動です。近い場所には
+ * かけません。県境あたりでは、どちらの拠点からも同じくらいの距離に
+ * なることがあり、そこまで弾くと行ける場所が減ります。
+ */
+const BACKTRACK_RATIO = 3;
+const BACKTRACK_MIN_KM = 25;
+
 const LUNCH = [11.5, 14.0];
 const DINNER = [17.5, 20.0];
 const hourOf = (d) => d.getHours() + d.getMinutes() / 60;
@@ -230,13 +241,8 @@ export function verifyOrder(spots, ctx) {
     // 日へずれ込んでいました。「2日目 4:00 金沢→三ノ宮、7:20 近江町市場へ
     // 移動（247km）」という旅程が実際に出ています。247km戻るのは、
     // その日に回る場所ではありません。諦めて、理由を残します。
-    const ceil = ctx.dayCeilById?.get(spot.id);
-    if (Number.isFinite(ceil) && dayIndex > ceil) {
-      issues.push({ spotId: spot.id, name: spot.name, reason: REJECT.BASE_MOVED,
-        detail: `${spot.name}は${ceil + 1}日目までのエリアにありますが、`
-          + `${dayIndex + 1}日目には別のエリアへ移っています。` });
-      continue;
-    }
+    const blocked = baseMoved(spot);
+    if (blocked) { issues.push(blocked); continue; }
 
     // 食事の時間を、検証の時点で確保します。あとから空きに差し込む方式だと
     // 予定が詰まっている日には食事が消え、逆に押し込むと帰りの便に
@@ -258,6 +264,19 @@ export function verifyOrder(spots, ctx) {
           && visitsToday > 0 && lateInDay);
     if (worthTomorrow && !isLastDay()) {
       advanceDay();
+      // **日を進めたら、拠点の検査もやり直します。**
+      //
+      // ここが抜けていました。1日目の判定を通った立ち寄りが、入りきらず
+      // 翌日へ回されます。ところが翌日は別の街に移っているかもしれず、
+      // そのまま入れると戻る旅程になります。実際に出ていたのがこれです。
+      //
+      //   3日目 09:00  本部町中心部 → 豊見城市中心部（62.9km）
+      //         10:35  本部町立博物館へ移動（61.2km）   ← 62km戻る
+      //
+      // 判定そのものは上と同じものを使います（2か所に書くと、片方だけ
+      // 直して食い違います）。
+      const after = baseMoved(spot);
+      if (after) { issues.push(after); continue; }
       takeMeals();
       out = attempt(spot);
     }
@@ -289,22 +308,105 @@ export function verifyOrder(spots, ctx) {
    * 昼食が抜けていました（8時に見学が終わり、次は17:30の夕食）。
    * 食事は、予定の詰まり具合とは別に要るものです。
    */
+  /**
+   * その日に回れる場所か。回れないなら、理由を返します。
+   *
+   * 2つ見ます。
+   *
+   *   1. 滞在への割り当てが「何日目まで」と言っているか
+   *   2. 置いてきた拠点のほうが、桁違いに近くないか
+   *
+   * 1だけでは足りません。割り当てがずれると素通りするからです。
+   */
+  function baseMoved(spot) {
+    const ceil = ctx.dayCeilById?.get(spot.id);
+    if (Number.isFinite(ceil) && dayIndex > ceil) {
+      return { spotId: spot.id, name: spot.name, reason: REJECT.BASE_MOVED,
+        detail: `${spot.name}は${ceil + 1}日目までのエリアにありますが、`
+          + `${dayIndex + 1}日目には別のエリアへ移っています。` };
+    }
+    // 置いてきたエリアへ、戻らない。
+    //
+    //   3日目 09:00  本部町中心部 → 豊見城市中心部（62.9km）
+    //         10:35  本部町立博物館へ移動（61.2km）   ← 戻っている
+    //
+    // 62km南下して、すぐ61km北上します。割り当てがどうであれ、これは
+    // 道順として成り立ちません。**前にいた拠点のほうが桁違いに近い
+    // 場所**は、その拠点にいるあいだに回るものです。
+    const base = ctx.baseByDay?.[dayIndex];
+    if (!base) return null;
+    const here = haversineKm(spot, base);
+    const wasCloser = (ctx.baseByDay ?? []).some((b, d) =>
+      d < dayIndex && b && haversineKm(spot, b) * BACKTRACK_RATIO < here);
+    if (here > BACKTRACK_MIN_KM && wasCloser) {
+      return { spotId: spot.id, name: spot.name, reason: REJECT.BASE_MOVED,
+        detail: `${spot.name}は${dayIndex + 1}日目の拠点から`
+          + `約${Math.round(here)}km離れています。`
+          + "前の拠点にいるあいだに回る場所です。" };
+    }
+    return null;
+  }
+
+  /**
+   * その日の、すでに埋まっている時間帯。
+   *
+   * 立ち寄りだけでなく、**そこへ向かう移動も**埋まっています。
+   * ここを見ずに食事を置いていたので、こうなっていました。
+   *
+   *   11:22-13:04  北海道駒ヶ岳へ移動（33.9km）
+   *   12:00-13:00  昼食
+   *
+   * 102分の移動の途中で、食事はとれません。
+   */
+  function busyToday() {
+    return visits
+      .filter((v) => (v.day ?? 0) === dayIndex)
+      .map((v) => [
+        new Date(v.arrive.getTime() - (v.travel + v.wait) * 60000),
+        new Date(v.end),
+      ])
+      .sort((a, b) => a[0] - b[0]);
+  }
+
+  /**
+   * 空いている時刻を探します。見つからなければ null。
+   *
+   * 希望の時刻から始めて、ぶつかるたびにその予定の終わりまで送ります。
+   * 遅らせてよい上限（latestHour）を超えたら、諦めます。遅い昼食は
+   * ありえますが、15時の「昼食」は夕食と区別がつきません。
+   */
+  function freeSlotAt(want, minutes, latestHour) {
+    const busy = busyToday();
+    let at = new Date(want);
+    for (let guard = 0; guard < busy.length + 1; guard++) {
+      const end = addMinutes(at, minutes);
+      const hit = busy.find(([s, e]) => at < e && end > s);
+      if (!hit) return hourOf(at) <= latestHour ? at : null;
+      at = new Date(hit[1]);
+    }
+    return null;
+  }
+
   function closeOutDay() {
     if (!visitsToday) return;
     // 昼を過ぎてから始まった日に、昼食は要りません（15時から動きだした
     // 日に「12:00 昼食」を足すと、過ぎた時刻の予定になります）。
     const sawNoon = dayFirstAt && hourOf(dayFirstAt) <= LUNCH[1];
     if (!hadLunch && sawNoon) {
-      const at = atHour(clock, LUNCH[0] + 0.5);   // 12:00
-      meals.push({ kind: "lunch", start: new Date(at),
-                   end: addMinutes(at, TUNING.mealMin), day: dayIndex });
-      hadLunch = true;
+      const at = freeSlotAt(atHour(clock, LUNCH[0] + 0.5),   // 12:00
+                            TUNING.mealMin, LUNCH[1] + 1);
+      if (at) {
+        meals.push({ kind: "lunch", start: at,
+                     end: addMinutes(at, TUNING.mealMin), day: dayIndex });
+        hadLunch = true;
+      }
     }
     const dinnerOk = ctx.allowDinner ?? !isLastDay();
     if (dinnerOk && !hadDinner) {
-      const at = hourOf(clock) < DINNER[0] ? atHour(clock, DINNER[0]) : clock;
-      if (hourOf(at) <= DINNER[1]) {
-        meals.push({ kind: "dinner", start: new Date(at),
+      const want = hourOf(clock) < DINNER[0] ? atHour(clock, DINNER[0]) : clock;
+      const at = freeSlotAt(want, TUNING.mealMin, DINNER[1]);
+      if (at) {
+        meals.push({ kind: "dinner", start: at,
                      end: addMinutes(at, TUNING.mealMin), day: dayIndex });
         hadDinner = true;
       }

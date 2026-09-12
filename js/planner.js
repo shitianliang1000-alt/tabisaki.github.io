@@ -20,6 +20,11 @@ const nextId = () => `it-${++seq}`;
 
 /** これより短い待ちは、「自由時間」の行として立てません。 */
 const MIN_FREE_MIN = 20;
+/**
+ * 予定と予定のあいだが、これ以上あいたら「自由時間」として書きます。
+ * 30分の空きは移動の余裕ですが、2時間半は過ごしかたの話です。
+ */
+const MIN_IDLE_MIN = 60;
 
 /**
  * 移動の項目に、公共交通の中身（路線・乗換・待ち時間）を足します。
@@ -226,6 +231,22 @@ export function buildItinerary(input) {
     for (const entry of dayEntries) {
       if (entry.meal) {
         const m = entry.meal;
+        // 予定と予定のあいだが空くなら、空いていると書きます。
+        //
+        // 「14:59に見学が終わって、次は17:30の夕食」。そのあいだの
+        // 2時間31分は、何も書かれていませんでした。**書いていない時間は、
+        // 旅程ではありません。** 近くに足せる場所があれば足しますが
+        // （pipeline.js の fillEmptyDays）、足しきれないぶんは、
+        // 自由に使える時間として置きます。黙って空けるより役に立ちます。
+        const idle = Math.round((m.start - prevEnd) / 60000);
+        if (idle >= MIN_IDLE_MIN) {
+          items.push({
+            id: nextId(), kind: "free", start: new Date(prevEnd),
+            end: new Date(m.start), title: "自由時間",
+            detail: freeTimeHint(region, idle),
+            costYen: 0, reason: "次の予定まで時間があるため",
+          });
+        }
         items.push(mealItem(m.start, m.end,
           m.kind === "dinner" ? "夕食" : "昼食", region));
         totalCost += TUNING.mealYen;
@@ -256,6 +277,14 @@ export function buildItinerary(input) {
         // 調べた便が、この行の時刻に合っているか。合っていないなら
         // 発着時刻は出しません（間違った時刻より「分かりません」）。
         const fits = legFitsRow(leave, leg);
+        // 歩く区間かどうかは、**調べた側が決めています**。
+        //
+        // ここは距離だけで見ていました（1.5km以内なら徒歩）。ところが
+        // routes.js は「乗るより歩くほうが早い」区間も徒歩にします。
+        // 2.2kmを35分、2.9kmを46分——どちらも歩く速さの数字なのに、
+        // 距離が1.5kmを超えているので「移動約35分 🟡目安」と出ていました。
+        // 歩くと決めた区間を、調べられなかった区間と同じ顔で並べています。
+        const onFoot = leg?.walk === true || isWalkLeg(v.km);
         items.push(withTransit({
           id: nextId(), kind: "transit",
           start: board ?? leave,
@@ -271,10 +300,10 @@ export function buildItinerary(input) {
           detail: leg?.line && fits
             ? leg.line + (board ? `（${fmtHm(leave)}発の次の便）` : "")
               + (v.km ? `・約${v.km.toFixed(1)}km` : "")
-            : (isWalkLeg(v.km) ? "徒歩" : "移動") + `約${v.travel}分`
+            : (onFoot ? "徒歩" : "移動") + `約${v.travel}分`
               + (v.km ? `・約${v.km.toFixed(1)}km` : ""),
           from: cur, to: v.spot,
-          walk: isWalkLeg(v.km), km: v.km ?? 0,
+          walk: onFoot, km: v.km ?? 0,
           routed: routed && fits,
           yahoo: fits ? (leg?.yahoo ?? null) : null,
           alternatives: fits ? (leg?.alternatives ?? []) : [],

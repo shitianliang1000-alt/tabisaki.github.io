@@ -387,3 +387,59 @@ test("旅程に出る時刻と、調べた便の時刻がそろう", async () =>
     resetStopsCache();
   }
 });
+
+// --- 同じ場所を、2回は置かない ---------------------------------------------
+//
+// 画面にこう出ていました。
+//
+//   17:50  高尾山
+//   20:43  高尾山山頂へ移動   徒歩約11分・約0.0km
+//   20:54  高尾山山頂
+//
+// 収録では takao-2「高尾山山頂」と lm-60「高尾山」が **21m** 離れて
+// いるだけです。名前でまとめる仕組み（tools/dedupe_spots.py）はあり
+// ますが、名前が違えば通り抜けます。同じ山頂に2回立ち、あいだの
+// 「0.0kmを11分」は歩きようがありません。
+
+test("同じ場所は、名前が違っても1回だけ置く", async () => {
+  const { dropSamePlace } = await import("../js/pipeline.js");
+  const takaoTop = { id: "takao-2", name: "高尾山山頂",
+                     lat: 35.6252, lng: 139.2434 };
+  const takao = { id: "lm-60", name: "高尾山", lat: 35.6253, lng: 139.2436 };
+  const yakuoin = { id: "takao-1", name: "高尾山薬王院",
+                    lat: 35.6256, lng: 139.2472 };
+  const kept = dropSamePlace([takaoTop, takao, yakuoin]);
+  assert.deepEqual(kept.map((s) => s.id), ["takao-2", "takao-1"],
+    "21m離れた同じ場所を2回置いています");
+});
+
+test("300m離れていれば、別の場所として置く", async () => {
+  const { dropSamePlace } = await import("../js/pipeline.js");
+  // 薬王院と山頂は346m。参道を登る別の場所です。
+  const top = { id: "a", lat: 35.6252, lng: 139.2434 };
+  const temple = { id: "b", lat: 35.6256, lng: 139.2472 };
+  assert.equal(dropSamePlace([top, temple]).length, 2);
+});
+
+test("旅程に、同じ場所が2回出てこない", async () => {
+  const { haversineKm } = await import("../js/feasibility.js");
+  const itin = await planTrip({
+    trip: trip({ note: "高尾山に登りたい",
+                 departAt: new Date("2026-08-31T09:00"),
+                 arriveBy: new Date("2026-09-01T19:00") }),
+    kb,
+  });
+  // 駅からすぐの立ち寄り（99mを5分で歩く）は、おかしくありません。
+  // おかしいのは、**同じ場所に2回立つ**ことです。
+  const places = itin.days.flatMap((d) => d.items)
+    .filter((i) => i.kind === "spot" && i.place)
+    .map((i) => i.place);
+  for (let i = 0; i < places.length; i++) {
+    for (let j = i + 1; j < places.length; j++) {
+      const m = haversineKm(places[i], places[j]) * 1000;
+      assert.ok(m >= 100,
+        `${places[i].name} と ${places[j].name} は ${m.toFixed(0)}m しか`
+        + "離れていません（同じ場所です）");
+    }
+  }
+});

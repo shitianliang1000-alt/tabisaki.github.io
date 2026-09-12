@@ -326,3 +326,60 @@ test("trimToFit は、全部落ちても例外を投げない", () => {
   assert.ok(Array.isArray(kept));
   assert.ok(Array.isArray(result.visits));
 });
+
+// --- 移動中に食事を置かない -------------------------------------------------
+//
+// 旅程にこう出ていました。
+//
+//   11:22-13:04  北海道駒ヶ岳へ移動（33.9km）
+//   12:00-13:00  昼食
+//
+// 102分の移動の途中で、食事はとれません。日を締めるときの昼食を
+// 12:00固定で置いていて、その時刻が空いているか見ていませんでした。
+
+test("移動中の時刻に、食事を置かない", () => {
+  const far = { id: "far", name: "遠くの山", category: "山",
+                lat: 42.0, lng: 140.6, description: "山です。" };
+  const near = { id: "near", name: "近くの館", category: "博物館",
+                 lat: 41.77, lng: 140.73, description: "館です。" };
+  const r = verifyOrder([near, far], {
+    start: { lat: 41.7737, lng: 140.7267 },
+    startAt: new Date("2026-09-01T09:00"),
+    end: { lat: 41.7737, lng: 140.7267 },
+    endBy: new Date("2026-09-01T21:00"),
+  });
+  const busy = r.visits.map((v) => [
+    new Date(v.arrive.getTime() - (v.travel + v.wait) * 60000),
+    new Date(v.end),
+  ]);
+  for (const m of r.meals) {
+    for (const [s, e] of busy) {
+      assert.ok(!(m.start < e && m.end > s),
+        `${m.kind} が ${s.getHours()}時台の予定と重なっています`);
+    }
+  }
+});
+
+test("置いてきた拠点へ、戻らない", () => {
+  // 2日目に南へ62km移り、その日に北の場所へ61km戻る、という並び。
+  const north = { id: "n", name: "北の館", category: "博物館",
+                  lat: 26.655, lng: 127.883, description: "館です。" };
+  const south = { id: "s", name: "南の館", category: "博物館",
+                  lat: 26.156, lng: 127.650, description: "館です。" };
+  const baseN = { name: "北の拠点", lat: 26.681, lng: 127.865 };
+  const baseS = { name: "南の拠点", lat: 26.177, lng: 127.579 };
+  const r = verifyOrder([south, north], {
+    start: baseS,
+    startAt: new Date("2026-09-02T09:00"),
+    end: baseS, endBy: new Date("2026-09-02T20:00"),
+    baseByDay: [baseN, baseS],
+    day0: new Date("2026-09-01T09:00"),
+    nights: 1,
+  });
+  // 2日目（index 1）の拠点は南。北の館は、前の拠点のほうが桁違いに近い。
+  const names = r.visits.map((v) => v.spot.name);
+  assert.ok(!names.includes("北の館"),
+    "62km南下したあとに、61km北へ戻っています");
+  assert.ok(r.issues.some((i) => i.name === "北の館"),
+    "落とした理由が残っていません");
+});

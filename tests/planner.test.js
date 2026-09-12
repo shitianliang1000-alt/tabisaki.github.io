@@ -979,3 +979,46 @@ test("行より後の便は、そのまま出す（それは待ち時間）", ()
   assert.equal(start.getHours(), 18);
   assert.equal(start.getMinutes(), 0);
 });
+
+test("予定のあいだが長く空くなら、自由時間として書く", () => {
+  const trip = makeTrip({ origin: TOKYO, departAt: d("2026-09-12T09:00"),
+                          arriveBy: d("2026-09-12T22:00") });
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+  });
+  // 見学は昼過ぎに終わり、夕食は17:30。あいだが2時間以上あきます。
+  const itin = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(),
+    meals: [{ kind: "dinner", day: 0,
+              start: d("2026-09-12T17:30"), end: d("2026-09-12T18:30") }],
+    legs: { outbound: { minutes: 60, routed: false },
+            inbound: { minutes: 60, routed: false } },
+  });
+  const items = itin.days[0].items.sort((a, b) => a.start - b.start);
+  const dinner = items.find((i) => i.title === "夕食");
+  const before = items.filter((i) => i.end <= dinner.start).at(-1);
+  assert.equal(before.kind, "free",
+    `夕食の前が ${before.kind}（${before.title}）です。空白のままです`);
+  assert.ok(before.detail, "何をして過ごせるかが書かれていません");
+});
+
+test("短い空きには、自由時間の行を立てない", () => {
+  const trip = makeTrip({ origin: TOKYO, departAt: d("2026-09-12T09:00"),
+                          arriveBy: d("2026-09-12T22:00") });
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+  });
+  const last = v.visits.at(-1).end;
+  const itin = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(),
+    meals: [{ kind: "dinner", day: 0, start: new Date(last.getTime() + 20 * 60000),
+              end: new Date(last.getTime() + 80 * 60000) }],
+    legs: { outbound: { minutes: 60, routed: false },
+            inbound: { minutes: 60, routed: false } },
+  });
+  const frees = itin.days[0].items.filter((i) => i.kind === "free"
+    && i.title === "自由時間" && (i.end - i.start) < 60 * 60000);
+  assert.equal(frees.length, 0, "20分の空きに行を立てています");
+});

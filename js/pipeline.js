@@ -734,7 +734,7 @@ function fillEmptyDays(visits, opt) {
     if (!end) continue;                       // 立ち寄りの無い日は別の話です
     const limit = atHour(end, dayEndHour);
     const freeMin = Math.round((limit - end) / 60000);
-    if (freeMin <= MAX_GAP_MIN) continue;
+    if (freeMin <= FILL_GAP_MIN) continue;
 
     // 空いた時間を、1か所あたり90分（見学＋移動）で割ります。
     const want = Math.min(4, Math.floor(freeMin / 90));
@@ -766,7 +766,17 @@ function fillEmptyDays(visits, opt) {
 }
 
 // これ以上あくと、その日は「予定のある日」とは言えません。
+// ここを超えるとAIに案を作り直させます（聞き直すので、しきい値は高め）。
 const MAX_GAP_MIN = 300;
+/**
+ * 日の終わりにこれ以上あいたら、近くから足します。
+ *
+ * 作り直しと違って、足すのは手元の計算だけです。聞き直さないので、
+ * もっと早い段階で動かして構いません。300分にそろえていたので、
+ * 「13:34に見学が終わって、次は17:30の夕食」（296分）が、ちょうど
+ * すり抜けていました。2時間の空白は、予定表としては空白です。
+ */
+const FILL_GAP_MIN = 120;
 // 開くまでの待ちが、これを超える旅程は作り直します。
 const MAX_FREE_MIN = 20;
 
@@ -835,7 +845,7 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     perDay: SPOTS_PER_DAY[trip.pace] ?? 4,
     avoid: new Set(trip.must?.avoidSpotIds ?? []),
   });
-  let spots = byStay.flat();
+  let spots = dropSamePlace(byStay.flat());
   // 「このスポットは何日目以降に回る」を滞在計画から決めておく。
   //
   // 滞在の初日にまとめて詰め込むと、3日いるエリアで「1日目に4か所、
@@ -943,7 +953,9 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
       dayFloorById, dayCeilById,
     });
     if (!more.length) break;
-    spots = spreadCrowds([...spots, ...more], {
+    // 埋めるときも、同じ場所を足しません。ここを通らないと、いったん
+    // 落とした二重の片割れが戻ってきます。
+    spots = spreadCrowds(dropSamePlace([...spots, ...more]), {
       dayFloorById, start: first, baseByDay, travelFn,
       pinnedIds: trip.must?.spotIds ?? [],
       useCrowd: trip.avoidCrowds !== false,
@@ -999,6 +1011,40 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
  * @returns {{trimmed:object, travelFn:Function, legDetail:Function,
  *            route:object}|null} 取れなければ null（そのままにします）
  */
+/**
+ * 同じ場所を、2回は置きません。
+ *
+ * 収録は複数の出典を継ぎ足して作っているので、同じ場所が別の名前で
+ * 入っていることがあります。名前でまとめる仕組み（tools/dedupe_spots.py）は
+ * ありますが、名前が違えば通り抜けます。
+ *
+ *   高尾山山頂（takao-2）と 高尾山（lm-60）は **21m** 離れているだけ
+ *
+ * 結果、旅程にはこう出ていました。
+ *
+ *   17:50  高尾山
+ *   20:43  高尾山山頂へ移動   徒歩約11分・約0.0km
+ *   20:54  高尾山山頂
+ *
+ * 同じ山頂に2回立ち、あいだの「0.0kmを11分」は歩きようがありません。
+ * 名前が違っても、これだけ近ければ人にとっては同じ場所です。
+ * 先に来たほうを残します（並びは選んだ側が決めています）。
+ *
+ * 収録データそのものは触りません。別の旅程では別々に出したい場面が
+ * ありうるうえ、どちらが正しい名前かはここでは決められないためです。
+ */
+const SAME_PLACE_KM = 0.12;
+
+export function dropSamePlace(spots) {
+  const kept = [];
+  for (const s of spots) {
+    const twin = kept.find((k) => haversineKm(k, s) < SAME_PLACE_KM);
+    if (twin) continue;
+    kept.push(s);
+  }
+  return kept;
+}
+
 /**
  * 旅程に並ぶとおりの、端から端までの一本道と、その各区間を通る時刻。
  *
