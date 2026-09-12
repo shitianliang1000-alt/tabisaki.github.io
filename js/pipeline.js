@@ -17,6 +17,7 @@ import {
   resolvedModel, understandRequest,
 } from "./ai.js";
 import { areaNote, areaScope, detectAreas, unknownPlaceTerms } from "./areas.js";
+import { readIntent } from "./intent.js";
 import { TUNING } from "./config.js";
 import { discoverArea, resolveDestination } from "./discover.js";
 import { atHour, estimateMinutes, haversineKm } from "./feasibility.js";
@@ -56,6 +57,19 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     const hours = (trip.arriveBy - trip.departAt) / 3600000;
 
   onProgress(0);
+  // 希望文から、乗り物の指定を読み取ります。
+  //
+  // 「ツーリングをしたい」「サンライズに乗って」のような書きかたは、
+  // これまで素通りしていました。文の中の語はスポット名との照合にしか
+  // 使われないので、合うスポットが無ければ無視されます。バイクで
+  // 回りたい人に、電車の時刻表で組んだ旅程が出ていました。
+  //
+  // **画面で選ばれているときは、そちらが勝ちます。** 明示的に選んだ
+  // ものを、文からの推し量りで上書きはしません。
+  const intent = readIntent(trip.note);
+  if (intent.transport && trip.transport === "any") {
+    trip = { ...trip, transport: intent.transport };
+  }
   // 前回の失敗を持ち越さないようにします（3案を作るときは
   // 読み取りを使い回すので、最初の1回だけ数え直します）。
   if (!opts.query) resetAiStatus();
@@ -598,6 +612,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   }
 
   itin.warnings = [
+    ...intent.notes,
     ...poolNote(kb, candidates),
     ...earlyStartNote(itin, trip),
     ...aiNotes(),
