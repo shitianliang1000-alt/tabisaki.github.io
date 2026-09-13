@@ -27,8 +27,13 @@ function el(tag, attrs = {}, ...kids) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === "class") node.className = v;
-    else if (k === "href" && typeof v === "string" && v.trim().toLowerCase().startsWith("javascript:")) {
-      node.setAttribute(k, "about:blank");
+    else if (["href", "src", "action"].includes(k) && typeof v === "string") {
+      const normalized = v.replace(/[\u0000-\u001F\u0020\u00A0]/g, "").toLowerCase();
+      if (normalized.startsWith("javascript:") || normalized.startsWith("vbscript:")) {
+        node.setAttribute(k, "about:blank");
+      } else {
+        node.setAttribute(k, v);
+      }
     } else if (v !== null && v !== undefined && v !== false) {
       node.setAttribute(k, v);
     }
