@@ -570,6 +570,11 @@ p, li { text-wrap: pretty; }
 .placeholder { height: 100%; display: flex; flex-direction: column; padding: 16px; }
 .home-map {
   flex: 1; min-height: 240px; z-index: 0;
+  /* 下の案内（.home-steps）ぶんの隙間を、あらかじめ確保します。
+     margin-top だけを案内側に持たせていたときは、地図（flex:1）が
+     残りの高さを使い切ってから案内を押し出す形になり、狭い画面では
+     案内が地図の下端に詰まって見えていました。 */
+  margin-bottom: 14px;
   border-radius: var(--md-sys-shape-corner-large);
   overflow: hidden;
   background: var(--md-sys-color-surface-container);
@@ -582,9 +587,41 @@ p, li { text-wrap: pretty; }
 /* 地図が出せないときは、一文ぶんの高さにします。320px の空き箱を
    置いても、読む人にできることはありません。旅程を上へ寄せます。 */
 .map.map-fallback, .home-map.map-fallback { height: auto; font-size: 14px; }
-/* 案内文（.home-hint/.home-steps）は、地図の下に3つの箱で重ねて
-   出していました。狭い画面で地図が縮むと下端に食い込むうえ、左側の
-   「1・2・3」の見出しと同じ内容の繰り返しだったので、やめました。 */
+.home-hint {
+  margin: 12px 8px 4px; text-align: center;
+  font-size: 12px; color: var(--md-sys-color-on-surface-variant);
+}
+/* 空の右半分に、何が出るのかを3行で。地図の下に横並びで置きます。
+   以前はここに margin-top しか無く、地図（flex:1）が伸びられるだけ
+   伸びるため、狭い画面ではこの帯の取り分がほとんど残らず、地図の
+   下端に押しつぶされる形で食い込んで見えていました。地図の側に
+   十分な余白（.home-map の margin-bottom）を持たせ、帯の取り分を
+   あらかじめ確保しておきます。 */
+.home-steps {
+  list-style: none; margin: 0 4px; padding: 0;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  flex: none;
+}
+.home-steps li {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--hig-r-md);
+  background: var(--hig-card);
+  box-shadow: var(--hig-shadow-1);
+  font-size: 13px; line-height: 1.55; color: var(--hig-label-2);
+}
+.home-steps li:last-child { color: var(--hig-label); font-weight: 600; }
+.home-steps li > i {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 700 12px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #fff; background: var(--tabi-indigo);
+}
+.home-steps li:last-child > i { background: var(--tabi-teal); }
+@media (max-width: 1100px) {
+  .home-steps { grid-template-columns: 1fr; gap: 8px; }
+  .home-steps li { padding: 10px 12px; }
+}
 
 /* ------------------------------------------------------------ 生成中 --- */
 
