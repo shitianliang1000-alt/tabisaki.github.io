@@ -16,3 +16,7 @@
 **Vulnerability:** Similar to js/ui.js, the el() helper in admin/admin.js lacked validation for href attributes, leaving a risk for javascript: URI injection.
 **Learning:** When addressing a vulnerability like XSS in a specific utility function, check if the project has duplicated or similar utility functions (e.g. for different scopes like admin vs main UI) that might suffer from the same vulnerability.
 **Prevention:** Added javascript: URI check and neutralized it with about:blank in admin/admin.js el() function, same as js/ui.js.
+## 2026-09-12 - Prevent URI XSS via control characters in attributes
+**Vulnerability:** The javascript: URI check in href attributes could be bypassed using control characters (e.g. \x09 or \x00), and other attributes like src and action were not checked, leading to potential XSS execution. Additionally, vbscript: was not restricted.
+**Learning:** Checking for javascript: URIs must account for how browsers parse URLs, specifically by ignoring control characters (ASCII 0-32). Checking only href is insufficient as src and action can also execute code.
+**Prevention:** Sanitize href, src, and action attributes by stripping all [\x00-\x20] control characters before matching against javascript: and vbscript:.
