@@ -16,3 +16,7 @@
 **Vulnerability:** Similar to js/ui.js, the el() helper in admin/admin.js lacked validation for href attributes, leaving a risk for javascript: URI injection.
 **Learning:** When addressing a vulnerability like XSS in a specific utility function, check if the project has duplicated or similar utility functions (e.g. for different scopes like admin vs main UI) that might suffer from the same vulnerability.
 **Prevention:** Added javascript: URI check and neutralized it with about:blank in admin/admin.js el() function, same as js/ui.js.
+## 2026-09-13 - Enhance URI validation to prevent XSS bypass
+**Vulnerability:** The `el()` helper functions in `js/ui.js` and `admin/admin.js` checked `href` for `javascript:` URIs, but failed to strip control characters (like `\x09` tab) before validation, allowing bypasses like `java\x09script:`. It also missed blocking `vbscript:` and did not check `src` or `action` attributes which could also execute scripts.
+**Learning:** Checking `href` with `startsWith("javascript:")` is insufficient. Attackers can embed control characters that browsers ignore but validation functions might fail on. Also, other URI attributes (`src`, `action`) and legacy protocols (`vbscript:`) must be sanitized.
+**Prevention:** In custom DOM creation functions like `el()`, always strip control characters (`/[\x00-\x1F\x7F-\x9F]/g`) from URI-based attributes (`href`, `src`, `action`) before validating against `javascript:` and `vbscript:`.
