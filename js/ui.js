@@ -56,10 +56,15 @@ export function el(tag, attrs = {}, ...children) {
     // 無くなります。強調や改行が要るときは、要素を分けてください。
     else if (k.startsWith("on") && typeof v === "function") {
       node.addEventListener(k.slice(2).toLowerCase(), v);
-    } else if (k === "href" && typeof v === "string" && v.trim().toLowerCase().startsWith("javascript:")) {
-      // XSS防止: href への javascript: の埋め込みを防ぐ
-      // AIや外部データからのURLに悪意のあるコードが含まれていても発火しないようにします
-      node.setAttribute(k, "about:blank");
+    } else if (k === "href" && typeof v === "string") {
+      const sanitized = v.replace(/[\x00-\x1F\x7F]/g, "").trim().toLowerCase();
+      if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || sanitized.startsWith("data:")) {
+        // XSS防止: href への javascript:, vbscript:, data: の埋め込みを防ぐ
+        // AIや外部データからのURLに悪意のあるコードが含まれていても発火しないようにします
+        node.setAttribute(k, "about:blank");
+      } else {
+        node.setAttribute(k, v);
+      }
     } else if (v !== null && v !== undefined && v !== false) {
       node.setAttribute(k, v);
     }
