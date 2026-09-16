@@ -210,26 +210,39 @@
              読み上げは通りますが、名前を押してつまみに触れる・支援技術が
              「名前のある入力欄」として数える、といった当たり前が付きません。 -->
         <label class="tune-label" id="bias-label" for="hidden-bias">定番と穴場のまぜかた</label>
-        <!-- 「7 定番／1 穴場、残り2は知る人ぞ知る」という比率の見せかたは
-             分かりにくいとのことでした。10か所のうち何か所が定番で、
-             何か所が穴場かを、そのまま1行の文で言います。
+        <!-- 10か所ぶんの点を、定番・知る人ぞ知る・穴場の3つの区画に置きます。
+             **人が多いところに、点が多い。** それだけの絵です。
+
+             以前は「割合の帯」と「意味のない点の散らばり」と「文」の3つが
+             並んでいました。同じことを3通りで言ううえ、点は小さくて位置も
+             でたらめで、何を表しているのか読み取れないとのことでした。
+             帯と点をやめて、**点そのものを答え**にします。つまみを動かすと
+             点が区画から区画へ移るので、何が変わるのかが目で分かります。
+
              数は実際に選ぶ関数（mixTargets）から引いています。 -->
-        <div class="mix" id="mix-view" aria-hidden="true">
-          <div class="mix-bar">
-            <i id="mix-fill" class="mix-fill-major"></i>
-            <i id="mix-known-fill" class="mix-fill-known"></i>
-            <i id="mix-hidden-fill" class="mix-fill-hidden"></i>
+        <div class="mixplot" id="mix-view" aria-hidden="true">
+          <div class="mixplot-zones">
+            <div class="mixzone mixzone--major"><i id="mix-dots-major"></i></div>
+            <div class="mixzone mixzone--known"><i id="mix-dots-known"></i></div>
+            <div class="mixzone mixzone--hidden"><i id="mix-dots-hidden"></i></div>
+          </div>
+          <div class="mixplot-axis">
+            <span><b>定番</b>人が多い</span>
+            <span><b>知る人ぞ知る</b></span>
+            <span><b>穴場</b>人が少ない</span>
           </div>
         </div>
-        <p class="mix-summary">
+        <input type="range" class="md-slider" id="hidden-bias"
+               min="0" max="100" value="40"
+               aria-describedby="mix-summary">
+        <!-- 読みかたと数を、1つの塊にします。以前は「定番を軸に、穴場を
+             少し混ぜます」と「10か所のうち…」が別々の段落で並び、
+             同じことを2度読ませていました。 -->
+        <p class="mix-summary" id="mix-summary">
+          <span class="mix-mood" id="hidden-bias-help">定番より</span>
           10か所のうち、定番が <b id="mix-classic-n">5</b>か所、
           知る人ぞ知る場所が <b id="mix-known-n">3</b>か所、
           穴場が <b id="mix-hidden-n">2</b>か所くらいになります</p>
-        <div class="stardust" id="stardust" aria-hidden="true"></div>
-        <input type="range" class="md-slider" id="hidden-bias"
-               min="0" max="100" value="40"
-               aria-describedby="hidden-bias-help">
-        <p class="md-field-help" id="hidden-bias-help">定番より</p>
       </div>
 
     </section>

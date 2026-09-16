@@ -150,10 +150,19 @@ await check("どちらへ寄っているかが、数で分かる", async () => {
   assert(classic + known + hidden === 10,
     `${classic} + ${known} + ${hidden} が10になりません`);
   assert(hidden > classic, "穴場寄りにしたのに、定番のほうが多い表示です");
-  // 帯の向きが数字と合っていること（以前は逆を向いていました）
-  const w = await page.$eval("#mix-fill", (e) => parseFloat(e.style.width));
-  assert(Math.abs(w - classic * 10) < 1,
-    `定番 ${classic} 割なのに、帯が ${w}% です`);
+
+  // 点の数が、文の数と合っていること。
+  // 絵と文が食い違うと、どちらを信じてよいか分かりません（以前は帯が
+  // 数字と逆を向いていました）。区画ごとに数えます。
+  const dots = await page.$$eval(
+    "#mix-dots-major, #mix-dots-known, #mix-dots-hidden",
+    (els) => els.map((e) => e.children.length));
+  assert(dots.join(",") === [classic, known, hidden].join(","),
+    `点が ${dots.join("/")}、文が ${classic}/${known}/${hidden} です`);
+  assert(dots.reduce((a, b) => a + b, 0) === 10, "点が10個ではありません");
+
+  // 穴場側へ寄せたら、穴場の区画の点がいちばん多いこと。
+  assert(dots[2] > dots[0], "穴場寄りにしたのに、定番の区画の点が多いままです");
 });
 
 await check("1日のうち、動く時間帯を選べる", async () => {
