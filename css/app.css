@@ -663,6 +663,16 @@ p, li { text-wrap: pretty; }
   box-shadow: 0 0 0 5px var(--hig-blue-tint);
   animation: pulse 1.4s ease-in-out infinite;
 }
+/* 経過時間。段が進まないあいだも、ここは動き続けます。 */
+.step-elapsed {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: 18px 0 0; font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.step-clock { font-variant-numeric: tabular-nums; letter-spacing: .5px; }
+.step-slow:empty { display: none; }
+.step-slow { line-height: 1.6; }
+
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 0 5px var(--hig-blue-tint); }
   50%      { box-shadow: 0 0 0 9px color-mix(in srgb,

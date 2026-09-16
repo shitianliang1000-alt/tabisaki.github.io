@@ -94,24 +94,80 @@ export const STEPS = [
  * いま何をしていて、あと何が残っているかを、そのまま並べます。
  * ピンが生えて波紋が広がるのは、地図が育っている合図です。
  */
+/**
+ * これを過ぎたら、なぜ待たされているのかを書きます。
+ *
+ * 遅い理由は、電車の時刻を1区間ずつ実際に調べているからです。それを
+ * 黙っていると「固まった」に見えます。書いてあれば、待つ理由になります。
+ */
+const SLOW_AFTER_SEC = 40;
+
+const fmtElapsed = (sec) =>
+  `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+
 export function renderProgress(container, step, detail = "") {
-  container.textContent = "";
-  const card = el("div", { class: "plan-card" });
-  card.append(
-    el("p", { class: "step-text" }, "旅を組み立てています"),
-    el("p", { class: "step-detail" },
-      detail || STEPS[Math.min(step, STEPS.length - 1)]),
-    el("div", { class: "md-progress", role: "progressbar",
-                "aria-valuenow": String(step + 1),
-                "aria-valuemin": "1", "aria-valuemax": String(STEPS.length) },
-      el("i", { style: `width:${((step + 1) / STEPS.length) * 100}%` })),
-    el("ul", { class: "step-list" },
-      STEPS.map((s, i) => el("li", {
-        class: i < step ? "done" : i === step ? "active" : "",
-      }, el("span", { class: "dot" }),
-         el("span", {}, `${i < step ? "✓ " : ""}${s}`)))),
-  );
-  container.append(card);
+  // 作り直さず、書き換えます。
+  //
+  // 以前は毎回 textContent = "" で消して組み直していました。段が進む
+  // たびに画面がちらつき、経過時間のような**動き続けるもの**は置け
+  // ませんでした（作り直した瞬間に止まるので）。
+  let card = container.querySelector(".plan-card");
+  if (!card) {
+    container.textContent = "";
+    card = el("div", { class: "plan-card" });
+    card.append(
+      el("p", { class: "step-text" }, "旅を組み立てています"),
+      el("p", { class: "step-detail" }, ""),
+      el("div", { class: "md-progress", role: "progressbar",
+                  "aria-valuemin": "1", "aria-valuemax": String(STEPS.length) },
+        el("i", { style: "width:0%" })),
+      el("ul", { class: "step-list" },
+        STEPS.map((s) => el("li", {}, el("span", { class: "dot" }),
+                                      el("span", {}, s)))),
+      el("p", { class: "step-elapsed" },
+        el("span", { class: "step-clock" }, "0:00"),
+        el("span", { class: "step-slow" }, "")),
+    );
+    container.append(card);
+    startClock(container, card);
+  }
+
+  card.querySelector(".step-detail").textContent =
+    detail || STEPS[Math.min(step, STEPS.length - 1)];
+  const bar = card.querySelector(".md-progress");
+  bar.setAttribute("aria-valuenow", String(step + 1));
+  bar.querySelector("i").style.width =
+    `${((step + 1) / STEPS.length) * 100}%`;
+  card.querySelectorAll(".step-list li").forEach((li, i) => {
+    li.className = i < step ? "done" : i === step ? "active" : "";
+    li.lastChild.textContent = `${i < step ? "✓ " : ""}${STEPS[i]}`;
+  });
+}
+
+/**
+ * 経過時間を数えます。
+ *
+ * 段は6つしかないので、最後の段に入ってからが長く感じます。実際、
+ * 全区間の時刻を調べるあいだは1分以上動きません。時計が動いていれば、
+ * 止まっていないことだけは分かります。
+ *
+ * 止めかたは「札が画面から消えたら」です。組み上がると app.js が
+ * #progress を隠すので、そこで自分から終わります。呼ぶ側に後始末を
+ * 頼むと、いつか誰かが忘れて、裏で数え続けます。
+ */
+function startClock(container, card) {
+  const began = Date.now();
+  const clock = card.querySelector(".step-clock");
+  const slow = card.querySelector(".step-slow");
+  const id = setInterval(() => {
+    if (!card.isConnected || container.hidden) { clearInterval(id); return; }
+    const sec = Math.floor((Date.now() - began) / 1000);
+    clock.textContent = fmtElapsed(sec);
+    if (sec >= SLOW_AFTER_SEC && !slow.textContent) {
+      slow.textContent = "電車とバスの時刻を、1区間ずつ実際に調べています。"
+        + "目安で埋めずに待つぶん、少し時間がかかります。";
+    }
+  }, 1000);
 }
 
 // --- 旅程 -------------------------------------------------------------------

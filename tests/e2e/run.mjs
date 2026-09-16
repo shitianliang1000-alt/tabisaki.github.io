@@ -231,6 +231,22 @@ await page.$eval("#day-end", (e) => { e.value = "18:00"; e.dispatchEvent(new Eve
 await page.$eval("#hidden-bias", (e) => { e.value = 40; e.dispatchEvent(new Event("input")); });
 await page.click(".mood");
 await page.click("#make-plan");
+
+await check("待っているあいだ、止まっていないことが分かる", async () => {
+  // 段は6つしかなく、最後の段に入ってからが長いところです。時計が
+  // 動いていれば、固まったのか考えているのかが区別できます。
+  const showing = () => page.$eval("#progress", (e) => !e.hidden);
+  const clock = await page.$(".step-clock");
+  if (!clock || !await showing()) return;  // もう組み上がっているなら、見るものがありません
+  const first = (await clock.textContent()).trim();
+  assert(/^\d+:\d\d$/.test(first), `時計が読めません: ${first}`);
+  await page.waitForTimeout(1600);
+  // 途中で組み上がったら、時計は止まっているのが正しい姿です。
+  if (!await showing()) return;
+  const second = await page.$eval(".step-clock", (e) => e.textContent.trim());
+  assert(second !== first, `時計が ${first} のまま止まっています`);
+});
+
 await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
 await page.waitForTimeout(1500);
 

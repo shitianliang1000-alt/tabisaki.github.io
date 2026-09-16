@@ -1758,6 +1758,8 @@ async function run(override) {
   $("#result").hidden = true;
   $("#progress").hidden = false;
   const progress = $("#progress");
+  // 前回の札を残さない。残すと、経過時間が前回の開始から数え続けます。
+  progress.textContent = "";
   const fab = $("#make-plan");
   fab.disabled = true;
   fab.querySelector(".fab-tx").textContent = "組み立てています…";
@@ -1918,6 +1920,7 @@ async function switchVariant(key) {
   const progress = $("#progress");
   $("#result").hidden = true;
   $("#progress").hidden = false;
+  progress.textContent = "";
   try {
     const itin = await finishPlan(key,
       (step, note) => renderProgress(progress, step, note));
