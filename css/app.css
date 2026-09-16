@@ -1445,6 +1445,43 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-color: transparent;
 }
 
+/* この場所を差し替える・外す。
+   外部リンクと同じ列に混ぜず、1段下げます。リンクは「見に行く」、
+   こちらは「旅程が変わる」。押し間違えると取り返しがつく度合いが
+   違うので、見た目でも分けます。 */
+.spot-actions {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-top: 10px; padding-top: 10px;
+  border-top: .5px solid var(--hig-separator-non-opaque, rgba(0,0,0,.08));
+}
+.spot-action {
+  min-height: 36px; padding: 0 14px;
+  border: .5px solid var(--hig-separator-opaque);
+  border-radius: var(--md-sys-shape-corner-small);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font: inherit; font-size: 13px; font-weight: 500;
+  cursor: pointer;
+}
+.spot-action:hover { background: var(--md-sys-color-surface-container-high); }
+.spot-action[data-action="remove"] { color: var(--md-sys-color-error, #b3261e); }
+
+/* 外した場所を戻す */
+.dropped { margin-top: 12px; }
+.dropped-list {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin: 6px 0 0; padding: 0; list-style: none;
+}
+.dropped-back {
+  min-height: 36px; padding: 0 14px;
+  border: .5px solid var(--hig-separator-opaque);
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-primary);
+  font: inherit; font-size: 13px; font-weight: 500;
+  cursor: pointer;
+}
+
 /* 乗換の手順 */
 .transit-steps {
   margin: 10px 0 0;

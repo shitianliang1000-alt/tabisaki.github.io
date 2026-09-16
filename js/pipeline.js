@@ -279,9 +279,22 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 日帰りは残り時間で決まり、泊まりは日数で決まります。
   // 「1日あたり3〜4か所」を素直に日数倍しないと、10日間の旅程が
   // 4スポットのままになります（実際にそうなっていました）。
-  const maxSpots = nights === 0
+  // 「この場所は外す」を押されたときの上限。
+  //
+  // 除外するだけでは、空いた枠を別の場所が埋めます。組み直しとしては
+  // 正しいのですが、押した人には「消したのに数が減らない」と映り、
+  // 「別の候補」との違いも分かりません。
+  //
+  // 減らす数ではなく**上限の絶対値**で受け取ります。ここで計算する
+  // maxSpots は「入れてよい数」であって「実際に入る数」ではありません。
+  // 収録が少ない土地では、11まで入れてよくても10しか入りません。
+  // そこで11から1を引いても、結果は10のままで何も変わりませんでした。
+  // 押したときの実際の件数から1を引いた値を、呼ぶ側が渡します。
+  const cap = Number.isFinite(trip.must?.spotCap)
+    ? Math.max(1, Math.round(trip.must.spotCap)) : Infinity;
+  const maxSpots = Math.min(cap, nights === 0
     ? Math.max(3, Math.min(11, Math.round(hours / 1.8)))
-    : Math.max(4, Math.min(48, days * perDay));
+    : Math.max(4, Math.min(48, days * perDay)));
   const maxRegions = suggestRegionCount(days);
   const targets = mixTargets(maxSpots, trip.hiddenBias);
 
@@ -817,6 +830,32 @@ function longestFreeMin(itin) {
   return free.length ? Math.max(...free) : 0;
 }
 
+/**
+ * 立ち寄りの数に上限があるなら、そこまでに絞ります。
+ *
+ * 上限は「この場所は外す」を押されたときだけ入ります。
+ *
+ * 絞る場所がここなのには理由があります。案を選ぶ段階（proposePlan）でも
+ * 上限までに切っていますが、そのあと topUpStays と fillEmptyDays が
+ * 「空いた日」を埋めるために足します。押した人から見ると、1か所外した
+ * そばから別の場所が入ってくることになります。**外したぶんは空けたまま
+ * にする**のが、押したときの意味です。
+ *
+ * 「必ず行く」は残します。行くと言った場所を、数合わせで落としません。
+ */
+function capSpots(spots, trip) {
+  const cap = trip.must?.spotCap;
+  if (!Number.isFinite(cap) || spots.length <= cap) return spots;
+  const pinned = new Set(trip.must?.spotIds ?? []);
+  const keep = spots.filter((s) => pinned.has(s.id));
+  const rest = spots.filter((s) => !pinned.has(s.id));
+  // 並びは崩しません。落とすのは後ろからです。前を落とすと、旅程の
+  // 前半が丸ごと入れ替わったように見えます。
+  const room = Math.max(0, Math.round(cap) - keep.length);
+  const kept = new Set([...keep, ...rest.slice(0, room)].map((s) => s.id));
+  return spots.filter((s) => kept.has(s.id));
+}
+
 // 出発地がこれより近ければ、最初の拠点は出発地そのものにします。
 const ORIGIN_IS_BASE_KM = 3;
 
@@ -874,7 +913,7 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     perDay: SPOTS_PER_DAY[trip.pace] ?? 4,
     avoid: new Set(trip.must?.avoidSpotIds ?? []),
   });
-  let spots = dropSamePlace(byStay.flat());
+  let spots = capSpots(dropSamePlace(byStay.flat()), trip);
   // 「このスポットは何日目以降に回る」を滞在計画から決めておく。
   //
   // 滞在の初日にまとめて詰め込むと、3日いるエリアで「1日目に4か所、
@@ -990,6 +1029,10 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   // AIに聞き直すのではありません（聞ける状態とは限らないうえ、
   // 同じことを何度も頼むことになります）。
   for (let pass = 0; pass < 3; pass++) {
+    // 「外す」で上限が入っているなら、埋めません。外したぶんを別の
+    // 場所で埋め戻したら、押した意味がなくなります。
+    if (Number.isFinite(trip.must?.spotCap)
+        && trimmed.result.visits.length >= trip.must.spotCap) break;
     const more = fillEmptyDays(trimmed.result.visits, {
       kb, stays, baseByDay, dayStart, dayEndHour: ctx.dayEndHour ?? 18.5,
       nights, used: new Set(spots.map((x) => x.id)),
@@ -999,7 +1042,7 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     if (!more.length) break;
     // 埋めるときも、同じ場所を足しません。ここを通らないと、いったん
     // 落とした二重の片割れが戻ってきます。
-    spots = spreadCrowds(dropSamePlace([...spots, ...more]), {
+    spots = spreadCrowds(capSpots(dropSamePlace([...spots, ...more]), trip), {
       dayFloorById, start: first, baseByDay, travelFn,
       pinnedIds: trip.must?.spotIds ?? [],
       useCrowd: trip.avoidCrowds !== false,

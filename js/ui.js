@@ -653,6 +653,7 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       el("h3", {}, "言葉で直す"),
       el("div", { class: "talk-row" }, field, send),
       out,
+      droppedList(itin, handlers),
       el("p", { class: "fine" },
         "書かれたことは「条件の書き換え」に翻訳されるだけで、"
         + "旅程はこれまでと同じ手順（営業時間と移動時間の照合）で"
@@ -1041,6 +1042,30 @@ function cardArt(spot, { tall = false } = {}) {
   return box;
 }
 
+/**
+ * 外した場所と、戻すためのボタン。
+ *
+ * 外したものが画面から消えるだけだと、押し間違えたときに戻せません。
+ * 「戻せる」と分かっているから、気軽に外せます。
+ */
+function droppedList(itin, handlers) {
+  const dropped = itin?.dropped ?? [];
+  if (!dropped.length || !handlers.onRestore) return null;
+  const box = el("div", { class: "dropped" });
+  box.append(el("p", { class: "fine" }, "外した場所"));
+  const list = el("ul", { class: "dropped-list" });
+  for (const d of dropped) {
+    const b = el("button", {
+      type: "button", class: "dropped-back",
+      "aria-label": `${d.name}を旅程に戻す`,
+    }, `${d.name} を戻す`);
+    b.addEventListener("click", () => handlers.onRestore(d));
+    list.append(el("li", {}, b));
+  }
+  box.append(list);
+  return box;
+}
+
 function renderItem(item, index, itin, handlers, sunNote) {
   const minutes = Math.round((item.end - item.start) / 60000);
   // 所要時間に比例した高さにします。数字を読まなくても、
@@ -1187,6 +1212,33 @@ function renderItem(item, index, itin, handlers, sunNote) {
         href: l.url, target: "_blank", rel: "noreferrer",
         class: l.primary ? "link primary-link" : "link",
       }, l.label))));
+  }
+
+  // この場所を、その場で差し替える・外す。
+  //
+  // 気に入らない1か所のために、条件の画面まで戻って組み直すのは重すぎます。
+  // かといって、ここで旅程を直接いじると、営業時間も移動時間も合わなく
+  // なります。押されたら**条件を書き換えて、同じエンジンで組み直す**。
+  // 言葉で直すとき（edit.js）とまったく同じ道を通ります。
+  if (item.kind === "spot" && item.place && handlers.onSpotEdit) {
+    const id = item.spotId ?? item.place.id;
+    const row = el("div", { class: "spot-actions" });
+    const act = (action, label, hint) => {
+      const b = el("button", {
+        type: "button", class: "spot-action", "data-action": action,
+        "aria-label": `${item.title}を${hint}`,
+      }, label);
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        handlers.onSpotEdit({ id, name: item.title, action });
+      });
+      return b;
+    };
+    row.append(
+      act("replace", "別の候補", "別の場所に差し替える"),
+      act("remove", "外す", "旅程から外す"),
+    );
+    info.append(row);
   }
 
   if (item.kind === "spot" && handlers.onSpot) {

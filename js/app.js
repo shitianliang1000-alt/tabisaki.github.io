@@ -49,6 +49,10 @@ const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
                 // ペースは、利用者が「もっとゆっくり」等を押したときだけ
                 // 指定します。既定では希望文からの読み取りに任せます。
                 pace: null, clearArea: false, avoidIds: [], editNote: "",
+                // avoidIds のうち、「外す」で件数ごと減らしたぶんと、
+                // そのときの上限。条件を組み直しても残します（残さないと、
+                // 外したはずの枠を別の場所が埋めて、押しても減りません）。
+                removedIds: [], spotCap: null,
                 // 3案とおすすめ。案を選び直すときに使い回します。
                 plans: [], recommendKey: "", recommendWhy: "",
                 chosenTrip: null,
@@ -1304,6 +1308,8 @@ async function readTrip() {
       spotIds: [...state.pinned.keys()],
       // 「◯◯は外して」と言われた場所は、次からも出しません
       avoidSpotIds: state.avoidIds ?? [],
+      removedSpotIds: state.removedIds ?? [],
+      spotCap: state.spotCap ?? null,
     },
   });
 }
@@ -1600,6 +1606,69 @@ async function editPlan(text, itin, trip) {
   return said;
 }
 
+/**
+ * 旅程の1か所を、差し替える／外す。
+ *
+ * どちらも「その場所を候補から外して、もう一度組み直す」だけです。
+ * 旅程を直接いじらないのは、editPlan と同じ理由です。1か所を手で
+ * 差し替えると、その前後の移動時間も営業時間も合わなくなります。
+ *
+ * 違いは件数です。「外す」は1か所ぶん減らし、「別の候補」は減らしません
+ * （空いた枠を、別の場所が埋めます）。減らさずに外すと、押した人には
+ * 何も起きていないように見えます。
+ *
+ * 減らす数ではなく、上限を「いま出ている件数マイナス1」として渡します。
+ * 「入れてよい数」から1を引いても、収録が少ない土地では実際の件数が
+ * 変わらないためです（11まで入れてよくても10しか入らない、など）。
+ */
+function editSpot({ id, name, action }, trip, itin) {
+  if (!id) return;
+  const remove = action === "remove";
+  const next = applyEdit({
+    remove: [id],
+    removeCount: remove ? [id] : [],
+    spotCap: remove ? Math.max(1, (itin?.spotCount ?? 2) - 1) : null,
+  }, trip);
+  syncFormTo(next);
+  state.trip = next;
+  state.editNote = remove
+    ? `「${name}」を旅程から外して、組み直しました。`
+    : `「${name}」の代わりになる場所を探して、組み直しました。`;
+  run(next);
+}
+
+/**
+ * 外した場所を、候補に戻します。
+ *
+ * 「必ず行く」にはしません。戻すのは「外した」を取り消すことであって、
+ * 「絶対に入れて」とは別のことです。戻したうえで入らなければ、
+ * それは営業時間や移動時間が許さなかったということです。
+ */
+function restoreSpot({ id, name }, trip) {
+  if (!id) return;
+  const removed = (trip.must?.removedSpotIds ?? []).filter((x) => x !== id);
+  const wasRemoved = (trip.must?.removedSpotIds ?? []).includes(id);
+  const cap = trip.must?.spotCap;
+  const next = {
+    ...trip,
+    must: {
+      ...trip.must,
+      spotIds: [...(trip.must?.spotIds ?? [])],
+      avoidSpotIds: (trip.must?.avoidSpotIds ?? []).filter((x) => x !== id),
+      removedSpotIds: removed,
+      // 「外す」で減らした1か所ぶんを返します。まだ外したままの場所が
+      // 残っていれば、そのぶんの上限は残します。
+      spotCap: removed.length && Number.isFinite(cap)
+        ? cap + (wasRemoved ? 1 : 0)
+        : null,
+    },
+  };
+  syncFormTo(next);
+  state.trip = next;
+  state.editNote = `「${name}」を候補に戻して、組み直しました。`;
+  run(next);
+}
+
 /** 書き換えた条件を、左の入力欄に反映します。 */
 function syncFormTo(t) {
   const iso = (d) => {
@@ -1620,6 +1689,8 @@ function syncFormTo(t) {
     chip.classList.toggle("is-selected", on);
   }
   state.avoidIds = t.must.avoidSpotIds;
+  state.removedIds = t.must.removedSpotIds ?? [];
+  state.spotCap = t.must.spotCap ?? null;
   state.pinned.clear();
   for (const id of t.must.spotIds) {
     const spot = state.kb?.spotsById?.get(id);
@@ -1919,6 +1990,12 @@ function show(itin, trip) {
   // 直前に言葉で直した内容を、組み直したあとの画面にも残します
   itin.editNote = state.editNote ?? "";
   state.editNote = "";
+  // 外した場所は、名前を残しておきます。押し間違えたときに戻せないと、
+  // 「外す」を押すのが怖くなり、結局使われません。
+  itin.dropped = (trip.must?.avoidSpotIds ?? [])
+    .map((id) => state.kb?.spotsById?.get(id))
+    .filter(Boolean)
+    .map((s) => ({ id: s.id, name: s.name }));
 
   // なぜこの旅程なのか、どれくらい余裕があるのか、情報はどこから来たのか。
   // どれもプログラム側で数えます（AIには採点させません）。
@@ -1970,6 +2047,8 @@ function show(itin, trip) {
         : `天気・日没・混雑から ${picked.length}件 を反映して組み直しました。`;
       run(next);
     },
+    onSpotEdit: (req) => editSpot(req, trip, itin),
+    onRestore: (d) => restoreSpot(d, trip),
     onSpot: (item) => {
       state.map.focus(item.place.lat, item.place.lng);
       openSheet(item, { describe: (s) => describeSpot(s) });

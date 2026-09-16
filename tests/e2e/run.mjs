@@ -316,6 +316,36 @@ await check("案を選び直せる", async () => {
   assert(sel === 1, `選ばれている案が ${sel} 件あります`);
 });
 
+await check("立ち寄りを、その場で差し替えられる・外せる", async () => {
+  // 気に入らない1か所のために、条件の画面まで戻らせません。
+  const actions = await page.$$eval(".tl.spot .spot-action",
+    (els) => els.map((e) => e.dataset.action));
+  assert(actions.includes("replace") && actions.includes("remove"),
+    `立ち寄りに「別の候補」「外す」がありません（${actions.join("・") || "なし"}）`);
+
+  const before = await page.$$eval(".tl.spot", (els) => els.length);
+  await page.click('.tl.spot .spot-action[data-action="remove"]');
+  await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
+  await until(page, () => {
+    const o = document.querySelector(".talk-out");
+    return Boolean(o && !o.hidden && o.textContent.includes("外して"));
+  }, { timeout: 120_000 });
+  const after = await page.$$eval(".tl.spot", (els) => els.length);
+  assert(after < before, `外す前 ${before}件・外したあと ${after}件で減っていません`);
+
+  // 押し間違えたら戻せること。戻せないと、怖くて押せません。
+  const back = await page.$(".dropped-back");
+  assert(back, "外した場所を戻すボタンがありません");
+  await back.click();
+  await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
+  await until(page, () => {
+    const o = document.querySelector(".talk-out");
+    return Boolean(o && !o.hidden && o.textContent.includes("戻して"));
+  }, { timeout: 120_000 });
+  const restored = await page.$$eval(".tl.spot", (els) => els.length);
+  assert(restored >= before, `戻したのに ${restored}件（外す前は ${before}件）です`);
+});
+
 await check("言葉で直せる", async () => {
   const input = await page.$("#edit-text");
   if (!input) return;   // AIキーが無い環境では出ないことがあります
