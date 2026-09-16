@@ -494,6 +494,9 @@ export function buildItinerary(input) {
     days, totalCostYen: totalCost, spotCount, warnings,
     hoursWarnings: [...hoursWarnings],
     endMode: trip.endMode,
+    // 何で回る旅か。画面と確かめかたが、これで変わります。車の旅に
+    // 「時刻を引けませんでした」と出しても、引くべき時刻がありません。
+    transport: trip.transport ?? "any",
     usedRoutesApi: Boolean(legs?.outbound?.routed || legs?.local?.routed),
   };
 }

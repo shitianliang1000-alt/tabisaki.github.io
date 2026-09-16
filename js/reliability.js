@@ -46,6 +46,9 @@ export function travelSource(item) {
  * @returns {{total:number, retryable:number, noTransit:number}}
  *          total は目安のまま残った区間の数（徒歩は数えません）
  */
+/** 車（またはバイク）で回る旅か。 */
+function byCar(itin) { return itin?.transport === "car"; }
+
 export function estimatedTravel(itin) {
   const moves = (itin?.days ?? [])
     .flatMap((d) => d?.items ?? [])
@@ -86,22 +89,29 @@ export function tripReliability(itin) {
   const checks = [
     {
       ok: moves.length > 0 && realMoves.length === moves.length,
-      label: "移動時間",
+      label: byCar(itin) ? "運転時間" : "移動時間",
       // 「残り3区間は距離からの目安です」で止めていました。読んだ人に
       // できることが書いていないので、作り直すしかありません。そして
       // 駅もバス停も無い区間は、作り直しても目安のままです。
       // **直るものと直らないものを分けて言います。**
-      detail: moves.length
-        ? `${moves.length}区間のうち${realMoves.length}区間は実際の便から。`
-          + (est.noTransit
-            ? `${est.noTransit}区間は近くに駅・バス停が無いので、`
-              + "タクシーで行くものとして組んでいます。"
-            : "")
-          + (est.retryable
-            ? `${est.retryable}区間は時刻を引けませんでした`
-              + "（もう一度調べると入ることがあります）。"
-            : "")
-        : "移動がありません。",
+      //
+      // 車の旅では「便」も「時刻表」も出てきません。引くのは道のりです。
+      detail: !moves.length ? "移動がありません。"
+        : byCar(itin)
+          ? `${moves.length}区間のうち${realMoves.length}区間は経路検索で確認。`
+            + (est.retryable
+              ? `残り${est.retryable}区間は距離からの目安です`
+                + "（もう一度調べると道のりが入ることがあります）。"
+              : "")
+          : `${moves.length}区間のうち${realMoves.length}区間は実際の便から。`
+            + (est.noTransit
+              ? `${est.noTransit}区間は近くに駅・バス停が無いので、`
+                + "タクシーで行くものとして組んでいます。"
+              : "")
+            + (est.retryable
+              ? `${est.retryable}区間は時刻を引けませんでした`
+                + "（もう一度調べると入ることがあります）。"
+              : ""),
     },
     {
       ok: spots.length > 0 && realHours.length === spots.length,

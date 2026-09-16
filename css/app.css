@@ -1462,6 +1462,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--md-sys-color-on-surface-variant);
 }
 .tl .sun { margin: 8px 0 0; font-size: 13px; color: var(--md-sys-color-tertiary); }
+/* 長い運転に添える休憩のこと。日没の注記と同じ扱いの一行です。
+   色は本文寄りにします（警告ではなく、気づいてほしい程度のこと）。 */
+.tl .sun.rest { color: var(--hig-label-2); display: flex; gap: 6px; }
 .tl .chev {
   position: absolute; right: 12px; bottom: 12px;
   display: grid; place-items: center;

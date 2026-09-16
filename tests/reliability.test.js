@@ -130,3 +130,33 @@ test("駅もバス停も無い区間は、作り直しを勧めない", () => {
   // 直らないものに「もう一度調べると入ります」と書いてはいけません。
   assert.doesNotMatch(travel.detail, /もう一度調べる/);
 });
+
+// --- 車の旅 ---------------------------------------------------------------
+// 車の旅に「便」も「時刻表」も出てきません。引くのは道のりです。
+
+test("車の旅では、運転時間として数える", () => {
+  const r = tripReliability({
+    transport: "car",
+    slackMin: 200,
+    days: [{ items: [
+      move({ routed: true }),
+      move({ routed: false }),
+      spot({ estimated: false }),
+    ] }],
+  });
+  const row = r.checks.find((c) => c.label === "運転時間");
+  assert.ok(row, `行の名前が ${r.checks.map((c) => c.label).join("/")} です`);
+  assert.match(row.detail, /経路検索で確認/);
+  assert.match(row.detail, /道のりが入ることがあります/);
+  // 車の旅で「便」や「時刻」の話をしてはいけません。
+  assert.doesNotMatch(row.detail, /便|時刻/);
+});
+
+test("電車の旅の言いかたは、これまでどおり", () => {
+  const r = tripReliability({
+    transport: "transit",
+    slackMin: 200,
+    days: [{ items: [move({ routed: true, yahoo: {} }), spot({})] }],
+  });
+  assert.ok(r.checks.find((c) => c.label === "移動時間"));
+});

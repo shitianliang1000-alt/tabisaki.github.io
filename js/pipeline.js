@@ -17,6 +17,7 @@ import {
   resolvedModel, understandRequest,
 } from "./ai.js";
 import { areaNote, areaScope, detectAreas, unknownPlaceTerms } from "./areas.js";
+import { isTouring } from "./touring.js";
 import { readIntent } from "./intent.js";
 import { nightTrainLeg } from "./trains.js";
 import { TUNING } from "./config.js";
@@ -95,17 +96,20 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   const searchWords = [...query.keywords, ...query.interests]
     .filter((w) => !areaWords.has(w));
 
+  // 車の旅なら、走って気持ちのいい場所を前に出します（js/touring.js）。
+  const touring = isTouring(trip);
   let matches = vector
-    ? searchSpots(kb, vector, { limit: 160, hiddenBias: trip.hiddenBias })
+    ? searchSpots(kb, vector,
+                  { limit: 160, hiddenBias: trip.hiddenBias, touring })
     : searchSpotsByKeyword(kb, searchWords,
-                           { limit: 160, hiddenBias: trip.hiddenBias });
+                           { limit: 160, hiddenBias: trip.hiddenBias, touring });
 
   // 一致が無いときにエラーで止めない。「その希望には応えられないが、
   // 行ける範囲でこういう案はある」と示したほうが役に立ちます。
   // 応えられなかったことは、あとで coverage が明示します。
   if (!matches.length) {
     matches = searchSpotsByKeyword(kb, trip.interests,
-                                   { limit: 160, hiddenBias: trip.hiddenBias });
+      { limit: 160, hiddenBias: trip.hiddenBias, touring });
   }
   if (!matches.length) {
     matches = kb.spots.map((spot) => ({ spot, score: 0 }));
@@ -224,7 +228,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
       }
     }
     matches = searchSpotsByKeyword(kb, searchWords,
-                                   { limit: 200, hiddenBias: trip.hiddenBias });
+      { limit: 200, hiddenBias: trip.hiddenBias, touring: isTouring(trip) });
     if (!matches.length) matches = kb.spots.map((spot) => ({ spot, score: 0 }));
 
     // 名指しされた場所は、検索の点数ではなく「頼まれたから」上に来ます。
@@ -385,7 +389,9 @@ export async function planTrip({ trip, kb, onProgress = () => {},
 
   onProgress(2);
   const planOpts = { maxRegions, days, mustSpotIds, avoidSpotIds,
-                     groupById: scope.groupById ?? null };
+                     groupById: scope.groupById ?? null,
+                     // 車で来ている人に、駅前だけを並べないための合図です。
+                     touring: isTouring(trip) };
   let proposal = await proposePlan(candidates, query, trip.note,
                                    maxSpots, targets, "", planOpts);
 

@@ -14,6 +14,7 @@
 // 前者は旅程を選ぶために、後者は説明のために使います。
 
 import { crowdLevel } from "./crowd.js";
+import { drivingAppeal, drivingNote, isTouring } from "./touring.js";
 import { haversineKm } from "./feasibility.js";
 
 /**
@@ -23,6 +24,9 @@ import { haversineKm } from "./feasibility.js";
 export const AXES = {
   wish:  { label: "希望との一致", icon: "🎯", order: 1 },
   move:  { label: "移動のしやすさ", icon: "🚃", order: 2 },
+  // 車の旅のときだけ出ます。移動のしやすさのすぐ後ろ（2.5）に置くのは、
+  // 車の人にとっては「どんな道の先か」が選ぶ理由そのものだからです。
+  drive: { label: "道の楽しさ", icon: "🚗", order: 2.5 },
   crowd: { label: "混雑の避けやすさ", icon: "👥", order: 3 },
   known: { label: "定番と穴場", icon: "✦", order: 4 },
   season: { label: "季節の合いかた", icon: "🍁", order: 5 },
@@ -98,6 +102,17 @@ export function spotFit(spot, trip, ctx = {}) {
            : `直前の場所から約${km < 10 ? km.toFixed(1) : Math.round(km)}km`)
         : `出発地から約${Math.round(km)}km`
           + (km >= 400 ? "。まる半日ぶんの移動です" : "（行きの移動）")));
+  }
+
+  // 2.5 車の旅なら、そこまでの道が楽しいかどうか。
+  //
+  //     駅からの近さは、車では意味を持ちません。代わりに効くのは
+  //     「走って気持ちのいい道の先か」「駐められるか」です。
+  //     電車の旅では出しません（出しても判断が変わりません）。
+  if (isTouring(trip) && spot) {
+    const appeal = drivingAppeal(spot);
+    axes.push(axis("drive", 20 + appeal * 80,
+      drivingNote(spot) || (appeal >= 0.6 ? "車で寄りやすい場所です" : "")));
   }
 
   // 3. 混雑の避けやすさ。crowd.js の見込みを裏返します。

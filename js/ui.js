@@ -15,6 +15,7 @@ import { qualityOf, spotFit, tripFit } from "./fit.js";
 import { currentStep } from "./today.js";
 import { photoFor } from "./photos.js";
 import { estimatedTravel } from "./reliability.js";
+import { isTouring, longDriveNote } from "./touring.js";
 import { itineraryText } from "./share.js";
 
 const ICON = {
@@ -22,10 +23,12 @@ const ICON = {
 };
 
 /** 行の先頭の絵。乗り物は、乗るものによって変えます。 */
-function iconFor(item) {
+function iconFor(item, itin) {
   if (item.kind === "transit") {
     if (item.taxi) return "🚕";
     if (item.walk) return "🚶";
+    // 車の旅で電車の絵を出すと、乗り換えを探すことになります。
+    if (isTouring(itin)) return "🚗";
   }
   return ICON[item.kind] ?? "•";
 }
@@ -1012,17 +1015,19 @@ function axisList(axes) {
 function recheckRow(itin, handlers) {
   const est = estimatedTravel(itin);
   if (!est.retryable || !handlers.onRecheck) return null;
+  // 車の旅に「時刻」はありません。引くのは道のりです。
+  const what = isTouring(itin) ? "道のり" : "時刻";
   const row = el("div", { class: "recheck" });
   const btn = el("button", {
     type: "button", class: "md-btn md-btn--tonal md-state",
-  }, el("span", {}, "時刻をもう一度調べる"));
+  }, el("span", {}, `${what}をもう一度調べる`));
   btn.addEventListener("click", () => {
     btn.disabled = true;
     btn.querySelector("span").textContent = "調べています…";
     handlers.onRecheck();
   });
   row.append(btn, el("p", { class: "fine" },
-    `${est.retryable}区間は時刻を引けませんでした。`
+    `${est.retryable}区間は${what}を引けませんでした。`
     + "同じ条件で組み直すと、入ることがあります。"));
   return row;
 }
@@ -1200,7 +1205,8 @@ function renderItem(item, index, itin, handlers, sunNote) {
   if (item.kind === "spot") body.append(info);
 
   const title = el("div", { class: "title" },
-    el("span", { class: "ic", "aria-hidden": "true" }, spotArt?.icon ?? iconFor(item)),
+    el("span", { class: "ic", "aria-hidden": "true" },
+       spotArt?.icon ?? iconFor(item, itin)),
     el("span", { class: "tx" }, item.title));
   if (item.place?.fame_tier) {
     title.append(el("em", { class: `tier ${item.place.fame_tier}` },
@@ -1227,6 +1233,17 @@ function renderItem(item, index, itin, handlers, sunNote) {
       line.append(" ", srcChip(c, "", src));
     }
     info.append(line);
+    // 長い運転には、休憩のことを添えます。「4時間の移動」と1行だけ
+    // 書いておいて、休むことに触れないのは不親切です。
+    if (item.kind === "transit" && isTouring(itin) && item.walk !== true) {
+      const note = longDriveNote(
+        Math.round((new Date(item.end) - new Date(item.start)) / 60000));
+      if (note) {
+        info.append(el("p", { class: "sun rest" },
+          el("span", { "aria-hidden": "true" }, "☕"),
+          el("span", {}, note)));
+      }
+    }
   }
 
   // 公共交通の中身。所要時間だけでは、現地で予定どおりかを確かめられません。
