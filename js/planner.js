@@ -130,12 +130,13 @@ export function buildItinerary(input) {
     detail: legs?.outbound?.line && outFits
       ? legs.outbound.line
         + (board && !overnight ? `（${fmtHm(trip.departAt)}発の次の便）` : "")
-      : `約${outMin}分`,
+      : (legs?.outbound?.taxi ? "タクシー" : "") + `約${outMin}分`,
     alternatives: outFits ? (legs?.outbound?.alternatives ?? []) : [],
     from: trip.origin,
     to: firstStation,
     routed: Boolean(legs?.outbound?.routed) && outFits,
     noTransit: legs?.outbound?.noTransit === true,
+    taxi: legs?.outbound?.taxi === true,
     // 調べた便の中身。これを渡していなかったので、Yahoo!で引いた往路が
     // 画面では「収録データ・Googleの経路」と出ていました。
     yahoo: outFits ? (legs?.outbound?.yahoo ?? null) : null,
@@ -211,10 +212,11 @@ export function buildItinerary(input) {
         detail: leg?.line && fits
           ? `拠点を移します・${leg.line}`
             + (board ? `（${fmtHm(mv.start)}発の次の便）` : "")
-          : `拠点を移します・約${mv.minutes}分`,
+          : `拠点を移します・${leg?.taxi ? "タクシー" : ""}約${mv.minutes}分`,
         from: mv.from, to: mv.to,
         routed: Boolean(leg?.routed) && fits, costYen: 0,
         noTransit: leg?.noTransit === true,
+        taxi: leg?.taxi === true,
         yahoo: fits ? (leg?.yahoo ?? null) : null,
         alternatives: fits ? (leg?.alternatives ?? []) : [],
         km: haversineKm(mv.from, mv.to),
@@ -310,20 +312,24 @@ export function buildItinerary(input) {
           detail: leg?.line && fits
             ? leg.line + (board ? `（${fmtHm(leave)}発の次の便）` : "")
               + (v.km ? `・約${v.km.toFixed(1)}km` : "")
-            : (onFoot ? "徒歩" : "移動") + `約${v.travel}分`
+            : (onFoot ? "徒歩" : leg?.taxi ? "タクシー" : "移動")
+              + `約${v.travel}分`
               + (v.km ? `・約${v.km.toFixed(1)}km` : ""),
+          // 歩ける区間なら、歩きます。そのときタクシーの印を残すと、
+          // 行には「徒歩約7分」、確からしさの印には「タクシー」と出て、
+          // 読む人がどちらを信じてよいか分からなくなります。
           from: cur, to: v.spot,
           walk: onFoot, km: v.km ?? 0,
           routed: routed && fits,
-          // 近くに駅・バス停が無い区間。「調べそこねた」ではありません。
-          noTransit: leg?.noTransit === true,
+          noTransit: leg?.noTransit === true && !onFoot,
+          taxi: leg?.taxi === true && !onFoot,
           yahoo: fits ? (leg?.yahoo ?? null) : null,
           alternatives: fits ? (leg?.alternatives ?? []) : [],
           costYen: 0,
           reason: routed && fits
             ? "Yahoo!路線情報で調べた実際の便"
             : leg?.noTransit
-              ? "近くに駅・バス停が無いため距離からの目安"
+              ? "近くに駅・バス停が無いため、タクシーでの移動として見積もり"
               : "時刻を引けなかったため距離からの目安",
         }, fits ? leg?.transit : null));
       }
@@ -435,11 +441,13 @@ export function buildItinerary(input) {
       id: nextId(), kind: "transit",
       start: startBack, end: addMinutes(startBack, backMin),
       title: label,
-      detail: `${legs?.inbound?.line ? legs.inbound.line + "・" : ""}約${backMin}分`
+      detail: `${legs?.inbound?.line ? legs.inbound.line + "・" : ""}`
+        + (legs?.inbound?.taxi ? "タクシー" : "") + `約${backMin}分`
         + (legs?.inbound?.routed ? "" : "（推定）"),
       from: null, to: end.place,
       routed: Boolean(legs?.inbound?.routed),
       noTransit: legs?.inbound?.noTransit === true,
+      taxi: legs?.inbound?.taxi === true,
       km: haversineKm(visits.at(-1)?.spot ?? lastRegion, end.place),
       costYen: 0,
       reason: trip.endMode === END_MODES.RETURN_TO_ORIGIN

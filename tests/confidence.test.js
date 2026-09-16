@@ -236,14 +236,14 @@ test("目安と徒歩は、これまでどおりの印", () => {
   assert.equal(walk.source, "");
 });
 
-test("駅もバス停も無い区間は、「目安」ではなく理由を出す", () => {
+test("駅もバス停も無い区間は、「目安」ではなくタクシーと出す", () => {
   // 「🟡 目安」とだけ書かれた行を見ても、調べそこねたのか、そもそも
   // 便が無いのかが分かりません。読む人の次の一手が変わります。
   const c = confidenceOf("travel", {
     kind: "transit", routed: false, noTransit: true,
   });
-  assert.equal(c.label, "駅・バス停なし");
-  assert.match(c.text, /車やタクシー/);
+  assert.equal(c.label, "タクシー");
+  assert.match(c.text, /タクシーで行くものとして/);
 });
 
 test("ふつうに引けなかった区間は、これまでどおり「目安」", () => {

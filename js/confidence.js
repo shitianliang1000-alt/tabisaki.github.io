@@ -78,12 +78,12 @@ export function confidenceOf(kind, subject, opts = {}) {
     // 同じ「🟡 目安」で並べていたので、読む人には区別がつかず、
     // 直らないものを何度も作り直すことになっていました。
     if (!routed && s.noTransit === true) {
-      const car = build("estimated",
-        "近くに駅・バス停が見当たりません。車やタクシーでの移動を"
-        + "想定した、距離からの目安です", checkedAt, age);
-      car.label = "駅・バス停なし";
-      car.source = "";
-      return car;
+      const taxi = build("estimated",
+        "近くに駅・バス停が見当たりません。タクシーで行くものとして、"
+        + "距離から時間と運賃を見積もっています", checkedAt, age);
+      taxi.label = "タクシー";
+      taxi.source = "";
+      return taxi;
     }
     const out = build(routed ? "verified" : "estimated",
       s.yahoo

@@ -6,7 +6,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { estimateMinutes, haversineKm, isSlowTerrain } from "../js/feasibility.js";
+import { estimateMinutes, haversineKm, isSlowTerrain, taxiMinutes }
+  from "../js/feasibility.js";
 import {
   airportDistanceKm, islandOf, onEarth, travelLabel, travelMinutes,
 } from "../js/geo.js";
@@ -137,4 +138,34 @@ test("線路も道路も、まっすぐには通っていない", () => {
     { lat: 35.6896, lng: 139.7006 }, { lat: 35.2325, lng: 139.1063 });
   assert.ok(min > 90, `${min}分 です（直線のまま計算しています）`);
   assert.ok(min < 160, `${min}分 です（かかりすぎです）`);
+});
+
+// --- タクシー -------------------------------------------------------------
+// 近くに駅もバス停も無い区間で使います。電車・バスの見積もりを当てると、
+// 待ち時間や乗り換えを含んだ数字になるので、**乗り物が来ない場所ほど
+// 長く出る**という逆のことが起きていました。
+
+test("タクシーは、電車・バスの目安より速い", () => {
+  // 5km。電車・バスの見積もりは待ちと乗り換えを含みます。
+  const km = 5;
+  const a = { lat: 35.0, lng: 135.0 };
+  const b = { lat: 35.0 + km / 111, lng: 135.0 };
+  assert.ok(taxiMinutes(haversineKm(a, b)) < estimateMinutes(a, b),
+    `タクシー ${taxiMinutes(haversineKm(a, b))}分 / 目安 ${estimateMinutes(a, b)}分`);
+});
+
+test("距離が伸びれば、かかる時間も伸びる", () => {
+  assert.ok(taxiMinutes(2) < taxiMinutes(8));
+  assert.ok(taxiMinutes(8) < taxiMinutes(20));
+});
+
+test("短い区間でも、呼んで乗るぶんの数分は見ておく", () => {
+  assert.ok(taxiMinutes(0.5) >= 5, `${taxiMinutes(0.5)}分`);
+  assert.equal(taxiMinutes(0), 0);
+  assert.equal(taxiMinutes(NaN), 0);
+});
+
+test("2kmなら10分前後。時速20kmに呼ぶ時間を足した見かた", () => {
+  const m = taxiMinutes(2);
+  assert.ok(m >= 10 && m <= 16, `${m}分`);
 });

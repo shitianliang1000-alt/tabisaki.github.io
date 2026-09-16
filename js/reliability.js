@@ -26,10 +26,10 @@ export function travelSource(item) {
   if (item.routed) return { key: "routes", label: "Googleの経路" };
   // 歩きは距離で足ります（confidence.js と同じ見かたです）。
   if (item.walk) return { key: "walk", label: "徒歩（距離から）" };
-  // 近くに駅・バス停が無い区間。作り直しても同じ答えなので、
-  // 「調べそこねた区間」とは分けて数えます。
+  // 近くに駅・バス停が無い区間。タクシーで行くものとして組んであります。
+  // 作り直しても同じ答えなので、「調べそこねた区間」とは分けて数えます。
   if (item.noTransit === true) {
-    return { key: "no-transit", label: "駅・バス停なし" };
+    return { key: "no-transit", label: "タクシー（距離から）" };
   }
   return { key: "estimate", label: "距離からの推定" };
 }
@@ -94,8 +94,8 @@ export function tripReliability(itin) {
       detail: moves.length
         ? `${moves.length}区間のうち${realMoves.length}区間は実際の便から。`
           + (est.noTransit
-            ? `${est.noTransit}区間は近くに駅・バス停が無く、`
-              + "車やタクシー向きです。"
+            ? `${est.noTransit}区間は近くに駅・バス停が無いので、`
+              + "タクシーで行くものとして組んでいます。"
             : "")
           + (est.retryable
             ? `${est.retryable}区間は時刻を引けませんでした`

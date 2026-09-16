@@ -18,6 +18,14 @@ import { TUNING } from "./config.js";
  */
 export function fareFor(km, { mode = "TRANSIT" } = {}) {
   if (!Number.isFinite(km) || km <= 0) return 0;
+  // タクシー。初乗りと、そのあとの加算でできています。
+  // 地域で幅がありますが（東京は初乗り¥500/1.096km・¥100/255m）、
+  // 「だいたいいくらか」を知るには足ります。乗る前提の区間にしか
+  // 使わないので、歩ける距離で呼び出されることはありません。
+  if (mode === "TAXI") {
+    if (km <= 1.1) return 500;
+    return Math.round((500 + (km - 1.1) * 392) / 10) * 10;
+  }
   if (mode === "WALK" || km < 1.2) return 0;
   if (km <= 3) return 150;
   if (km <= 10) return Math.round(150 + (km - 3) * 30);
@@ -54,7 +62,8 @@ export function costBreakdown(itin, { people = 1 } = {}) {
       switch (item.kind) {
         case "transit": {
           if (typeof item.fareYen === "number") { transit += item.fareYen; anyFare = true; }
-          else transit += fareFor(item.km ?? kmOf(item), { mode: item.walk ? "WALK" : "TRANSIT" });
+          else transit += fareFor(item.km ?? kmOf(item),
+            { mode: item.taxi ? "TAXI" : item.walk ? "WALK" : "TRANSIT" });
           break;
         }
         case "meal": meals += item.costYen ?? TUNING.mealYen; break;

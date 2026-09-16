@@ -23,6 +23,8 @@ test("移動の出どころを見分ける", () => {
   // 作り直しても同じ答えなので、勧める手が変わります。
   assert.equal(travelSource(move({ routed: false, noTransit: true })).key,
                "no-transit");
+  assert.match(travelSource(move({ routed: false, noTransit: true })).label,
+               /タクシー/);
   assert.equal(travelSource(spot({})), null);
 });
 
@@ -123,8 +125,8 @@ test("駅もバス停も無い区間は、作り直しを勧めない", () => {
     ] }],
   });
   const travel = r.checks.find((c) => c.label === "移動時間");
-  assert.match(travel.detail, /1区間は近くに駅・バス停が無く/);
-  assert.match(travel.detail, /車やタクシー向き/);
+  assert.match(travel.detail, /1区間は近くに駅・バス停が無いので/);
+  assert.match(travel.detail, /タクシーで行くものとして組んでいます/);
   // 直らないものに「もう一度調べると入ります」と書いてはいけません。
   assert.doesNotMatch(travel.detail, /もう一度調べる/);
 });
