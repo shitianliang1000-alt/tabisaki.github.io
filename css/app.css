@@ -151,8 +151,20 @@ p, li { text-wrap: pretty; }
   gap: 12px;
 }
 .checked-stars { font-size: 15px; letter-spacing: .08em; white-space: nowrap; }
+.checked-stars b, .checked-stars i {
+  display: inline-block;
+  /* 左から1つずつ灯します。数えているところが見えるほうが、
+     「5段階で2」と書いてあるより早く伝わります。 */
+  animation: star-pop 420ms var(--md-sys-motion-emphasized-decelerate) both;
+  animation-delay: calc(var(--i, 0) * 90ms + 120ms);
+}
 .checked-stars b { color: var(--md-sys-color-primary); font-weight: 600; }
 .checked-stars i { color: var(--hig-separator-opaque); font-style: normal; }
+@keyframes star-pop {
+  from { opacity: 0; transform: scale(.4) rotate(-18deg); }
+  60%  { opacity: 1; transform: scale(1.18) rotate(4deg); }
+  to   { opacity: 1; transform: scale(1) rotate(0); }
+}
 .panel.checked.lv-low .checked-stars b { color: var(--hig-orange, #c46a1b); }
 
 .check-list { list-style: none; margin: 10px 0 0; padding: 0; }
@@ -1752,6 +1764,80 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   padding: 12px 14px; border-radius: var(--md-sys-shape-corner-small);
   background: var(--md-sys-color-error-container);
   color: var(--md-sys-color-on-error-container);
+}
+
+/* ------------------------------------------------------------ 出かた ---
+
+   旅程は「出てくる」ものです。
+
+   組み終わった瞬間に全部が同時に現れると、どこから読めばよいのか
+   分かりません。**上から順に、少しずつ**出します。読む順番と同じ順で
+   出せば、目の動きがそのまま案内になります。
+
+   動かすのは opacity と translate/scale だけにします。どちらも描画の
+   やり直しが要らないので、古い端末でも詰まりません。translate は
+   transform とは別の性質なので、指を乗せたときの動き（transform を
+   使っています）と取り合いになりません。
+
+   「動きを減らす」設定にしている人には、どれも一瞬で終わります
+   （css/hig.css のいちばん下）。 */
+
+@keyframes rise-in {
+  from { opacity: 0; translate: 0 10px; }
+  to   { opacity: 1; translate: 0 0; }
+}
+
+/* 旅程の中身（要約・確かめたこと・日ごとの旅程・3案…）。 */
+#itinerary > * {
+  animation: rise-in 460ms var(--md-sys-motion-emphasized-decelerate) both;
+}
+#itinerary > :nth-child(2) { animation-delay: 60ms; }
+#itinerary > :nth-child(3) { animation-delay: 120ms; }
+#itinerary > :nth-child(4) { animation-delay: 180ms; }
+#itinerary > :nth-child(5) { animation-delay: 240ms; }
+#itinerary > :nth-child(6) { animation-delay: 300ms; }
+#itinerary > :nth-child(n+7) { animation-delay: 340ms; }
+
+/* 数の並び。左から順に置きます。 */
+.stats > div {
+  animation: rise-in 420ms var(--md-sys-motion-emphasized-decelerate) both;
+}
+.stats > :nth-child(2) { animation-delay: 50ms; }
+.stats > :nth-child(3) { animation-delay: 100ms; }
+.stats > :nth-child(4) { animation-delay: 150ms; }
+.stats > :nth-child(5) { animation-delay: 200ms; }
+.stats > :nth-child(6) { animation-delay: 250ms; }
+
+/* その日の行。時刻の早い順に出します（--i は js/ui.js が入れます）。
+   日を切り替えたときも、隠れていた側が表に出た時点で動き直します。 */
+.tl {
+  animation: rise-in 420ms var(--md-sys-motion-emphasized-decelerate) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+.day { animation: hig-fade 260ms var(--md-sys-motion-standard) both; }
+
+/* 前につくった旅の一覧。 */
+.recent-row {
+  animation: rise-in 360ms var(--md-sys-motion-emphasized-decelerate) both;
+}
+.recent-list > :nth-child(2) .recent-row { animation-delay: 50ms; }
+.recent-list > :nth-child(3) .recent-row { animation-delay: 100ms; }
+.recent-list > :nth-child(n+4) .recent-row { animation-delay: 140ms; }
+
+/* 選んだときの手ごたえ。押した先で何かが起きるまでのあいだ、
+   「受け取った」ことだけは即座に返します。 */
+@keyframes pick-pop {
+  0%   { scale: 1; }
+  45%  { scale: 1.04; }
+  100% { scale: 1; }
+}
+.mood.is-selected, .variant.is-selected {
+  animation: pick-pop 360ms var(--md-sys-motion-emphasized) both;
+}
+
+/* 言葉で直したときの返事。下からすっと出します。 */
+.talk-out:not([hidden]) {
+  animation: rise-in 320ms var(--md-sys-motion-emphasized-decelerate) both;
 }
 
 /* -------------------------------------------------------- 画面の幅 --- */

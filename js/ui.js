@@ -21,6 +21,15 @@ const ICON = {
   transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕",
 };
 
+/** 行の先頭の絵。乗り物は、乗るものによって変えます。 */
+function iconFor(item) {
+  if (item.kind === "transit") {
+    if (item.taxi) return "🚕";
+    if (item.walk) return "🚶";
+  }
+  return ICON[item.kind] ?? "•";
+}
+
 export const $ = (sel) => document.querySelector(sel);
 export const $$ = (sel) => [...document.querySelectorAll(sel)];
 
@@ -278,9 +287,15 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     container.append(el("section", { class: `panel checked lv-${r.level}` },
       el("div", { class: "panel-head" },
         el("h3", {}, "確かめたこと"),
-        el("span", { class: "checked-stars", "aria-label": `5段階で${r.stars}` },
-          el("b", {}, "★".repeat(r.stars)),
-          el("i", {}, "☆".repeat(5 - r.stars)))),
+        // 星は1つずつの要素にします。まとめて "★★☆☆☆" と書くと、
+        // 1つずつ灯すことも、数を読み上げに渡すこともできません。
+        // 星の並びは1つの絵として読ませます。span のままでは名前
+        // （aria-label）を付けられず、読み上げには★の羅列が流れます。
+        el("span", { class: "checked-stars", role: "img",
+                     "aria-label": `5段階で${r.stars}` },
+          Array.from({ length: 5 }, (_, i) => el(i < r.stars ? "b" : "i", {
+            "aria-hidden": "true", style: `--i:${i}`,
+          }, i < r.stars ? "★" : "☆")))),
       el("p", { class: "score-summary" }, r.summary),
       el("ul", { class: "check-list" }, r.checks.map((c) => el("li",
         { class: c.ok ? "ok" : "warn" },
@@ -975,7 +990,7 @@ function axisList(axes) {
   return el("ul", { class: "axes" }, (axes ?? []).map((a) => el("li", {},
     el("span", { class: "ax-ic", "aria-hidden": "true" }, a.icon),
     el("span", { class: "ax-label" }, a.label),
-    el("span", { class: "ax-stars", "aria-label": `${a.stars} / 5` },
+    el("span", { class: "ax-stars", role: "img", "aria-label": `${a.stars} / 5` },
       el("span", {}, "★".repeat(a.stars)),
       el("span", { class: "off" }, "★".repeat(5 - a.stars))),
     el("span", { class: "ax-score" }, String(a.score)),
@@ -1185,7 +1200,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
   if (item.kind === "spot") body.append(info);
 
   const title = el("div", { class: "title" },
-    el("span", { class: "ic", "aria-hidden": "true" }, spotArt?.icon ?? ICON[item.kind] ?? "•"),
+    el("span", { class: "ic", "aria-hidden": "true" }, spotArt?.icon ?? iconFor(item)),
     el("span", { class: "tx" }, item.title));
   if (item.place?.fame_tier) {
     title.append(el("em", { class: `tier ${item.place.fame_tier}` },
@@ -1239,7 +1254,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
         qualityOf(item.place).map((q) => el("li", {},
           el("span", { class: "q-ic", "aria-hidden": "true" }, q.icon),
           el("span", { class: "q-label" }, q.label),
-          el("span", { class: "q-stars", "aria-label": `${q.stars} / 5` },
+          el("span", { class: "q-stars", role: "img", "aria-label": `${q.stars} / 5` },
             el("span", {}, "★".repeat(q.stars)),
             el("span", { class: "off" }, "★".repeat(5 - q.stars)))))));
       box.append(inner);
@@ -1433,7 +1448,7 @@ export function openSheet(item, { onClose, describe }) {
     qualityOf(spot).map((q) => el("li", {},
       el("span", { class: "q-ic", "aria-hidden": "true" }, q.icon),
       el("span", { class: "q-label" }, q.label),
-      el("span", { class: "q-stars", "aria-label": `${q.stars} / 5` },
+      el("span", { class: "q-stars", role: "img", "aria-label": `${q.stars} / 5` },
         el("span", {}, "★".repeat(q.stars)),
         el("span", { class: "off" }, "★".repeat(5 - q.stars)))))));
 
