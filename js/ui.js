@@ -57,11 +57,10 @@ export function el(tag, attrs = {}, ...children) {
     else if (k.startsWith("on") && typeof v === "function") {
       node.addEventListener(k.slice(2).toLowerCase(), v);
     } else if (["href", "src", "action"].includes(k) && typeof v === "string") {
-      // XSS防止: href/src/action への javascript:/vbscript: 埋め込みを防ぐ
-      // AIや外部データからのURLに悪意のあるコードが含まれていても発火しないようにします。
-      // また、制御文字による trim() の回避も防ぎます。
-      const normalized = v.replace(/[\u0000-\u001F\u0020\u00A0]/g, "").toLowerCase();
-      if (normalized.startsWith("javascript:") || normalized.startsWith("vbscript:")) {
+      const sanitized = v.replace(/[\x00-\x20]/g, "").toLowerCase();
+      if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:")) {
+        // XSS防止: href への javascript: の埋め込みを防ぐ
+        // AIや外部データからのURLに悪意のあるコードが含まれていても発火しないようにします
         node.setAttribute(k, "about:blank");
       } else {
         node.setAttribute(k, v);
@@ -95,24 +94,80 @@ export const STEPS = [
  * いま何をしていて、あと何が残っているかを、そのまま並べます。
  * ピンが生えて波紋が広がるのは、地図が育っている合図です。
  */
+/**
+ * これを過ぎたら、なぜ待たされているのかを書きます。
+ *
+ * 遅い理由は、電車の時刻を1区間ずつ実際に調べているからです。それを
+ * 黙っていると「固まった」に見えます。書いてあれば、待つ理由になります。
+ */
+const SLOW_AFTER_SEC = 40;
+
+const fmtElapsed = (sec) =>
+  `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+
 export function renderProgress(container, step, detail = "") {
-  container.textContent = "";
-  const card = el("div", { class: "plan-card" });
-  card.append(
-    el("p", { class: "step-text" }, "旅を組み立てています"),
-    el("p", { class: "step-detail" },
-      detail || STEPS[Math.min(step, STEPS.length - 1)]),
-    el("div", { class: "md-progress", role: "progressbar",
-                "aria-valuenow": String(step + 1),
-                "aria-valuemin": "1", "aria-valuemax": String(STEPS.length) },
-      el("i", { style: `width:${((step + 1) / STEPS.length) * 100}%` })),
-    el("ul", { class: "step-list" },
-      STEPS.map((s, i) => el("li", {
-        class: i < step ? "done" : i === step ? "active" : "",
-      }, el("span", { class: "dot" }),
-         el("span", {}, `${i < step ? "✓ " : ""}${s}`)))),
-  );
-  container.append(card);
+  // 作り直さず、書き換えます。
+  //
+  // 以前は毎回 textContent = "" で消して組み直していました。段が進む
+  // たびに画面がちらつき、経過時間のような**動き続けるもの**は置け
+  // ませんでした（作り直した瞬間に止まるので）。
+  let card = container.querySelector(".plan-card");
+  if (!card) {
+    container.textContent = "";
+    card = el("div", { class: "plan-card" });
+    card.append(
+      el("p", { class: "step-text" }, "旅を組み立てています"),
+      el("p", { class: "step-detail" }, ""),
+      el("div", { class: "md-progress", role: "progressbar",
+                  "aria-valuemin": "1", "aria-valuemax": String(STEPS.length) },
+        el("i", { style: "width:0%" })),
+      el("ul", { class: "step-list" },
+        STEPS.map((s) => el("li", {}, el("span", { class: "dot" }),
+                                      el("span", {}, s)))),
+      el("p", { class: "step-elapsed" },
+        el("span", { class: "step-clock" }, "0:00"),
+        el("span", { class: "step-slow" }, "")),
+    );
+    container.append(card);
+    startClock(container, card);
+  }
+
+  card.querySelector(".step-detail").textContent =
+    detail || STEPS[Math.min(step, STEPS.length - 1)];
+  const bar = card.querySelector(".md-progress");
+  bar.setAttribute("aria-valuenow", String(step + 1));
+  bar.querySelector("i").style.width =
+    `${((step + 1) / STEPS.length) * 100}%`;
+  card.querySelectorAll(".step-list li").forEach((li, i) => {
+    li.className = i < step ? "done" : i === step ? "active" : "";
+    li.lastChild.textContent = `${i < step ? "✓ " : ""}${STEPS[i]}`;
+  });
+}
+
+/**
+ * 経過時間を数えます。
+ *
+ * 段は6つしかないので、最後の段に入ってからが長く感じます。実際、
+ * 全区間の時刻を調べるあいだは1分以上動きません。時計が動いていれば、
+ * 止まっていないことだけは分かります。
+ *
+ * 止めかたは「札が画面から消えたら」です。組み上がると app.js が
+ * #progress を隠すので、そこで自分から終わります。呼ぶ側に後始末を
+ * 頼むと、いつか誰かが忘れて、裏で数え続けます。
+ */
+function startClock(container, card) {
+  const began = Date.now();
+  const clock = card.querySelector(".step-clock");
+  const slow = card.querySelector(".step-slow");
+  const id = setInterval(() => {
+    if (!card.isConnected || container.hidden) { clearInterval(id); return; }
+    const sec = Math.floor((Date.now() - began) / 1000);
+    clock.textContent = fmtElapsed(sec);
+    if (sec >= SLOW_AFTER_SEC && !slow.textContent) {
+      slow.textContent = "電車とバスの時刻を、1区間ずつ実際に調べています。"
+        + "目安で埋めずに待つぶん、少し時間がかかります。";
+    }
+  }, 1000);
 }
 
 // --- 旅程 -------------------------------------------------------------------
@@ -654,6 +709,7 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       el("h3", {}, "言葉で直す"),
       el("div", { class: "talk-row" }, field, send),
       out,
+      droppedList(itin, handlers),
       el("p", { class: "fine" },
         "書かれたことは「条件の書き換え」に翻訳されるだけで、"
         + "旅程はこれまでと同じ手順（営業時間と移動時間の照合）で"
@@ -1042,6 +1098,30 @@ function cardArt(spot, { tall = false } = {}) {
   return box;
 }
 
+/**
+ * 外した場所と、戻すためのボタン。
+ *
+ * 外したものが画面から消えるだけだと、押し間違えたときに戻せません。
+ * 「戻せる」と分かっているから、気軽に外せます。
+ */
+function droppedList(itin, handlers) {
+  const dropped = itin?.dropped ?? [];
+  if (!dropped.length || !handlers.onRestore) return null;
+  const box = el("div", { class: "dropped" });
+  box.append(el("p", { class: "fine" }, "外した場所"));
+  const list = el("ul", { class: "dropped-list" });
+  for (const d of dropped) {
+    const b = el("button", {
+      type: "button", class: "dropped-back",
+      "aria-label": `${d.name}を旅程に戻す`,
+    }, `${d.name} を戻す`);
+    b.addEventListener("click", () => handlers.onRestore(d));
+    list.append(el("li", {}, b));
+  }
+  box.append(list);
+  return box;
+}
+
 function renderItem(item, index, itin, handlers, sunNote) {
   const minutes = Math.round((item.end - item.start) / 60000);
   // 所要時間に比例した高さにします。数字を読まなくても、
@@ -1188,6 +1268,33 @@ function renderItem(item, index, itin, handlers, sunNote) {
         href: l.url, target: "_blank", rel: "noreferrer",
         class: l.primary ? "link primary-link" : "link",
       }, l.label))));
+  }
+
+  // この場所を、その場で差し替える・外す。
+  //
+  // 気に入らない1か所のために、条件の画面まで戻って組み直すのは重すぎます。
+  // かといって、ここで旅程を直接いじると、営業時間も移動時間も合わなく
+  // なります。押されたら**条件を書き換えて、同じエンジンで組み直す**。
+  // 言葉で直すとき（edit.js）とまったく同じ道を通ります。
+  if (item.kind === "spot" && item.place && handlers.onSpotEdit) {
+    const id = item.spotId ?? item.place.id;
+    const row = el("div", { class: "spot-actions" });
+    const act = (action, label, hint) => {
+      const b = el("button", {
+        type: "button", class: "spot-action", "data-action": action,
+        "aria-label": `${item.title}を${hint}`,
+      }, label);
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        handlers.onSpotEdit({ id, name: item.title, action });
+      });
+      return b;
+    };
+    row.append(
+      act("replace", "別の候補", "別の場所に差し替える"),
+      act("remove", "外す", "旅程から外す"),
+    );
+    info.append(row);
   }
 
   if (item.kind === "spot" && handlers.onSpot) {

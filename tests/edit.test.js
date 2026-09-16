@@ -232,3 +232,50 @@ test("場所を外しつつ、ジャンルの指示も同時にできる", () =>
   assert.deepEqual(p.remove, ["s1"]);
   assert.deepEqual(p.addInterests, ["onsen"]);
 });
+
+// --- 1か所を、その場で差し替える／外す -------------------------------------
+//
+// 旅程のカードに付いた「別の候補」「外す」も、言葉で直すのと同じ道を
+// 通ります。旅程を直接いじると、その前後の移動時間も営業時間も合わなく
+// なるためです。違いは件数だけです。
+
+test("「外す」は、外した記録と上限の両方を残す", () => {
+  const next = applyEdit(
+    { remove: ["s1"], removeCount: ["s1"], spotCap: 9 }, TRIP());
+  assert.deepEqual(next.must.avoidSpotIds, ["s1"]);
+  assert.deepEqual(next.must.removedSpotIds, ["s1"]);
+  assert.equal(next.must.spotCap, 9);
+});
+
+test("「別の候補」は、外すだけで上限を付けない", () => {
+  // 上限を付けると、差し替えたつもりが1か所消えたことになります。
+  const next = applyEdit({ remove: ["s1"] }, TRIP());
+  assert.deepEqual(next.must.avoidSpotIds, ["s1"]);
+  assert.deepEqual(next.must.removedSpotIds, []);
+  assert.equal(next.must.spotCap, null);
+});
+
+test("外したものが無くなれば、上限も外れる", () => {
+  // 上限だけ残ると、戻したのに件数が戻りません。
+  const dropped = applyEdit(
+    { remove: ["s1"], removeCount: ["s1"], spotCap: 9 }, TRIP());
+  const back = applyEdit({ keep: ["s1"] }, dropped);
+  assert.deepEqual(back.must.avoidSpotIds, []);
+  assert.deepEqual(back.must.removedSpotIds, []);
+  assert.equal(back.must.spotCap, null, "上限だけ残っています");
+});
+
+test("二度外しても、記録は1か所ぶん", () => {
+  let t = applyEdit({ remove: ["s1"], removeCount: ["s1"], spotCap: 9 }, TRIP());
+  t = applyEdit({ remove: ["s1"], removeCount: ["s1"], spotCap: 8 }, t);
+  assert.deepEqual(t.must.removedSpotIds, ["s1"]);
+});
+
+test("言葉で「外して」と言われても、上限は付けない", () => {
+  // 「松山城は外して」は、代わりを探してほしいのか、1か所減らして
+  // ほしいのかが分かりません。分からないほうへ勝手に倒しません。
+  const p = parseEditLocally("松山城は外して", ITIN);
+  const next = applyEdit(p, TRIP());
+  assert.deepEqual(next.must.avoidSpotIds, ["s1"]);
+  assert.equal(next.must.spotCap, null);
+});

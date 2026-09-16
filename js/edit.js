@@ -27,6 +27,9 @@ function emptyPatch() {
     extendMinutes: 0,      // 到着期限を後ろへ
     startEarlierMinutes: 0,
     remove: [],            // 外すスポットID
+    // そのうち「件数ごと減らす」ぶん。差し替えなら空のままです。
+    removeCount: [],
+    spotCap: null,         // 立ち寄りの数の上限（null なら変えない）
     keep: [],              // 必ず行くスポットID
     addInterests: [],
     dropInterests: [],
@@ -312,6 +315,8 @@ export function applyEdit(patch, trip) {
       ...trip.must,
       spotIds: [...(trip.must?.spotIds ?? [])],
       avoidSpotIds: [...(trip.must?.avoidSpotIds ?? [])],
+      removedSpotIds: [...(trip.must?.removedSpotIds ?? [])],
+      spotCap: trip.must?.spotCap ?? null,
     },
     interests: [...(trip.interests ?? [])],
   };
@@ -342,6 +347,17 @@ export function applyEdit(patch, trip) {
   ].filter((id) => !keep.has(id));
   next.must.spotIds = next.must.spotIds.filter(
     (id) => !next.must.avoidSpotIds.includes(id));
+  // 外したままの記録だけを残します。「必ず行く」に拾い直された場所を
+  // 残すと、戻したはずの場所が「外した場所」の一覧に居座ります。
+  next.must.removedSpotIds = [
+    ...new Set([...next.must.removedSpotIds, ...p.removeCount]),
+  ].filter((id) => next.must.avoidSpotIds.includes(id));
+  if (Number.isFinite(p.spotCap)) {
+    next.must.spotCap = Math.max(1, Math.round(p.spotCap));
+  }
+  // 外したものがひとつも残っていないなら、上限も外します。
+  // 上限だけ残ると、戻したのに件数が戻りません。
+  if (!next.must.removedSpotIds.length) next.must.spotCap = null;
 
   next.interests = [
     ...new Set([...next.interests, ...p.addInterests]),

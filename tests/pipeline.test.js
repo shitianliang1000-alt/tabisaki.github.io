@@ -525,3 +525,88 @@ test("名前のある列車を書いたら、その列車の行き先を地名�
   assert.ok(itin.warnings.some((w) => /サフィール踊り子/.test(w)),
     "どの列車を読み取ったかが、どこにも書かれていません");
 });
+
+
+// --- 1か所を「外す」と、件数ごと減る -----------------------------------------
+//
+// 旅程のカードの「外す」は、その場所を候補から外して組み直します。
+// 件数を減らさずに外すだけだと、空いた枠を別の場所が埋めます。
+// 組み直しとしては正しいのですが、押した人には何も起きていないように
+// 見え、「別の候補」との違いも分かりません。
+
+test("「外す」を押すと、いま出ている件数より減る", async () => {
+  const kb = await loadKnowledgeBase();
+  const base = {
+    origin: findPlace("新宿駅"), budgetYen: 999999,
+    note: "箱根で温泉と自然を楽しみたい",
+    departAt: new Date("2026-10-03T09:00"),
+    arriveBy: new Date("2026-10-05T19:00"),
+  };
+  const spots = (itin) => itin.days.flatMap((d) => d.items)
+    .filter((i) => i.kind === "spot");
+
+  const before = await planTrip({ kb, trip: makeTrip(base) });
+  const target = spots(before).find((i) => i.spotId ?? i.place?.id);
+  assert.ok(target, "外せる立ち寄りがありません");
+  const id = target.spotId ?? target.place.id;
+  const was = spots(before).length;
+
+  // 上限は「いま出ている件数マイナス1」。減らす数ではなく上限の絶対値に
+  // している理由は pipeline.js のコメントにあります。
+  const after = await planTrip({ kb, trip: makeTrip({
+    ...base,
+    must: { avoidSpotIds: [id], removedSpotIds: [id], spotCap: was - 1 },
+  }) });
+  assert.ok(!spots(after).some((i) => (i.spotId ?? i.place?.id) === id),
+    "外したはずの場所が、まだ入っています");
+  assert.ok(spots(after).length < was,
+    `外す前 ${was}件・外したあと ${spots(after).length}件で減っていません`);
+});
+
+test("「別の候補」は、その場所だけを入れ替える", async () => {
+  const kb = await loadKnowledgeBase();
+  const base = {
+    origin: findPlace("新宿駅"), budgetYen: 999999,
+    note: "箱根で温泉と自然を楽しみたい",
+    departAt: new Date("2026-10-03T09:00"),
+    arriveBy: new Date("2026-10-05T19:00"),
+  };
+  const spots = (itin) => itin.days.flatMap((d) => d.items)
+    .filter((i) => i.kind === "spot");
+
+  const before = await planTrip({ kb, trip: makeTrip(base) });
+  const target = spots(before).find((i) => i.spotId ?? i.place?.id);
+  const id = target.spotId ?? target.place.id;
+
+  // 上限を渡さないのが「別の候補」です。空いた枠は、埋められるなら
+  // 別の場所が埋めます（近くに代わりが無ければ、埋まらないこともあります）。
+  const after = await planTrip({ kb, trip: makeTrip({
+    ...base, must: { avoidSpotIds: [id] },
+  }) });
+  assert.ok(!spots(after).some((i) => (i.spotId ?? i.place?.id) === id),
+    "差し替えたはずの場所が、まだ入っています");
+  assert.ok(spots(after).length >= spots(before).length - 1,
+    "差し替えただけなのに、旅程が大きく痩せています");
+});
+
+test("立ち寄りの数の上限は、旅程に効く", async () => {
+  // 「外す」が効くための土台です。上限を渡さなければ日数から決まり、
+  // 渡せばそれを超えません。
+  const kb = await loadKnowledgeBase();
+  const base = {
+    origin: findPlace("新宿駅"), budgetYen: 999999,
+    note: "箱根で温泉と自然を楽しみたい",
+    departAt: new Date("2026-10-03T09:00"),
+    arriveBy: new Date("2026-10-05T19:00"),
+  };
+  const count = (itin) => itin.days.flatMap((d) => d.items)
+    .filter((i) => i.kind === "spot").length;
+
+  const free = await planTrip({ kb, trip: makeTrip(base) });
+  assert.ok(count(free) > 4, `上限なしで${count(free)}件では、試せません`);
+  const capped = await planTrip({ kb, trip: makeTrip({
+    ...base, must: { spotCap: 4 },
+  }) });
+  assert.ok(count(capped) <= 4,
+    `上限4のはずが${count(capped)}件あります`);
+});

@@ -16,8 +16,7 @@
 **Vulnerability:** Similar to js/ui.js, the el() helper in admin/admin.js lacked validation for href attributes, leaving a risk for javascript: URI injection.
 **Learning:** When addressing a vulnerability like XSS in a specific utility function, check if the project has duplicated or similar utility functions (e.g. for different scopes like admin vs main UI) that might suffer from the same vulnerability.
 **Prevention:** Added javascript: URI check and neutralized it with about:blank in admin/admin.js el() function, same as js/ui.js.
-
-## 2024-05-18 - Improve javascript: URI validation to prevent evasion techniques
-**Vulnerability:** The javascript: URI validation in `js/ui.js` and `admin/admin.js` relied on `trim()` and `toLowerCase()`, but was vulnerable to evasion through embedded control characters (like \x00, tabs, or newlines) which browsers ignore when parsing URL protocols. Furthermore, other malicious schemes like `vbscript:` and `data:` were not checked.
-**Learning:** Browsers are lenient when parsing URLs and will often strip control characters automatically. Security checks must account for this by either stripping these characters before validation or using robust regex patterns.
-**Prevention:** Stripped all ASCII control characters (`[\x00-\x1F\x7F]`) before validation and expanded the blocked protocol list to include `vbscript:` and `data:`.
+## 2026-09-12 - Prevent URI XSS via control characters in attributes
+**Vulnerability:** The javascript: URI check in href attributes could be bypassed using control characters (e.g. \x09 or \x00), and other attributes like src and action were not checked, leading to potential XSS execution. Additionally, vbscript: was not restricted.
+**Learning:** Checking for javascript: URIs must account for how browsers parse URLs, specifically by ignoring control characters (ASCII 0-32). Checking only href is insufficient as src and action can also execute code.
+**Prevention:** Sanitize href, src, and action attributes by stripping all [\x00-\x20] control characters before matching against javascript: and vbscript:.
