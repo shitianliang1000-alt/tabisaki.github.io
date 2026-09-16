@@ -83,25 +83,32 @@ export function artFor(spot) {
   // 10〜28度に収めます。
   const hue2 = (hue + 10 + ((h >> 8) % 18)) % 360;
   const angle = 100 + ((h >> 16) % 80);        // 100〜180度
-  const light = 62 + ((h >> 4) % 12);          // 62〜73%
-  const sat = 38 + ((h >> 12) % 22);           // 38〜59%
+  // 明るさと鮮やかさ。
+  //
+  // 以前は明るさ62〜73%・鮮やかさ38〜59%でした。薄い色の上に白い字を
+  // 置くことになるので、字を読ませるために黒い影を強くかけていて、
+  // 結果として**どのカードも灰色がかった砂色**に見えていました
+  //（温泉が灰茶、歴史がベージュ、自然がくすんだ緑）。
+  //
+  // 面そのものを濃くします。白い字はそのまま読めるので影を薄くでき、
+  // 色相ごとの違い（温泉の橙、海の青緑、美術館の紫）が出ます。
+  const light = 44 + ((h >> 4) % 12);          // 44〜55%
+  const sat = 46 + ((h >> 12) % 20);           // 46〜65%
 
   // 3層。奥に色の面、手前にやわらかい光。写真の代わりなので、
   // 平らな2色よりも「奥行き」があるほうがカードとして持ちます。
   const css = [
     `radial-gradient(120% 90% at 22% 18%,`
-      + ` hsl(${hue2} ${sat + 8}% ${light + 14}% / .85), transparent 62%)`,
+      + ` hsl(${hue2} ${sat + 10}% ${light + 20}% / .8), transparent 64%)`,
     `radial-gradient(90% 80% at 82% 88%,`
-      + ` hsl(${hue} ${sat}% ${light - 16}% / .7), transparent 58%)`,
+      + ` hsl(${hue} ${sat + 4}% ${light - 18}% / .75), transparent 60%)`,
     `linear-gradient(${angle}deg,`
-      + ` hsl(${hue} ${sat}% ${light}%), hsl(${hue2} ${sat - 6}% ${light - 10}%))`,
+      + ` hsl(${hue} ${sat}% ${light}%), hsl(${hue2} ${sat - 4}% ${light - 12}%))`,
   ].join(", ");
 
   return {
     css, hue,
     icon: ICON[spot?.category] ?? "📍",
-    // 明るい面なので、上に載せる文字は温かみのある黒にします。
-    ink: "#2a2420",
   };
 }
 
