@@ -135,6 +135,7 @@ export function buildItinerary(input) {
     from: trip.origin,
     to: firstStation,
     routed: Boolean(legs?.outbound?.routed) && outFits,
+    noTransit: legs?.outbound?.noTransit === true,
     // 調べた便の中身。これを渡していなかったので、Yahoo!で引いた往路が
     // 画面では「収録データ・Googleの経路」と出ていました。
     yahoo: outFits ? (legs?.outbound?.yahoo ?? null) : null,
@@ -213,6 +214,7 @@ export function buildItinerary(input) {
           : `拠点を移します・約${mv.minutes}分`,
         from: mv.from, to: mv.to,
         routed: Boolean(leg?.routed) && fits, costYen: 0,
+        noTransit: leg?.noTransit === true,
         yahoo: fits ? (leg?.yahoo ?? null) : null,
         alternatives: fits ? (leg?.alternatives ?? []) : [],
         km: haversineKm(mv.from, mv.to),
@@ -313,12 +315,16 @@ export function buildItinerary(input) {
           from: cur, to: v.spot,
           walk: onFoot, km: v.km ?? 0,
           routed: routed && fits,
+          // 近くに駅・バス停が無い区間。「調べそこねた」ではありません。
+          noTransit: leg?.noTransit === true,
           yahoo: fits ? (leg?.yahoo ?? null) : null,
           alternatives: fits ? (leg?.alternatives ?? []) : [],
           costYen: 0,
           reason: routed && fits
             ? "Yahoo!路線情報で調べた実際の便"
-            : "時刻を引けなかったため距離からの目安",
+            : leg?.noTransit
+              ? "近くに駅・バス停が無いため距離からの目安"
+              : "時刻を引けなかったため距離からの目安",
         }, fits ? leg?.transit : null));
       }
       cur = v.spot;
@@ -433,6 +439,7 @@ export function buildItinerary(input) {
         + (legs?.inbound?.routed ? "" : "（推定）"),
       from: null, to: end.place,
       routed: Boolean(legs?.inbound?.routed),
+      noTransit: legs?.inbound?.noTransit === true,
       km: haversineKm(visits.at(-1)?.spot ?? lastRegion, end.place),
       costYen: 0,
       reason: trip.endMode === END_MODES.RETURN_TO_ORIGIN

@@ -572,6 +572,11 @@ async function computeViaStations(points, opts) {
   let walkLegs = 0;
   // 近くに駅・バス停が1つも無い区間の数。車が要る区間です。
   let noTransitLegs = 0;
+  // どの区間がそれだったか。数だけだと、**画面でその行に印を出せません**。
+  // 「目安」とだけ書かれた行を見て、読む人は「調べそこねたのか、
+  // そもそも便が無いのか」を判断できず、作り直しても直らないものを
+  // 何度も作り直すことになります。
+  const noTransitAt = new Array(n).fill(false);
   // 拾い直した区間の数（画面の注記に出します）。
   let retried = 0;
   for (let i = 0; i < n; i++) {
@@ -625,7 +630,7 @@ async function computeViaStations(points, opts) {
       yahooBudget -= hit.spent;
       yahooBudgetSpent.spent += hit.spent;
     }
-    if (hit?.noTransit) noTransitLegs++;
+    if (hit?.noTransit) { noTransitLegs++; noTransitAt[i] = true; }
     if (hit && !hit.miss) {
       yahooLegs[i] = hit;
       plans[i] = { minutes: hit.minutes, walkKm: 0,
@@ -701,6 +706,8 @@ async function computeViaStations(points, opts) {
     meters: Math.round(haversineKm(points[i], points[i + 1]) * 1000),
     line: null,
     walk: p.walk === true,
+    // 近くに駅・バス停が無かった区間。もう一度聞いても同じ答えです。
+    noTransit: noTransitAt[i] === true,
     // 真ん中（乗車）が目安なので、区間としては実測扱いにしません。
     routed: false,
     stations: p.fromStop && p.toStop

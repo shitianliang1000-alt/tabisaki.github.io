@@ -14,6 +14,7 @@ import { VARIANTS } from "./variants.js";
 import { qualityOf, spotFit, tripFit } from "./fit.js";
 import { currentStep } from "./today.js";
 import { photoFor } from "./photos.js";
+import { estimatedTravel } from "./reliability.js";
 import { itineraryText } from "./share.js";
 
 const ICON = {
@@ -285,7 +286,8 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
         { class: c.ok ? "ok" : "warn" },
         el("span", { class: "ck-ic", "aria-hidden": "true" }, c.ok ? "✓" : "⚠"),
         el("span", { class: "ck-label" }, c.label),
-        el("span", { class: "ck-detail" }, c.detail))))));
+        el("span", { class: "ck-detail" }, c.detail)))),
+      recheckRow(itin, handlers)));
   }
 
   // 1. 旅の意味づけ。
@@ -981,6 +983,35 @@ function axisList(axes) {
 }
 
 /** 情報の出どころの印。色だけでなく、必ず言葉を添えます。 */
+/**
+ * 「まだ目安があります。もう一度調べますか」の1行。
+ *
+ * **出すのは、もう一度調べれば直ることがあるときだけです。**
+ * 近くに駅もバス停も無い区間は、何度作り直しても目安のままです。
+ * そこへ「もう一度調べる」を出すと、直らないことに時間を使わせます。
+ *
+ * 押すと、同じ条件でもう一度組み直します。時刻表に聞く回数と間隔は
+ * 組むたびに数え直すので、混んでいて引けなかった区間が入ることが
+ * あります（区間そのものに便が無いなら、やはり変わりません）。
+ */
+function recheckRow(itin, handlers) {
+  const est = estimatedTravel(itin);
+  if (!est.retryable || !handlers.onRecheck) return null;
+  const row = el("div", { class: "recheck" });
+  const btn = el("button", {
+    type: "button", class: "md-btn md-btn--tonal md-state",
+  }, el("span", {}, "時刻をもう一度調べる"));
+  btn.addEventListener("click", () => {
+    btn.disabled = true;
+    btn.querySelector("span").textContent = "調べています…";
+    handlers.onRecheck();
+  });
+  row.append(btn, el("p", { class: "fine" },
+    `${est.retryable}区間は時刻を引けませんでした。`
+    + "同じ条件で組み直すと、入ることがあります。"));
+  return row;
+}
+
 function srcChip(c, extra = "", source = "") {
   const title = [c.text, c.checkedAt ? `（${c.checkedAt} 時点）` : ""]
     .filter(Boolean).join("");

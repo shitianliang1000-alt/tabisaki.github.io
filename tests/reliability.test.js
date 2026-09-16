@@ -8,7 +8,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { travelSource, tripReliability } from "../js/reliability.js";
+import { estimatedTravel, travelSource, tripReliability }
+  from "../js/reliability.js";
 
 const move = (extra) => ({ kind: "transit", ...extra });
 const spot = (extra) => ({ kind: "spot", ...extra });
@@ -18,7 +19,34 @@ test("移動の出どころを見分ける", () => {
                "Yahoo!路線情報");
   assert.equal(travelSource(move({ routed: true })).label, "Googleの経路");
   assert.equal(travelSource(move({ routed: false })).label, "距離からの推定");
+  // 近くに駅・バス停が無い区間は、「調べそこねた区間」とは別ものです。
+  // 作り直しても同じ答えなので、勧める手が変わります。
+  assert.equal(travelSource(move({ routed: false, noTransit: true })).key,
+               "no-transit");
   assert.equal(travelSource(spot({})), null);
+});
+
+test("目安を、もう一度調べて直るものと直らないものに分ける", () => {
+  const itin = { days: [{ items: [
+    move({ routed: true, yahoo: {} }),
+    move({ routed: false }),                    // 引けなかった → 直ることがある
+    move({ routed: false, noTransit: true }),   // 駅もバス停も無い → 直らない
+    move({ routed: false, walk: true }),        // 歩き → 目安ではありません
+    spot({}),
+  ] }] };
+  const e = estimatedTravel(itin);
+  assert.equal(e.total, 2, JSON.stringify(e));
+  assert.equal(e.retryable, 1);
+  assert.equal(e.noTransit, 1);
+});
+
+test("1区間も目安が無ければ、数は0", () => {
+  const e = estimatedTravel({ days: [{ items: [
+    move({ routed: true, yahoo: {} }),
+    move({ routed: false, walk: true }),
+  ] }] });
+  assert.equal(e.total, 0);
+  assert.equal(e.retryable, 0);
 });
 
 test("全部の裏が取れていれば、星は多い", () => {
@@ -49,7 +77,10 @@ test("目安のままの区間があれば、そう言う", () => {
   const travel = r.checks.find((c) => c.label === "移動時間");
   assert.equal(travel.ok, false);
   assert.match(travel.detail, /2区間のうち1区間/);
-  assert.match(travel.detail, /残り1区間は距離からの目安/);
+  // 「残り1区間は目安です」で止めず、**もう一度調べれば入ることがある**
+  // と書きます。読んだ人にできることが無い文は、書いていないのと同じです。
+  assert.match(travel.detail, /1区間は時刻を引けませんでした/);
+  assert.match(travel.detail, /もう一度調べると入ることがあります/);
   const hours = r.checks.find((c) => c.label === "営業時間");
   assert.match(hours.detail, /1か所のうち0か所/);
 });
@@ -80,4 +111,20 @@ test("休みに当たりそうなら、そう言う", () => {
   const closed = r.checks.find((c) => c.label === "休みの日");
   assert.equal(closed.ok, false);
   assert.match(closed.detail, /1か所/);
+});
+
+test("駅もバス停も無い区間は、作り直しを勧めない", () => {
+  const r = tripReliability({
+    slackMin: 200,
+    days: [{ items: [
+      move({ routed: true, yahoo: {} }),
+      move({ routed: false, noTransit: true }),
+      spot({ estimated: false }),
+    ] }],
+  });
+  const travel = r.checks.find((c) => c.label === "移動時間");
+  assert.match(travel.detail, /1区間は近くに駅・バス停が無く/);
+  assert.match(travel.detail, /車やタクシー向き/);
+  // 直らないものに「もう一度調べると入ります」と書いてはいけません。
+  assert.doesNotMatch(travel.detail, /もう一度調べる/);
 });
