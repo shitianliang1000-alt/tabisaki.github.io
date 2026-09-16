@@ -76,6 +76,28 @@ export function makeTrip(init = {}) {
       spotIds: init.must?.spotIds ?? [],
       /** 使わないスポットID。 */
       avoidSpotIds: init.must?.avoidSpotIds ?? [],
+      /**
+       * そのうち、「外す」として押されたぶん（avoidSpotIds の部分集合）。
+       *
+       * 外すだけだと、空いた枠を別の場所が埋めます。組み直しとしては
+       * 正しいのですが、押した人には「消したのに数が減らない」と映り、
+       * 「別の候補」を押したときと見分けがつきません。
+       * 外す＝1か所ぶん減らす、差し替え＝件数はそのまま、と分けます。
+       *
+       * ここは「どれを外したか」の記録です。実際に何か所までにするかは
+       * spotCap が持ちます。
+       */
+      removedSpotIds: init.must?.removedSpotIds ?? [],
+      /**
+       * 立ち寄りの数の上限。null なら日数と時間帯から決めます。
+       *
+       * 「外す」を押したときだけ、そのときの件数から1を引いた値が
+       * 入ります。減らす数ではなく上限の絶対値にしているのは、
+       * pipeline.js が計算するのは「入れてよい数」であって「実際に
+       * 入る数」ではないからです。収録の少ない土地では、11まで入れて
+       * よくても10しか入りません。そこから1を引いても10のままです。
+       */
+      spotCap: Number.isFinite(init.must?.spotCap) ? init.must.spotCap : null,
       /** 食事の時間を必ず確保するか。 */
       meals: init.must?.meals ?? true,
     },
