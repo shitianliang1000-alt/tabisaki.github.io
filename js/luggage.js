@@ -97,3 +97,97 @@ function summarize(days) {
     + `${hard.length > 2 ? "ほか" : ""}があるので、`
     + "荷物は宿かロッカーに置いていくことをおすすめします。";
 }
+
+/**
+ * 荷物を手放すのにかかる時間の目安（分）。
+ *
+ * 宿のフロントで預けるのは早く、駅のロッカーは探す時間が入ります。
+ * どちらも列に並ぶことがあるので、短く見積もりすぎないようにします。
+ */
+export const LUGGAGE_MIN = { hotel: 10, locker: 15 };
+
+/**
+ * 「荷物を預ける」を、その日の最初の一手として旅程に入れます。
+ *
+ * 案（luggagePlanFor）は旅程の下のほうに出ていました。読めば分かる
+ * のですが、**朝いちに何をするかは旅程の側に書いていないと動けません**。
+ * 現地では旅程の行を上から追うので、下の囲みは読まれません。
+ *
+ * 時刻をどう扱うか
+ * ----------------
+ * 預ける10分ぶんを、あとの予定にずらして足すことはしません。旅程は
+ * 営業時間と便に合わせて組まれていて、10分ずらすと入場や乗り継ぎが
+ * 崩れます。代わりに、**出発の前**に置きます。8:50に預けて9:00に
+ * 出る、という形です。朝の支度が10分早くなるだけで、旅程は動きません。
+ *
+ * 同じ宿にもう1泊する日には、何も入れません。部屋に置いておけます。
+ *
+ * @param {object} itin buildItinerary の結果
+ * @returns {number} 入れた手数
+ */
+export function attachLuggage(itin) {
+  const days = Array.isArray(itin?.days) ? itin.days : [];
+  const plan = luggagePlanFor(itin);
+  let n = 0;
+
+  for (const entry of plan.days) {
+    const day = days[entry.day];
+    const items = day?.items ?? [];
+    const first = items[0];
+    if (!first?.start) continue;
+    // すでに入っているなら、二度入れません（組み直しで通ることがあります）
+    if (items.some((x) => x.kind === "luggage")) continue;
+
+    const lastNight = (days[entry.day - 1]?.items ?? [])
+      .find((x) => x.kind === "lodging");
+    const tonight = items.find((x) => x.kind === "lodging");
+
+    // 同じ宿にもう1泊するなら、荷物は部屋に置いておけます。
+    //
+    // ここは「その日に宿があるか」では判定できません。泊まるたびに
+    // 土地を変える旅（stays.js の周遊）では、毎日どこかに宿があるのに
+    // **毎日荷物を持って移動します**。同じ宿かどうかを見ます。
+    if (tonight && lastNight && lodgingKey(tonight) === lodgingKey(lastNight)) {
+      continue;
+    }
+
+    // 今夜も同じ土地に泊まるなら、宿に預けて夕方に受け取れます。
+    // 土地が変わる日と最後の日は、取りに戻ることになるので、
+    // 帰りに通る駅のロッカーを先に書きます。
+    const sameArea = Boolean(tonight && lastNight
+      && tonight.near?.regionName === lastNight.near?.regionName);
+    const where = sameArea ? "hotel" : "locker";
+    const minutes = LUGGAGE_MIN[where];
+    const start = new Date(first.start.getTime() - minutes * 60000);
+
+    items.unshift({
+      id: `luggage-${entry.day}`,
+      kind: "luggage",
+      start, end: new Date(first.start),
+      title: sameArea ? "荷物を預ける（宿）" : "荷物を預ける（駅のロッカー）",
+      detail: sameArea
+        ? "今夜も同じ土地に泊まります。チェックアウトのときにフロントへ"
+          + "預けておけば、夕方そのまま受け取れます。無料です。"
+        : tonight
+          // 土地が変わる日。持って回るか、先に送るかの分かれ目です。
+          ? "今夜は別の土地に泊まります。日中だけ駅のロッカーに入れるか、"
+            + "宿から今夜の宿へ送る（宅配）手もあります。"
+            + "送るなら午前中の受付が締め切りのことが多いです。"
+          : "宿に預けると取りに戻ることになります。"
+            + "帰りに通る駅のロッカーのほうが早いこともあります。",
+      // この時間は旅程をずらしていません。朝の支度がその分早くなります。
+      costYen: 0,
+      hard: entry.hard,
+      reason: entry.hard.length
+        ? `${entry.hard[0].name}（${entry.hard[0].why}）があるため`
+        : "宿を出たあとにも立ち寄り先があるため",
+    });
+    n += 1;
+  }
+  return n;
+}
+
+/** 宿を見分ける鍵。同じ宿にもう1泊するかどうかの判定に使います。 */
+function lodgingKey(item) {
+  return item?.place?.id ?? `${item?.title ?? ""}@${item?.near?.regionName ?? ""}`;
+}

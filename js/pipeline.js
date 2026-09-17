@@ -42,8 +42,10 @@ import { costBreakdown } from "./cost.js";
 import { sunNotes, sunTimes } from "./sun.js";
 import { forecastFor, summarizeDay } from "./weather.js";
 import { suggestReplan } from "./replan.js";
+import { attachBackups } from "./backup.js";
+import { attachMeals } from "./meals.js";
 import { eventNotesFor } from "./events.js";
-import { luggagePlanFor } from "./luggage.js";
+import { attachLuggage, luggagePlanFor } from "./luggage.js";
 import { storyFor } from "./story.js";
 import { longestGap, pickBest, scoreItinerary } from "./score.js";
 
@@ -299,7 +301,9 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   const maxSpots = Math.min(cap, nights === 0
     ? Math.max(3, Math.min(11, Math.round(hours / 1.8)))
     : Math.max(4, Math.min(48, days * perDay)));
-  const maxRegions = suggestRegionCount(days);
+  // 宿の取りかたで、回るエリアの数が変わります。連泊なら絞り、
+  // 周遊なら泊まるたびに土地が変わります（stays.js）。
+  const maxRegions = suggestRegionCount(days, null, trip.stayStyle);
   const targets = mixTargets(maxSpots, trip.hiddenBias);
 
   // 「必ず行く」は絶対条件なので、地名の指定より優先します。
@@ -483,6 +487,14 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   itin.headline = proposal.fromModel ? proposal.headline : "";
   itin.rationale = proposal.rationale;
   itin.verifyNote = buildVerifyNote(checked, repaired, proposal);
+  // 連泊なら、その1か所。宿を動かさない旅だと分かる1行を出すために
+  // 使います（stays.js が選んでいます）。
+  //    駅名ではなく土地の名前で言います。「松江駅に2泊」は、駅で
+  //    寝るように読めます。
+  itin.basedAt = checked.basedAt
+    ? (checked.stays?.find((s) => s.station === checked.basedAt)?.region?.name
+       ?? checked.basedAt.name)
+    : null;
 
   // 7. 希望に応えられたか
   const chosenSpots = checked.result.visits.map((v) => v.spot);
@@ -601,11 +613,27 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   //    ここでは提案を出すだけで、旅程は変えません。押されたときだけ
   //    条件を書き換えて、同じ手順で組み直します。
   itin.replan = await buildReplan(itin, candidates, opts);
+  //    予定どおりに行けなかったときの代わりも、ここで1か所ずつ決めます。
+  //    雨や休館は現地で分かることなので、出発前に近くの代わりを
+  //    決めておかないと、電波の弱い場所で探すことになります。
+  itin.backupCount = attachBackups(itin, candidatePool(candidates),
+                                   { transport: itin.transport });
+  //    食事は「昼食／◯◯で」だけでは旅程になりません。その土地の
+  //    名物までは決められるので、決めます（店は持っていないので、
+  //    店は地図に渡します）。候補集合ではなく収録全件から探すのは、
+  //    食事どころが興味の絞り込みで落ちていることがあるためです。
+  itin.mealCount = attachMeals(itin, {
+    spots: kb.spots, genre: trip.foodGenre,
+  });
   // 9. その時期ならではのこと、荷物、旅の意味づけ。
   //    どれも数えれば決まるので、AIには書かせません
   //    （同じ旅程で毎回違う説明が出ると、説明として成立しません）。
   itin.seasonNotes = eventNotesFor(itin);
   itin.luggage = luggagePlanFor(itin);
+  //    そのうえで、「荷物を預ける」を朝いちの一手として旅程に入れます。
+  //    下の囲みに書いてあっても、現地では旅程の行しか追いません。
+  //    時刻はずらしません（出発の前に置きます。luggage.js）。
+  itin.luggageSteps = attachLuggage(itin);
   itin.story = storyFor(itin);
 
   // 3案を作るときに使い回すための持ち出し
@@ -886,8 +914,9 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     .map((id) => candidates.find((c) => c.region.id === id))
     .filter(Boolean);
   if (!chosen.length) chosen.push(candidates[0]);
-  const { stays, baseByDay } = planStays(chosen, {
+  let { stays, baseByDay, basedAt } = planStays(chosen, {
     days, origin: trip.origin, end, pace: trip.pace,
+    stayStyle: trip.stayStyle,
   });
 
   // 出発地がもう最初の拠点の中にいるなら、そこが拠点です。
@@ -900,9 +929,18 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   // 出発地から1.3km動いて、また戻ってきています。旅程の1行目が
   // これでは、「東京駅から始まる旅」には見えません。
   if (haversineKm(trip.origin, stays[0].station) < ORIGIN_IS_BASE_KM) {
+    const was = stays[0].station;
     stays[0].station = trip.origin;
     if (baseByDay.length) {
-      for (let i = 0; i <= stays[0].dayTo; i++) baseByDay[i] = trip.origin;
+      // 連泊では、どの日も同じ拠点が入っています。1日目だけ差し替えると、
+      // 同じ宿なのに日によって場所が違うことになります。
+      for (let i = 0; i < baseByDay.length; i++) {
+        if (i <= stays[0].dayTo || baseByDay[i] === was) {
+          baseByDay[i] = trip.origin;
+        }
+      }
+      // 連泊の拠点そのものが出発地だったなら、連泊するのはそこです
+      if (basedAt === was) basedAt = trip.origin;
     }
   }
 
@@ -1095,6 +1133,8 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   return {
     result: trimmed.result, dropped: trimmed.dropped,
     conflicts: trimmed.conflicts ?? [], stays,
+    // 連泊するなら、どこに連泊するか。画面で言えるように持ち出します。
+    basedAt,
     legs: { outbound, inbound, local: localRoute, routeError,
             modeNote: localRoute?.modeNote, routed: useRoutes },
     legDetail,
@@ -1329,6 +1369,18 @@ function draftItinerary(checked, trip, kb) {
 }
 
 /**
+ * 候補集合を、スポットの平らな配列にします。
+ *
+ * 差し替え案も代わりの案も、**旅程を作ったときに見ていた候補**から
+ * しか取りません。ここで知識ベース全体を引くと、旅程と関係のない
+ * 土地の名前が出てきます。
+ */
+function candidatePool(candidates) {
+  return (candidates ?? []).flatMap((c) => (c?.spots ?? []).map((x) => x.spot))
+    .filter(Boolean);
+}
+
+/**
  * 天気・日没・混雑から、見直しの提案を作ります。
  *
  * 天気は取れないことがあります（オフライン、予報の効かない先の日付）。
@@ -1363,7 +1415,7 @@ async function buildReplan(itin, candidates, opts = {}) {
 
   // 差し替え候補は、選定に使った候補集合から取ります。
   // ここに無い場所を持ち出すと、旅程と関係のない土地が混ざります。
-  const pool = (candidates ?? []).flatMap((c) => c.spots.map((x) => x.spot));
+  const pool = candidatePool(candidates);
   const out = suggestReplan(itin, { weather, sunset, candidates: pool });
   out.days = daySummaries;
   return out;

@@ -6,7 +6,8 @@
 // 文字で渡せるようにします。写真も地図も要りません。何時にどこか、
 // だけで当日はまわれます。
 
-const ICON = { transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕" };
+const ICON = { transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕",
+               luggage: "🧳" };
 
 function pad(n) { return String(n).padStart(2, "0"); }
 
@@ -46,9 +47,14 @@ export function itineraryText(itin, opts = {}) {
       const title = String(item.title ?? "").trim();
       const minutes = item.start && item.end
         ? Math.round((new Date(item.end) - new Date(item.start)) / 60000) : 0;
-      const tail = item.kind === "spot" && minutes > 0 ? `（${minutes}分）` : "";
+      const what = item.kind === "meal"
+        ? (item.food?.spotName ?? item.food?.dish) : null;
+      const tail = what ? `（${what}）`
+        : item.kind === "spot" && minutes > 0 ? `（${minutes}分）` : "";
       lines.push(`${time(item.start)} ${ic} ${title}${tail}`);
       if (item.kind === "transit" && item.detail) lines.push(`      ${item.detail}`);
+      // 駄目だったときの代わり。送った先で読むものなので、ここにも入れます。
+      if (item.backup?.text) lines.push(`      ↳ ${item.backup.text}`);
     }
   });
   if (opts.url) {

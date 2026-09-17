@@ -1,6 +1,6 @@
 // 画面の描画。DOM 操作はここに閉じ込め、ロジックは他のモジュールに任せます。
 
-import { directionsFromHereUrl, linksForItem } from "./links.js";
+import { directionsFromHereUrl, linksForItem, mapsSearchUrl } from "./links.js";
 import { TIER_LABEL } from "./mix.js";
 import { profileOf } from "./feasibility.js";
 import { crowdLevel } from "./crowd.js";
@@ -21,6 +21,7 @@ import { icsFilename, toIcs } from "./ical.js";
 
 const ICON = {
   transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕",
+  luggage: "🧳",
 };
 
 /** 行の先頭の絵。乗り物は、乗るものによって変えます。 */
@@ -240,10 +241,11 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     el("header", { class: "itin-head" },
       el("h2", {}, title),
       el("p", { class: "sub" }, sub),
-      itin.stays?.length > 1
-        ? el("p", { class: "stay-line" },
-            itin.stays.map((s) => `${s.name} ${s.days}日`).join(" → "))
-        : null),
+      // 宿をどう取る旅か。連泊なら、そう書きます。
+      //
+      // 「松江 2日 → 出雲 1日」だけでは、宿を動かすのかどうかが
+      // 分かりません。連泊はそこが要点なので、1行で言います。
+      stayLine(itin)),
   ].filter(Boolean));
 
   // 判断を、数字より先に置きます。
@@ -1073,6 +1075,29 @@ function recheckRow(itin, handlers) {
   return row;
 }
 
+/**
+ * 拠点の1行。
+ *
+ * 連泊（宿を動かさない旅）では、どこに何泊するかが要点です。
+ * 泊まり歩く旅では、どの順に移るかが要点です。同じ「松江 2日 →
+ * 出雲 1日」でも、意味が違うので書き分けます。
+ */
+function stayLine(itin) {
+  const stays = itin.stays ?? [];
+  if (itin.stayStyle === "base" && itin.basedAt) {
+    const nights = Math.max(1, (itin.days?.length ?? 1) - 1);
+    const areas = stays.map((s) => s.name).join("・");
+    return el("p", { class: "stay-line" },
+      `${itin.basedAt}に${nights}泊`
+      + (areas && stays.length > 1 ? `（日中は ${areas}）` : ""));
+  }
+  if (stays.length > 1) {
+    return el("p", { class: "stay-line" },
+      stays.map((s) => `${s.name} ${s.days}日`).join(" → "));
+  }
+  return null;
+}
+
 function srcChip(c, extra = "", source = "") {
   const title = [c.text, c.checkedAt ? `（${c.checkedAt} 時点）` : ""]
     .filter(Boolean).join("");
@@ -1260,6 +1285,13 @@ function renderItem(item, index, itin, handlers, sunNote) {
       title: c.reasons.join("・") || "混雑の見込み",
     }, c.label));
   }
+  // 何を食べる土地か。題に添えると、旅程を眺めただけで分かります。
+  // 出すのは料理（または収録にある食事どころ）の名前だけです。
+  // 店名をこちらで作ることはしません（meals.js）。
+  if (item.kind === "meal" && (item.food?.spotName || item.food?.dish)) {
+    title.append(el("em", { class: "dish" },
+      item.food.spotName ?? item.food.dish));
+  }
   info.append(title);
 
   if (item.detail) {
@@ -1333,6 +1365,25 @@ function renderItem(item, index, itin, handlers, sunNote) {
       el("span", {}, item.hoursText));
     if (item.place) p.append(srcChip(confidenceOf("hours", item.place)));
     if (item.hoursNote) p.title = item.hoursNote;
+    info.append(p);
+  }
+
+  // 駄目だったときの代わり。
+  //
+  // 雨も休館も、現地で分かります。そのとき代わりを探すことになるのが
+  // いちばん困るので、近くの1か所だけ先に決めておきます
+  // （backup.js。候補は旅程を組んだときと同じ集合から取っています）。
+  if (item.backup) {
+    // 印は、何が心配なのかで変えます。雨と休館は別のことです。
+    const mark = item.backup.why === "closed" ? "🔒" : "☔";
+    const p = el("p", { class: "backup" },
+      el("span", { "aria-hidden": "true" }, mark),
+      el("span", {}, item.backup.text));
+    p.append(el("a", {
+      href: mapsSearchUrl(item.backup.name,
+        { lat: item.backup.lat, lng: item.backup.lng }),
+      target: "_blank", rel: "noreferrer", class: "link",
+    }, "地図"));
     info.append(p);
   }
 

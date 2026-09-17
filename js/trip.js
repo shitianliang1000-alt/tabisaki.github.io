@@ -157,6 +157,25 @@ export function makeTrip(init = {}) {
     avoidCrowds: init.avoidCrowds ?? true,
     /** 人数。費用の概算に効きます。 */
     people: init.people ?? 1,
+    /**
+     * 宿の取りかた。"auto" | "base"（1か所に連泊）| "tour"（泊まるたび移動）。
+     *
+     * 同じ3泊4日でも、この2つは別の旅です。連泊は荷物を置いておけて
+     * 毎晩同じ部屋に戻れますが、遠くへは行けません。周遊は広く回れますが、
+     * 毎朝荷物をまとめることになります。**好みの問題なので聞きます**
+     * （stays.js が割り振りに使います）。
+     */
+    stayStyle: ["auto", "base", "tour"].includes(init.stayStyle)
+      ? init.stayStyle : "auto",
+    /**
+     * 食べたいものの向き。"any" | "seafood" | "noodle" | "meat" | "rice" | "sweets"。
+     *
+     * 店は持っていないので、決まるのは**その土地の何を食べるか**までです
+     * （meals.js）。海鮮が苦手な人に海鮮丼を出しても、旅程として
+     * 役に立ちません。既定はおまかせ＝その土地の名物から選びます。
+     */
+    foodGenre: ["any", "seafood", "noodle", "meat", "rice", "sweets"]
+      .includes(init.foodGenre) ? init.foodGenre : "any",
   };
 }
 

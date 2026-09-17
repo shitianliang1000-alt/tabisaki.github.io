@@ -371,6 +371,52 @@
           行き先を組めます。</p>
       </div>
 
+      <div class="tune-group" id="stay-group">
+        <span class="tune-label" id="stay-label">宿の取りかた</span>
+        <div class="md-segmented" id="stay-choice"
+             role="group" aria-labelledby="stay-label">
+          <button type="button" class="md-state is-selected" data-stay="auto">
+            <span>おまかせ</span>
+          </button>
+          <button type="button" class="md-state" data-stay="base">
+            <span>連泊</span>
+          </button>
+          <button type="button" class="md-state" data-stay="tour">
+            <span>泊まり歩く</span>
+          </button>
+        </div>
+        <p class="md-field-help">連泊は荷物を置いておけますが、
+          遠くへは行きにくくなります。泊まり歩くと広く回れますが、
+          毎朝まとめ直すことになります。</p>
+      </div>
+
+      <div class="tune-group">
+        <span class="tune-label" id="food-label">食べたいもの</span>
+        <div class="md-segmented" id="food-choice"
+             role="group" aria-labelledby="food-label">
+          <button type="button" class="md-state is-selected" data-food="any">
+            <span>おまかせ</span>
+          </button>
+          <button type="button" class="md-state" data-food="seafood">
+            <span>海鮮</span>
+          </button>
+          <button type="button" class="md-state" data-food="noodle">
+            <span>麺</span>
+          </button>
+          <button type="button" class="md-state" data-food="meat">
+            <span>肉</span>
+          </button>
+          <button type="button" class="md-state" data-food="rice">
+            <span>ご飯</span>
+          </button>
+          <button type="button" class="md-state" data-food="sweets">
+            <span>甘いもの</span>
+          </button>
+        </div>
+        <p class="md-field-help">その土地の名物から、昼食と夕食に当てます。
+          店の予約や在庫は持っていないので、お店選びは地図に渡します。</p>
+      </div>
+
       <div class="tune-group">
         <span class="tune-label">旅の終わり</span>
         <div class="md-segmented" id="end-choice">

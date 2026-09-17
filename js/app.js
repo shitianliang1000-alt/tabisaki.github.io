@@ -1142,6 +1142,15 @@ function wireForm() {
   segmented("#transport-choice", "transport", (v) => {
     state.transport = v ?? "any";
   });
+  // 宿の取りかた。連泊と周遊は、同じ日数でも別の旅です（stays.js）。
+  segmented("#stay-choice", "stay", (v) => {
+    state.stayStyle = v ?? "auto";
+  });
+  // 食べたいもの。店は持っていないので、決まるのは
+  // 「その土地の何を食べるか」までです（meals.js）。
+  segmented("#food-choice", "food", (v) => {
+    state.foodGenre = v ?? "any";
+  });
 
   for (const btn of document.querySelectorAll("#end-choice button")) {
     btn.addEventListener("click", () => {
@@ -1287,6 +1296,10 @@ async function readTrip() {
     budgetMode: state.budgetMode ?? "guide",
     // 何で移動するか。車が使えるかどうかで、組める旅程が変わります。
     transport: state.transport ?? "any",
+    // 食べたいものの向き。昼食・夕食にその土地の名物を当てます。
+    foodGenre: state.foodGenre ?? "any",
+    // 宿の取りかた。連泊か、泊まるたびに移動か。
+    stayStyle: state.stayStyle ?? "auto",
     // 定番と穴場のまぜかた。画面では星の粒として出しています。
     hiddenBias: (Number($("#hidden-bias")?.value ?? 40)) / 100,
     // 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。

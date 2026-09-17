@@ -497,6 +497,9 @@ export function buildItinerary(input) {
     // 何で回る旅か。画面と確かめかたが、これで変わります。車の旅に
     // 「時刻を引けませんでした」と出しても、引くべき時刻がありません。
     transport: trip.transport ?? "any",
+    // 宿の取りかた。連泊なら、どこに連泊するかも持ちます
+    // （画面で「◯◯に3連泊」と言えるようにするためです）。
+    stayStyle: trip.stayStyle ?? "auto",
     usedRoutesApi: Boolean(legs?.outbound?.routed || legs?.local?.routed),
   };
 }

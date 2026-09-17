@@ -18,6 +18,29 @@ import { estimateMinutes } from "./feasibility.js";
 // ここは多めに出しておくほうが、結果として1日が埋まります。
 export const SPOTS_PER_DAY = { relaxed: 4, balanced: 5, packed: 7 };
 
+/**
+ * 宿の取りかた。
+ *
+ * 同じ3泊4日でも、「1か所に泊まって日帰りで回る」旅と「泊まるたびに
+ * 土地を変える」旅は、まるで別の旅です。前者は荷物を置いておけて
+ * 戻る安心がありますが、遠くへは行けません。後者は広く回れますが、
+ * 毎朝荷物をまとめ、毎晩チェックインします。
+ *
+ * どちらが良いかは**好みの問題**なので、こちらで決めません。
+ * 既定（auto）はこれまでどおり、日数から自然な数のエリアを回ります。
+ */
+export const STAY_STYLES = /** @type {const} */ ({
+  AUTO: "auto",   // 日数に任せる（これまでの動き）
+  BASE: "base",   // 連泊。宿は動かさず、日帰りで回る
+  TOUR: "tour",   // 周遊。泊まるたびに土地が変わる
+});
+
+export const STAY_STYLE_LABEL = {
+  auto: "おまかせ",
+  base: "1か所に連泊",
+  tour: "泊まるたびに移動",
+};
+
 /** そのエリアだけで無理なく過ごせる日数（収録スポット数から）。 */
 export function capacityDays(spotCount, perDay = 4) {
   return Math.max(1, Math.ceil(spotCount / Math.max(2, perDay - 1)));
@@ -34,9 +57,19 @@ export function capacityDays(spotCount, perDay = 4) {
  * それでも 2日にひとつという目安は変えません。1日ごとに拠点を移すのは、
  * 旅ではなく移動になります。
  */
-export function suggestRegionCount(days, maxRegions = null) {
+export function suggestRegionCount(days, maxRegions = null, style = "auto") {
   if (days <= 2) return 1;
   const cap = maxRegions ?? Math.min(10, Math.max(4, Math.round(days / 2)));
+  // 連泊なら、日中に回るエリアも絞ります。
+  //
+  // 宿を動かさない旅で、エリアだけ4つ選ぶと、毎晩遠くから戻ることに
+  // なります。戻れるかどうかは verify.js が数えますが、そこで削られる
+  // ぶんは**最初から選ばない**ほうが、旅程として素直です。
+  if (style === STAY_STYLES.BASE) {
+    return Math.min(cap, 3, Math.max(1, Math.ceil(days / 3)));
+  }
+  // 周遊なら、泊まるたびに土地が変わります（1日ひとつ）。
+  if (style === STAY_STYLES.TOUR) return Math.min(maxRegions ?? days, days);
   return Math.min(cap, Math.max(1, Math.ceil(days / 2)));
 }
 
@@ -127,7 +160,8 @@ function* permutations(arr) {
  * まず各エリアの「持ちこたえられる日数」で上限を切り、余りを収録数の
  * 多い順に配ります。最後は必ず全日が埋まります。
  */
-export function allocateDays(regions, days, spotCounts, perDay = 4) {
+export function allocateDays(regions, days, spotCounts, perDay = 4,
+                             style = "auto") {
   const n = regions.length;
   if (n === 0) return [];
   if (n === 1) return [days];
@@ -135,6 +169,13 @@ export function allocateDays(regions, days, spotCounts, perDay = 4) {
     capacityDays(spotCounts[i] ?? 0, perDay));
   const alloc = new Array(n).fill(1);
   let left = days - n;
+  // 周遊では、1エリア1日から始めます。収録の多いエリアに何日も
+  // 積むと、「泊まるたびに移動する」と選んだのに連泊になります。
+  // エリアより日数が多いぶんだけ、あとで順に足します。
+  if (style === STAY_STYLES.TOUR) {
+    for (let i = 0; left > 0; i = (i + 1) % n, left--) alloc[i]++;
+    return alloc;
+  }
   // まず上限まで、収録の多いエリアから
   const order = regions.map((_, i) => i)
     .sort((a, b) => (spotCounts[b] ?? 0) - (spotCounts[a] ?? 0));
@@ -161,12 +202,13 @@ export function allocateDays(regions, days, spotCounts, perDay = 4) {
  * @returns {{stays:Array, baseByDay:Array, regionByDay:Array}}
  */
 export function planStays(chosen, { days, origin, end, pace = "balanced",
+                                   stayStyle = STAY_STYLES.AUTO,
                                    travelFn = estimateMinutes } = {}) {
   const perDay = SPOTS_PER_DAY[pace] ?? 4;
   const regions = orderRegions(chosen.map((c) => c.region), { origin, end, travelFn });
   const byId = new Map(chosen.map((c) => [c.region.id, c]));
   const counts = regions.map((r) => byId.get(r.id)?.spots?.length ?? 0);
-  const alloc = allocateDays(regions, days, counts, perDay);
+  const alloc = allocateDays(regions, days, counts, perDay, stayStyle);
 
   const stays = [];
   const baseByDay = [];
@@ -184,7 +226,38 @@ export function planStays(chosen, { days, origin, end, pace = "balanced",
       day++;
     }
   }
-  return { stays, baseByDay, regionByDay, perDay };
+
+  // 連泊なら、宿は1か所。日中に回るエリアは変わっても、夜は同じ場所に
+  // 帰ります。どの日も同じ拠点を渡しておけば、時刻の突き合わせ
+  // （verify.js）が毎晩そこまでの移動を数え、戻れない日は削られます。
+  // ここで「戻れるはず」と決めつけないのが大事なところです。
+  let basedAt = null;
+  if (stayStyle === STAY_STYLES.BASE && stays.length) {
+    basedAt = pickBase(stays, travelFn);
+    for (let i = 0; i < baseByDay.length; i++) baseByDay[i] = basedAt;
+  }
+  return { stays, baseByDay, regionByDay, perDay, stayStyle, basedAt };
+}
+
+/**
+ * 連泊する1か所を選びます。
+ *
+ * 選ぶのは「そこから全部のエリアへ行き帰りする合計がいちばん短い」場所
+ * です。滞在日数で重みを付けます。3日いるエリアと1日のエリアを同じに
+ * 扱うと、1日しかいない遠いエリアのために宿が遠くなります。
+ */
+export function pickBase(stays, travelFn = estimateMinutes) {
+  let best = null;
+  for (const home of stays) {
+    let sum = 0;
+    for (const other of stays) {
+      if (other === home) continue;
+      // 行きと帰りで2回ぶん。日帰りは往復です。
+      sum += 2 * travelFn(home.station, other.station) * other.days;
+    }
+    if (!best || sum < best.sum) best = { sum, station: home.station };
+  }
+  return best?.station ?? null;
 }
 
 /** その日のエリア。 */

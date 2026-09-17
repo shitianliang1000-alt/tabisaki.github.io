@@ -1286,7 +1286,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--md-sys-color-outline-variant);
 }
 .tl:last-child .rail::after { display: none; }
-.tl.transit .rail i, .tl.free .rail i {
+.tl.transit .rail i, .tl.free .rail i, .tl.luggage .rail i {
   width: 8px; height: 8px;
   background: var(--md-sys-color-outline);
   box-shadow: 0 0 0 3px var(--md-sys-color-surface-container-highest);
@@ -1438,14 +1438,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .c-label { flex: none; width: 7em; color: var(--md-sys-color-on-surface-variant); }
 .critique li.warn .c-text { color: var(--md-sys-color-error); }
 
-.tl.transit .body, .tl.free .body {
+.tl.transit .body, .tl.free .body, .tl.luggage .body {
   background: transparent; padding: 8px 4px; margin-bottom: 4px;
 }
 .tl .title {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: 16px; font-weight: 500; letter-spacing: .15px;
 }
-.tl.transit .title, .tl.free .title {
+.tl.transit .title, .tl.free .title, .tl.luggage .title {
   font-size: 14px; font-weight: 400;
   color: var(--md-sys-color-on-surface-variant);
 }
@@ -1466,6 +1466,30 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--md-sys-color-on-surface-variant);
 }
 .tl .sun { margin: 8px 0 0; font-size: 13px; color: var(--md-sys-color-tertiary); }
+/* 何を食べる土地か。題の横に、印のように小さく添えます
+   （知名度の印 .tier と同じ扱いにしています）。 */
+.tl .dish {
+  flex: 0 0 auto;
+  padding: 2px 8px; border-radius: var(--hig-r-full);
+  background: color-mix(in srgb, var(--hig-orange) 14%, transparent);
+  color: var(--hig-orange);
+  font-size: 11px; font-style: normal; font-weight: 600;
+  white-space: nowrap;
+}
+/* 駄目だったときの代わり。
+   警告ではないので赤くしません。かといって本文に埋もれると、現地で
+   思い出せません。囲みを付けて、1行だけ目に留まるようにします。 */
+.tl .backup {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 8px 0 0; padding: 8px 12px;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: color-mix(in srgb, var(--hig-blue) 8%, transparent);
+  font-size: 13px; line-height: 1.7;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.tl .backup .link {
+  color: var(--md-sys-color-primary); text-decoration: none; font-weight: 500;
+}
 /* 長い運転に添える休憩のこと。日没の注記と同じ扱いの一行です。
    色は本文寄りにします（警告ではなく、気づいてほしい程度のこと）。 */
 .tl .sun.rest { color: var(--hig-label-2); display: flex; gap: 6px; }
@@ -1479,7 +1503,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   transition: background-color var(--md-sys-motion-short) var(--md-sys-motion-standard);
 }
 .tl .chev:hover { background: var(--hig-fill); }
-.tl.transit .chev, .tl.free .chev { display: none; }
+.tl.transit .chev, .tl.free .chev, .tl.luggage .chev { display: none; }
 
 .item-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .item-links .link {
@@ -1992,6 +2016,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   .card-info { padding: 2mm 3mm; }
   /* 所要時間に比例した高さは、画面の工夫です。紙では場所の無駄になります。 */
   .tl .rail, .tl .body { height: auto !important; }
+
+  /* 代わりの案は、紙にこそ要ります。電池が切れても読めるからです。
+     ただし「地図」は紙では押せないので落とします。 */
+  .tl .backup {
+    background: transparent !important; border: .5pt dashed #999;
+    padding: 1.5mm 2.5mm;
+  }
+  .tl .backup .link { display: none !important; }
 
   .panel {
     background: transparent; border: .5pt solid #bbb;

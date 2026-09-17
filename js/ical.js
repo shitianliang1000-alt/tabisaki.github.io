@@ -14,7 +14,9 @@
 // 日本を旅する人の旅程は、日本の時刻で読まれるべきものです。
 
 /** 予定として書き出す種類。空き時間は、書いても相手にすることがありません。 */
-const KINDS = new Set(["spot", "meal", "lodging", "transit"]);
+// 「荷物を預ける」も入れます。朝いちに何をするかは、家を出る前に
+// 通知が要る種類の予定です（luggage.js が入れています）。
+const KINDS = new Set(["spot", "meal", "lodging", "transit", "luggage"]);
 
 const pad = (n) => String(n).padStart(2, "0");
 
@@ -82,7 +84,12 @@ function fold(line) {
 function summaryOf(item) {
   const title = String(item.title ?? "").trim();
   if (item.kind === "lodging") return `宿泊: ${title}`;
-  if (item.kind === "meal") return title;
+  // 食事は、何を食べる土地かまで題に入れます。カレンダーの1行だけを
+  // 見ることが多いので、そこに無いと分かりません（meals.js）。
+  if (item.kind === "meal") {
+    const what = item.food?.spotName ?? item.food?.dish;
+    return what ? `${title}: ${what}` : title;
+  }
   return title;
 }
 
@@ -98,6 +105,9 @@ function descriptionOf(item) {
   if (item.kind === "spot" && item.estimated) {
     parts.push("営業時間は分類ごとの目安です。訪問前に公式情報をご確認ください。");
   }
+  // 駄目だったときの代わり。カレンダーは現地で見るものなので、
+  // ここに入っていれば電波が弱くても読めます（backup.js）。
+  if (item.backup?.text) parts.push(`代わり: ${item.backup.text}`);
   if (typeof item.costYen === "number" && item.costYen > 0) {
     parts.push(`目安の費用: ¥${item.costYen.toLocaleString("ja-JP")}`);
   }
