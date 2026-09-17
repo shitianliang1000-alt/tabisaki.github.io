@@ -17,6 +17,7 @@ import { photoFor } from "./photos.js";
 import { estimatedTravel } from "./reliability.js";
 import { isTouring, longDriveNote } from "./touring.js";
 import { itineraryText } from "./share.js";
+import { icsFilename, toIcs } from "./ical.js";
 
 const ICON = {
   transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕",
@@ -840,8 +841,47 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     setTimeout(() => { label.textContent = "旅程を送る / コピー"; }, 2600);
   });
 
+  // カレンダーに入れる。
+  //
+  // 旅程を作ったあと、旅行者が次にすることはこれです。当日に開くのは
+  // このアプリではなくカレンダーだからです。前日の夜に通知が出て、
+  // 朝に予定が並んでいる。そこまで届かないと、作った旅程は使われません。
+  //
+  // .ics は Google・Apple・Outlook がどれも読める形式です。書き出しは
+  // ブラウザの中だけで済むので、どこにも送りません。
+  const calBtn = el("button", {
+    type: "button", class: "md-btn md-btn--tonal md-state cal-ics",
+  }, el("span", {}, "カレンダーに入れる"));
+  calBtn.addEventListener("click", () => {
+    const label = calBtn.querySelector("span");
+    const text = toIcs(itin);
+    if (!text) { label.textContent = "予定がありません"; return; }
+    let url = null;
+    try {
+      url = URL.createObjectURL(new Blob([text], {
+        type: "text/calendar;charset=utf-8",
+      }));
+      const a = el("a", { href: url, download: icsFilename(itin) });
+      a.style.display = "none";
+      document.body.append(a);
+      a.click();
+      // すぐ外すと、端末によっては download の名前が読まれないまま
+      // 「download」という名前で保存されます。1拍おいてから外します。
+      setTimeout(() => a.remove(), 0);
+      label.textContent = "書き出しました";
+    } catch {
+      label.textContent = "書き出せませんでした";
+    } finally {
+      // 取り消しは、保存が始まるのを待ってから。すぐ消すと、端末に
+      // よっては中身の無いファイルが落ちます。
+      if (url) setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    }
+    setTimeout(() => { label.textContent = "カレンダーに入れる"; }, 2600);
+  });
+
   container.append(...[el("div", { class: "actions" },
     copyBtn,
+    calBtn,
     handlers.onSave
       ? el("button", { type: "button", class: "md-btn md-btn--tonal md-state keep",
                        onClick: (e) => {

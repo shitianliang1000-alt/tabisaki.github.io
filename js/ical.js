@@ -1,0 +1,193 @@
+// 旅程をカレンダーへ。
+//
+// 旅程を作ったあと、旅行者が次にすることは「カレンダーに入れる」です。
+// 当日に開くのは、このアプリではなくカレンダーだからです。前日の夜に
+// 通知が出て、朝に予定が並んでいる。そこまで届かないと、作った旅程は
+// 使われません。
+//
+// .ics（RFC 5545）は、Googleカレンダー・Appleカレンダー・Outlook が
+// どれも読める唯一の形式です。書き出しはブラウザの中だけで済むので、
+// どこにも送りません。
+//
+// 時刻は**その土地の時刻のまま**（浮動時間）で書きます。UTC に直すと、
+// 端末の時計が別の国に合っている人には、ずれた時刻が並びます。
+// 日本を旅する人の旅程は、日本の時刻で読まれるべきものです。
+
+/** 予定として書き出す種類。空き時間は、書いても相手にすることがありません。 */
+const KINDS = new Set(["spot", "meal", "lodging", "transit"]);
+
+const pad = (n) => String(n).padStart(2, "0");
+
+/** RFC 5545 の日時（浮動時間。末尾に Z を付けません）。 */
+function stamp(d) {
+  const t = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(t.getTime())) return null;
+  return `${t.getFullYear()}${pad(t.getMonth() + 1)}${pad(t.getDate())}`
+    + `T${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}`;
+}
+
+/** UTC の日時。DTSTAMP（作った時刻）だけに使います。 */
+function stampUtc(d) {
+  const t = d instanceof Date ? d : new Date(d);
+  return `${t.getUTCFullYear()}${pad(t.getUTCMonth() + 1)}${pad(t.getUTCDate())}`
+    + `T${pad(t.getUTCHours())}${pad(t.getUTCMinutes())}${pad(t.getUTCSeconds())}Z`;
+}
+
+/**
+ * 値の中の記号を逃がします（RFC 5545 §3.3.11）。
+ *
+ * ここを抜かすと、説明文にカンマが1つ入っただけで、その行から先が
+ * 別の項目として読まれます。カレンダーは黙って壊れた予定を作ります。
+ */
+function esc(text) {
+  return String(text ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\r\n|\r|\n/g, "\\n")
+    .replace(/;/g, "\;")
+    .replace(/,/g, "\\,");
+}
+
+/**
+ * 1行を75オクテットで折ります（RFC 5545 §3.1）。
+ *
+ * **文字数ではなくオクテットで数えます。** 日本語は1文字3オクテットなので、
+ * 文字数で折ると1行が225オクテットになり、厳しめの実装に弾かれます。
+ * そして**文字の途中で折ってはいけません**。折り返した先は空白1つで
+ * 始めます。
+ */
+function fold(line) {
+  const bytes = new TextEncoder().encode(line);
+  if (bytes.length <= 75) return line;
+  const out = [];
+  let cur = "";
+  let curBytes = 0;
+  for (const ch of line) {
+    const n = new TextEncoder().encode(ch).length;
+    // 2行目以降は先頭の空白1つぶんを差し引いて数えます。
+    const limit = out.length ? 74 : 75;
+    if (curBytes + n > limit) {
+      out.push(cur);
+      cur = ch;
+      curBytes = n;
+    } else {
+      cur += ch;
+      curBytes += n;
+    }
+  }
+  if (cur) out.push(cur);
+  return out[0] + out.slice(1).map((s) => `\r\n ${s}`).join("");
+}
+
+/** 予定の題。絵文字は入れません（カレンダー側で化けることがあります）。 */
+function summaryOf(item) {
+  const title = String(item.title ?? "").trim();
+  if (item.kind === "lodging") return `宿泊: ${title}`;
+  if (item.kind === "meal") return title;
+  return title;
+}
+
+/** 予定の説明。何で移動するか、確かめた情報かどうかを添えます。 */
+function descriptionOf(item) {
+  const parts = [];
+  if (item.detail) parts.push(String(item.detail));
+  if (item.kind === "transit") {
+    if (item.taxi) parts.push("近くに駅・バス停が無いため、タクシーを想定した目安です。");
+    else if (item.yahoo) parts.push("Yahoo!路線情報で調べた実際の便です。");
+    else if (!item.routed) parts.push("距離からの目安です。実際の便は時刻表でご確認ください。");
+  }
+  if (item.kind === "spot" && item.estimated) {
+    parts.push("営業時間は分類ごとの目安です。訪問前に公式情報をご確認ください。");
+  }
+  if (typeof item.costYen === "number" && item.costYen > 0) {
+    parts.push(`目安の費用: ¥${item.costYen.toLocaleString("ja-JP")}`);
+  }
+  return parts.join("\n");
+}
+
+/** 予定の場所。あるものだけを書きます。 */
+function locationOf(item) {
+  if (item.kind === "transit") return String(item.to?.name ?? "");
+  return String(item.place?.name ?? item.title ?? "");
+}
+
+/**
+ * 旅程を .ics の文字列にします。
+ *
+ * @param {object} itin 旅程（planner.js の形）
+ * @param {{now?:Date, seed?:string}} [opts]
+ *   now  … DTSTAMP に使う時刻（試験のために差し替えられます）
+ *   seed … UID に混ぜる文字列。同じ旅程を2度入れても、同じ予定として
+ *          更新されるようにするためのものです
+ * @returns {string} VCALENDAR。予定が1つも無ければ空文字
+ */
+export function toIcs(itin, opts = {}) {
+  const now = opts.now instanceof Date ? opts.now : new Date();
+  const seed = String(opts.seed ?? "tabisaki");
+  const dtstamp = stampUtc(now);
+  const events = [];
+
+  (itin?.days ?? []).forEach((day, di) => {
+    for (const item of day?.items ?? []) {
+      if (!KINDS.has(item.kind)) continue;
+      const start = stamp(item.start);
+      const end = stamp(item.end);
+      if (!start || !end) continue;
+      const lines = [
+        "BEGIN:VEVENT",
+        `UID:${esc(`${seed}-${di}-${item.id ?? events.length}`)}@tabisaki`,
+        `DTSTAMP:${dtstamp}`,
+        `DTSTART:${start}`,
+        // 同じ時刻で始まって終わる予定は、カレンダーによっては消えます。
+        `DTEND:${end === start ? stamp(new Date(new Date(item.start).getTime() + 900000)) : end}`,
+        `SUMMARY:${esc(summaryOf(item))}`,
+      ];
+      const loc = locationOf(item);
+      if (loc) lines.push(`LOCATION:${esc(loc)}`);
+      const desc = descriptionOf(item);
+      if (desc) lines.push(`DESCRIPTION:${esc(desc)}`);
+      lines.push("END:VEVENT");
+      events.push(...lines);
+    }
+  });
+
+  if (!events.length) return "";
+
+  const name = [itin?.title, itin?.prefecture].filter(Boolean).join(" · ")
+    || "旅さきの旅程";
+  const head = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//tabisaki//itinerary//JA",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    `X-WR-CALNAME:${esc(name)}`,
+    "X-WR-TIMEZONE:Asia/Tokyo",
+  ];
+  return [...head, ...events, "END:VCALENDAR"]
+    .map(fold).join("\r\n") + "\r\n";
+}
+
+/**
+ * 保存するときのファイル名。
+ *
+ * **ASCII だけで組みます。**
+ *
+ * ブラウザの download 属性に日本語のファイル名を渡すと、環境によっては
+ * **名前ごと捨てられ、拡張子まで失われます**（実際に、拡張子の無い
+ * 「download」という名前で保存されました）。そうなると、受け取った
+ * OS はカレンダーのファイルだと分からず、開くものが決まりません。
+ *
+ * 旅先の名前は、ファイルの中の X-WR-CALNAME で伝わります。カレンダーに
+ * 並ぶのはそちらの名前なので、ファイル名は日付で足ります。
+ */
+export function icsFilename(itin) {
+  const first = itin?.days?.[0]?.date;
+  const d = first instanceof Date ? first : new Date(first);
+  const day = Number.isNaN(d.getTime())
+    ? "" : `-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  // 題が ASCII で書かれているときだけ、そのまま使います
+  // （"Hakone" のようにローマ字で入力された旅）。
+  const raw = String(itin?.title ?? "").replace(/[\\/:*?"<>|\s]+/g, "");
+  const title = /^[\x20-\x7E]+$/.test(raw) ? raw : "";
+  return `tabisaki${title ? `-${title}` : ""}${day || "-itinerary"}.ics`;
+}

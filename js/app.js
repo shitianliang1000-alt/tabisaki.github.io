@@ -1157,7 +1157,16 @@ function wireForm() {
     });
   }
   for (const btn of document.querySelectorAll("[data-example]")) {
-    btn.addEventListener("click", () => { $("#note").value = btn.dataset.example; });
+    btn.addEventListener("click", () => {
+      const note = $("#note");
+      note.value = btn.dataset.example;
+      // input を起こします。入れないと、欄は伸びず（書いた分だけ伸びる
+      // 仕掛けが input を見ています）、条件も保存されません。
+      note.dispatchEvent(new Event("input", { bubbles: true }));
+      note.focus();
+      // 書き換えてもらうための下書きなので、末尾にカーソルを置きます。
+      note.setSelectionRange(note.value.length, note.value.length);
+    });
   }
   for (const chip of document.querySelectorAll(".md-chip[data-genre]")) {
     chip.addEventListener("click", () => {

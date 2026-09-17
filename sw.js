@@ -16,7 +16,9 @@
 // 端末の容量を黙って使うことになります。旅程の文字が読めれば、
 // 当日にすることは分かります。
 
-const VERSION = "tabisaki-v2";
+// 先に入れるものを増やしたので、版を上げます。上げないと、前の版の
+// 殻（js/ の入っていないもの）を持っている端末は入れ直しません。
+const VERSION = "tabisaki-v3";
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
 
@@ -30,6 +32,21 @@ const SHELL_FILES = [
   "./css/hig-tokens.css",
   "./css/hig.css",
   "./css/app.css",
+  // 画面を組み立てるのに欠かせないものは、先に入れておきます。
+  //
+  // 以前は js/ を1つも列挙していませんでした。初回に読んだものが下の
+  // fetch で自然に入る、という考えでしたが、**初回が圏外だったら何も
+  // 入りません**。旅の当日に山の中でアプリを開いて、真っ白な画面を
+  // 見ることになります。数が多く名前も変わりうるので全部は挙げませんが、
+  // これが欠けると起動しないものだけは挙げます。
+  "./js/app.js",
+  "./js/ui.js",
+  "./js/pipeline.js",
+  "./js/planner.js",
+  "./js/config.js",
+  "./js/settings.js",
+  "./js/kb.js",
+  "./js/sample-data.js",
 ];
 
 self.addEventListener("install", (e) => {

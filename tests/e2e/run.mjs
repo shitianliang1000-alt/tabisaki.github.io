@@ -9,6 +9,7 @@
  * 外してあります。動かしかたは tests/e2e/README.md を見てください。
  */
 
+import { readFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:8000";
@@ -296,6 +297,70 @@ await check("旅程の下の操作が、ほかと同じ部品でできている"
   if (await page.$(".panel.talk")) assert(input, "「言葉で直す」の入力欄が共通の部品ではありません");
   const send = await page.$(".actions .share-text");
   assert(send, "「旅程を送る / コピー」がありません");
+});
+
+await check("そのまま使える例を押すと、欄が埋まる", async () => {
+  // 自由入力の枠は、何を書いてよいか分からないと空のままです。
+  // 押すと入る一文があれば、書き換えるところから始められます。
+  const chip = await page.$("[data-example]");
+  assert(chip, "例の札がありません");
+  const want = await chip.getAttribute("data-example");
+  await chip.click();
+  const got = await page.$eval("#note", (e) => e.value);
+  assert(got === want, `欄が埋まっていません: ${got}`);
+});
+
+await check("カレンダーに入れられる（.ics）", async () => {
+  // 当日に開くのはこのアプリではなくカレンダーです。そこまで届かないと、
+  // 作った旅程は使われません。**実際に保存されるファイルを受け取って**
+  // 中身を見ます。ボタンがあることだけ確かめても、空のファイルが
+  // 落ちていないことは分かりません。
+  const btn = await page.$(".actions .cal-ics");
+  assert(btn, "カレンダーのボタンがありません");
+  const [download] = await Promise.all([
+    page.waitForEvent("download", { timeout: 20_000 }),
+    btn.click(),
+  ]);
+  const name = download.suggestedFilename();
+  // download 属性に日本語を渡すと、環境によっては名前ごと捨てられ、
+  // 拡張子まで失われます（拡張子の無い「download」で保存されました）。
+  assert(/\.ics$/.test(name), `拡張子がありません: ${name}`);
+  assert(/^[\x20-\x7E]+$/.test(name), `ファイル名に ASCII 以外: ${name}`);
+
+  const path = await download.path();
+  assert(path, "ファイルが保存されていません");
+  const text = await readFile(path, "utf8");
+  assert(text.startsWith("BEGIN:VCALENDAR"), "カレンダーの形になっていません");
+  assert(text.trimEnd().endsWith("END:VCALENDAR"), "閉じていません");
+  const events = (text.match(/BEGIN:VEVENT/g) ?? []).length;
+  assert(events > 0, "予定が1つもありません");
+  // 時刻はその土地のまま（UTC に直すと、時計が別の国の人にはずれます）。
+  assert(/DTSTART:\d{8}T\d{6}\r\n/.test(text), "開始時刻の形が妙です");
+  assert(!/DTSTART:[0-9T]+Z/.test(text), "DTSTART が UTC になっています");
+});
+
+await check("紙には、時刻と場所だけを出す", async () => {
+  // 旅の当日は電池を使いたくない場面があります。紙が1枚あれば、
+  // 何時にどこかは分かります。紙の上で押せないものは落とします。
+  await page.emulateMedia({ media: "print" });
+  const shown = await page.evaluate(() => {
+    const vis = (s) => {
+      const e = document.querySelector(s);
+      return e ? getComputedStyle(e).display !== "none" : null;
+    };
+    return {
+      map: vis(".map"), form: vis(".pane-form"), variants: vis(".variants"),
+      actions: vis(".actions"), talk: vis(".panel.talk"),
+      days: vis(".days"), head: vis(".itin-head"), checked: vis(".panel.checked"),
+    };
+  });
+  await page.emulateMedia({ media: null });
+  for (const k of ["map", "form", "variants", "actions", "talk"]) {
+    if (shown[k] === null) continue;
+    assert(shown[k] === false, `紙に ${k} が残っています`);
+  }
+  assert(shown.days !== false, "紙に旅程が出ていません");
+  assert(shown.head !== false, "紙に題が出ていません");
 });
 
 await check("旅程を文字にして渡せる", async () => {
