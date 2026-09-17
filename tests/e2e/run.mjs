@@ -656,6 +656,83 @@ await check("荷物を預けるのが、朝いちの一手として入ってい�
   }
 });
 
+// --- 回る順と、いる時間 ----------------------------------------------------
+
+await check("回る順を、その場で入れ替えられる", async () => {
+  // 並べ替えたら**時刻も組み直す**こと。並びだけ変えて時刻を据え置くと、
+  // 開館前に着く旅程ができます。
+  await page.click(".day-tabs button:first-child").catch(() => {});
+  const before = await page.$$eval(".day:not([hidden]) .tl.spot",
+    (els) => els.map((e) => e.dataset.spot));
+  if (before.length < 2) return;   // 1か所の日では、入れ替えるものがありません
+
+  const moves = await page.$$(".day:not([hidden]) .tl.spot .tune-move[data-move='down']");
+  assert(moves.length > 0, "順番を動かすボタンがありません");
+  await moves[0].click();
+  await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
+  await until(page, () => {
+    const o = document.querySelector(".talk-out");
+    return Boolean(o && !o.hidden && o.textContent.includes("回る順"));
+  }, { timeout: 120_000 });
+
+  const after = await page.$$eval(".day:not([hidden]) .tl.spot",
+    (els) => els.map((e) => e.dataset.spot));
+  assert(after.join(",") !== before.join(","),
+    `順番が変わっていません: ${after.join(",")}`);
+
+  // 時刻が組み直されていること（並びだけ変わって時刻が同じなら嘘です）
+  const times = await page.$$eval(".day:not([hidden]) .tl.spot .time",
+    (els) => els.map((e) => e.textContent.trim()));
+  assert(times.length === after.length, "時刻の欄が足りません");
+  const sorted = [...times].sort();
+  assert(times.join(",") === sorted.join(","),
+    `時刻が前後しています: ${times.join(" / ")}`);
+});
+
+await check("掴んで動かしても、入れ替わる", async () => {
+  // ここは一度壊れていました。入れ替えは節を付け替える操作なので、
+  // 掴んだ要素で指の動きを受けていると **1回でポインタの捕捉が外れ**、
+  // 指を離したことに気づけません。並べ替えたのに組み直されませんでした。
+  const rows = await page.$$(".day:not([hidden]) .tl.spot");
+  if (rows.length < 2) return;
+  const before = await page.$$eval(".day:not([hidden]) .tl.spot",
+    (els) => els.map((e) => e.dataset.spot));
+
+  const grip = await page.$(".day:not([hidden]) .tl.spot .tune-grip");
+  assert(grip, "掴むところがありません");
+  await grip.scrollIntoViewIfNeeded();
+  const from = await grip.boundingBox();
+  const to = await rows[1].boundingBox();
+  await page.mouse.move(from.x + 5, from.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 5, to.y + to.height * 0.8, { steps: 10 });
+  await page.mouse.up();
+
+  await until(page, () => {
+    const o = document.querySelector(".talk-out");
+    return Boolean(o && !o.hidden && o.textContent.includes("回る順"));
+  }, { timeout: 120_000 });
+  const after = await page.$$eval(".day:not([hidden]) .tl.spot",
+    (els) => els.map((e) => e.dataset.spot));
+  assert(after.join(",") !== before.join(","),
+    `掴んで動かしても変わりません: ${after.join(",")}`);
+});
+
+await check("いる時間を、その場で伸ばせる", async () => {
+  const bar = await page.$(".day:not([hidden]) .tl.spot .tune-bar");
+  assert(bar, "いる時間のバーがありません");
+  const got = await page.evaluate(() => {
+    const b = document.querySelector(".day:not([hidden]) .tl.spot .tune-bar");
+    const o = b.closest(".spot-tune").querySelector(".tune-out");
+    return { min: b.min, max: b.max, step: b.step, out: o.textContent };
+  });
+  // 1分刻みで選べても、選ぶ意味がありません
+  assert(Number(got.step) >= 5, `刻みが細かすぎます: ${got.step}`);
+  assert(Number(got.min) >= 10, `短すぎる値が選べます: ${got.min}`);
+  // いま何分なのかが、数字でも出ていること
+  assert(/分|時間/.test(got.out), `いる時間が数字で出ていません: ${got.out}`);
+});
+
 // --- 携帯での地図と説明 ----------------------------------------------------
 
 await check("携帯では、説明が半分の高さで開く（地図が残る）", async () => {

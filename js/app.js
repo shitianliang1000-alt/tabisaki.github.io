@@ -1641,6 +1641,80 @@ function editSpot({ id, name, action }, trip, itin) {
 }
 
 /**
+ * 回る順を、押されたとおりに書き換えて組み直します。
+ *
+ * 並べ替えだけして時刻をそのまま使うことはしません。開館前に着く旅程や、
+ * 閉館後に着く旅程ができます。**条件を書き換えて、同じエンジンを通します**
+ * （「別の候補」とまったく同じ道です）。その順で入らなければ、これまで
+ * どおり入らないぶんが落ちて、落ちたことが画面に出ます。
+ *
+ * @param {{id?:string, dir?:string, ids?:string[]}} req
+ */
+function reorderSpots(req, trip, itin) {
+  // 旅程に出ている並び（全日ぶん）を、そのまま下敷きにします。
+  const perDay = (itin?.days ?? []).map((d) => (d.items ?? [])
+    .filter((i) => i.kind === "spot" && (i.spotId ?? i.place?.id))
+    .map((i) => i.spotId ?? i.place.id));
+
+  let moved = null;
+  if (Array.isArray(req.ids) && req.ids.length > 1) {
+    // 掴んで動かしたとき。その日の並びが、そのまま渡ってきます。
+    const set = new Set(req.ids);
+    const di = perDay.findIndex((day) => day.some((x) => set.has(x)));
+    if (di < 0) return;
+    // 渡ってきた並びのうち、その日にある場所だけを採ります
+    // （日をまたぐ移動は、宿と移動の話になるのでここではできません）。
+    const mine = req.ids.filter((x) => perDay[di].includes(x));
+    const rest = perDay[di].filter((x) => !mine.includes(x));
+    perDay[di] = [...mine, ...rest];
+    moved = "順番";
+  } else if (req.id && req.dir) {
+    const di = perDay.findIndex((day) => day.includes(req.id));
+    if (di < 0) return;
+    const day = perDay[di];
+    const at = day.indexOf(req.id);
+    const to = req.dir === "up" ? at - 1 : at + 1;
+    if (to < 0 || to >= day.length) return;   // 端では何も起きません
+    [day[at], day[to]] = [day[to], day[at]];
+    moved = req.dir === "up" ? "1つ前" : "1つ後";
+  }
+  if (!moved) return;
+
+  const next = {
+    ...trip,
+    must: { ...trip.must, orderedSpotIds: perDay.flat() },
+  };
+  syncFormTo(next);
+  state.trip = next;
+  state.editNote = "回る順を変えて、組み直しました"
+    + "（その順で入らない立ち寄りは落ちます）。";
+  run(next);
+}
+
+/**
+ * その場所にいる時間を書き換えて、組み直します。
+ *
+ * 既定は分類ごとの目安です（美術館70分、神社35分）。目安が合わない
+ * ことはあるので、動かせるようにします。伸ばしたぶんは後ろの予定に
+ * 効くので、**時刻は組み直します**。
+ */
+function tuneDwell({ id, name, minutes }, trip) {
+  if (!id || !Number.isFinite(minutes)) return;
+  const next = {
+    ...trip,
+    must: {
+      ...trip.must,
+      dwellById: { ...(trip.must?.dwellById ?? {}), [id]: minutes },
+    },
+  };
+  syncFormTo(next);
+  state.trip = next;
+  state.editNote = `「${name}」にいる時間を${minutes}分にして、`
+    + "組み直しました。";
+  run(next);
+}
+
+/**
  * 外した場所を、候補に戻します。
  *
  * 「必ず行く」にはしません。戻すのは「外した」を取り消すことであって、
@@ -2054,6 +2128,9 @@ function show(itin, trip) {
       run(next);
     },
     onSpotEdit: (req) => editSpot(req, trip, itin),
+    // 回る順と、いる時間。どちらも条件を書き換えて組み直します。
+    onSpotOrder: (req) => reorderSpots(req, trip, itin),
+    onSpotDwell: (req) => tuneDwell(req, trip),
     onRestore: (d) => restoreSpot(d, trip),
     // 「まだ目安があります」への答え。同じ条件で組み直します。
     // 引けなかった区間だけをもう一度聞く仕組みは持っていないので、

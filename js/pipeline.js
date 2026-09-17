@@ -957,7 +957,10 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     perDay: SPOTS_PER_DAY[trip.pace] ?? 4,
     avoid: new Set(trip.must?.avoidSpotIds ?? []),
   });
-  let spots = capSpots(dropSamePlace(byStay.flat()), trip);
+  // 滞在時間を押されたぶんは、ここで差し替えます。足りない日を埋める
+  // ぶん（topUpStays）も通るので、どの道から入った場所にも効きます。
+  let spots = capSpots(dropSamePlace(byStay.flat()), trip)
+    .map((sp) => withDwell(sp, trip.must?.dwellById));
   // 「このスポットは何日目以降に回る」を滞在計画から決めておく。
   //
   // 滞在の初日にまとめて詰め込むと、3日いるエリアで「1日目に4か所、
@@ -1042,6 +1045,10 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
     // 早く閉まる場所と「必ず行く」場所は、先に回さないと間に合いません。
     pinnedIds: trip.must?.spotIds ?? [],
     useCrowd: trip.avoidCrowds !== false,
+    // 並べ替えを押されたぶんは、道順より好みを勝たせます。
+    // 時刻はこのあと verify.js が組み直します（その順で入らなければ、
+    // これまでどおり入らないぶんが落ちます）。
+    orderedIds: trip.must?.orderedSpotIds ?? [],
   });
 
   // 1日目の起点は、**実際に着く時刻**です。
@@ -1366,6 +1373,20 @@ function draftItinerary(checked, trip, kb) {
     // 組めない案は、比べる土俵に乗りません
     return { days: [] };
   }
+}
+
+/**
+ * 滞在時間を、押されたぶんだけ差し替えます。
+ *
+ * 収録のスポットそのものは書き換えません。同じ物を旅程1本ごとに
+ * 使い回しているので、書き換えると**別の旅程にも残ります**。
+ * 写しを作って、そこだけ変えます。
+ */
+function withDwell(spot, dwellById) {
+  if (!spot) return spot;
+  const min = dwellById?.[spot.id];
+  if (!Number.isFinite(min)) return spot;
+  return { ...spot, dwell: Math.max(10, Math.round(min)) };
 }
 
 /**

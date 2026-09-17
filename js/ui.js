@@ -1318,6 +1318,145 @@ function dragSheet(sheet, scrim, close) {
   }
 }
 
+/** 滞在時間の刻み（分）。1分単位で選べても、選ぶ意味がありません。 */
+const DWELL_STEP = 15;
+const DWELL_MIN = 15;
+const DWELL_MAX = 300;
+
+/**
+ * 順番と滞在時間を、その場で動かす行。
+ *
+ * 掴んで動かす操作だけにはしません。指でも押せるよう上下のボタンを
+ * 置き、キーボードでも同じことができるようにします（掴む操作しか
+ * 用意しないと、指以外では並べ替えられません）。
+ */
+function tuneRow(item, itin, handlers) {
+  const id = item.spotId ?? item.place.id;
+  const row = el("div", { class: "spot-tune" });
+
+  if (handlers.onSpotOrder) {
+    const move = (dir, label) => {
+      const b = el("button", {
+        type: "button", class: "tune-move", "data-move": dir,
+        "aria-label": `${item.title}を${label}`,
+      }, el("span", { "aria-hidden": "true" }, dir === "up" ? "↑" : "↓"));
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        handlers.onSpotOrder({ id, dir });
+      });
+      return b;
+    };
+    const grip = el("span", { class: "tune-grip", "aria-hidden": "true",
+                              title: "掴んで動かすと、回る順が変わります" }, "⠿");
+    dragReorder(grip, handlers);
+    row.append(grip, move("up", "1つ前に回す"), move("down", "1つ後に回す"));
+  }
+
+  if (handlers.onSpotDwell) {
+    const minutes = Math.max(1,
+      Math.round((new Date(item.end) - new Date(item.start)) / 60000));
+    const out = el("output", { class: "tune-out" }, fmtDuration(minutes));
+    const bar = el("input", {
+      type: "range", class: "tune-bar",
+      min: String(DWELL_MIN), max: String(DWELL_MAX), step: String(DWELL_STEP),
+      value: String(clampDwell(minutes)),
+      "aria-label": `${item.title}にいる時間`,
+    });
+    // 引いている途中では組み直しません。離したときに1回だけです
+    // （引くたびに組み直すと、経路検索を何十回も叩きます）。
+    bar.addEventListener("input", (e) => {
+      e.stopPropagation();
+      out.textContent = fmtDuration(Number(bar.value));
+    });
+    bar.addEventListener("change", (e) => {
+      e.stopPropagation();
+      handlers.onSpotDwell({ id, name: item.title, minutes: Number(bar.value) });
+    });
+    bar.addEventListener("click", (e) => e.stopPropagation());
+    row.append(el("span", { class: "tune-cap" }, "いる時間"), bar, out);
+  }
+  return row;
+}
+
+/**
+ * 掴んで動かして、回る順を変える。
+ *
+ * 動かしているあいだは、その場で行を入れ替えて見せます。影だけを
+ * 動かして最後にまとめて並べ替えると、「どこに入るのか」が分からない
+ * まま指を離すことになります。
+ *
+ * 動かせるのは**同じ日のなか**だけです。日をまたぐ移動は、宿と
+ * 移動時間の話になるので、ここではできません（条件から組み直します）。
+ *
+ * 指を離したら、その並びを条件に書いて組み直します。ここで時刻を
+ * そのまま使うと、開館前に着く旅程ができます。
+ */
+function dragReorder(grip, handlers) {
+  let li = null;
+  let list = null;
+  let before = "";
+
+  const rows = () => [...list.querySelectorAll(":scope > li.tl.spot")];
+  const idsOf = () => rows().map((e) => e.dataset.spot).filter(Boolean);
+
+  // 動かしている途中の pointermove / pointerup は、**窓で受けます**。
+  //
+  // 掴んだ要素で受けていたときは、1回入れ替えたところで動かなく
+  // なりました。入れ替えは節を付け替える操作で、いったん文書から
+  // 外れるため、**ポインタの捕捉がそこで外れます**。指を離した
+  // ことにも気づけず、並べ替えたのに組み直されませんでした。
+  const onMove = (e) => {
+    if (!li) return;
+    e.preventDefault();
+    for (const other of rows()) {
+      if (other === li) continue;
+      const box = other.getBoundingClientRect();
+      const mid = box.top + box.height / 2;
+      const where = other.compareDocumentPosition(li);
+      // 相手の真ん中を越えたら、その前か後ろへ入れます
+      if (e.clientY < mid && (where & Node.DOCUMENT_POSITION_FOLLOWING)) {
+        list.insertBefore(li, other);
+        break;
+      }
+      if (e.clientY > mid && (where & Node.DOCUMENT_POSITION_PRECEDING)) {
+        list.insertBefore(li, other.nextSibling);
+        break;
+      }
+    }
+  };
+
+  const end = (e) => {
+    globalThis.removeEventListener("pointermove", onMove);
+    globalThis.removeEventListener("pointerup", end);
+    globalThis.removeEventListener("pointercancel", end);
+    if (!li) return;
+    li.classList.remove("dragging");
+    const ids = idsOf();
+    const changed = ids.join(",") !== before;
+    li = null;
+    e?.stopPropagation?.();
+    if (changed) handlers.onSpotOrder({ ids });
+  };
+
+  grip.addEventListener("pointerdown", (e) => {
+    li = grip.closest("li.tl");
+    list = li?.parentElement;
+    if (!list) { li = null; return; }
+    before = idsOf().join(",");
+    li.classList.add("dragging");
+    globalThis.addEventListener("pointermove", onMove, { passive: false });
+    globalThis.addEventListener("pointerup", end);
+    globalThis.addEventListener("pointercancel", end);
+    e.preventDefault();
+    e.stopPropagation();
+  });
+}
+
+function clampDwell(min) {
+  const v = Math.round(min / DWELL_STEP) * DWELL_STEP;
+  return Math.min(DWELL_MAX, Math.max(DWELL_MIN, v));
+}
+
 /**
  * 外した場所と、戻すためのボタン。
  *
@@ -1553,6 +1692,21 @@ function renderItem(item, index, itin, handlers, sunNote) {
       act("remove", "外す", "旅程から外す"),
     );
     info.append(row);
+  }
+
+  // 順番と、いる時間。
+  //
+  // 並びは道順と混雑から決めていますが、「先に海へ行きたい」は好みの
+  // 問題です。いる時間も、分類ごとの目安（美術館70分）が合わない
+  // ことがあります。どちらも旅程の中身そのものなので、その場で
+  // 動かせるようにします。
+  //
+  // **時刻は必ず組み直します。** 並べ替えただけで時刻をそのままに
+  // すると、開館前に着く旅程ができます。押されたら条件を書き換えて、
+  // 同じエンジンを通します（「別の候補」とまったく同じ道です）。
+  if (item.kind === "spot" && item.place
+      && (handlers.onSpotOrder || handlers.onSpotDwell)) {
+    info.append(tuneRow(item, itin, handlers));
   }
 
   if (item.kind === "spot" && handlers.onSpot) {

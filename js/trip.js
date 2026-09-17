@@ -100,6 +100,25 @@ export function makeTrip(init = {}) {
       spotCap: Number.isFinite(init.must?.spotCap) ? init.must.spotCap : null,
       /** 食事の時間を必ず確保するか。 */
       meals: init.must?.meals ?? true,
+      /**
+       * 回る順を、こちらで決めたぶん。
+       *
+       * 並びは道順と混雑から決めています（crowd.js）。それでも
+       * 「先に海へ行きたい」は好みの問題なので、押された順を勝たせます。
+       * ここに無いスポットは、これまでどおり自動の並びのままです。
+       *
+       * **時刻は組み直します。** 並べ替えだけして時刻をそのままにすると、
+       * 開館前に着く旅程や、閉館後に着く旅程ができます。
+       */
+      orderedSpotIds: init.must?.orderedSpotIds ?? [],
+      /**
+       * 滞在時間を、こちらで決めたぶん（スポットID → 分）。
+       *
+       * 既定は分類ごとの目安です（美術館70分、神社35分）。ただ、
+       * 目安が合わないことはあります。「ここは2時間いたい」も
+       * 「ここは20分でいい」も、旅程の中身そのものです。
+       */
+      dwellById: init.must?.dwellById ?? {},
     },
     note: init.note ?? "",
     interests: init.interests ?? [],

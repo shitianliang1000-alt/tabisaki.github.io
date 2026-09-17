@@ -121,6 +121,43 @@ export function quietWindow(prof) {
 }
 
 /**
+ * 押された順を勝たせます。
+ *
+ * 並びは道順と混雑から決めています。それでも「先に海へ行きたい」は
+ * 好みの問題なので、指定された順があれば、そちらを使います。
+ *
+ * 指定に無いスポットは動かしません。**動かした場所の位置だけを
+ * 入れ替えます。** ここで全体を作り直すと、指定されていない場所まで
+ * 並びが変わり、押した人には何が起きたのか分からなくなります。
+ *
+ * 時刻はここでは決めません。組み直しは verify.js が行い、その順で
+ * 入らなければ、これまでどおり入らないぶんが落ちます。
+ *
+ * @param {Array} list その日の並び（道順と混雑で決めたもの）
+ * @param {string[]} [orderedIds] 押された順
+ */
+export function applyChosenOrder(list, orderedIds) {
+  const wanted = (orderedIds ?? []).filter(Boolean);
+  if (wanted.length < 2) return list;
+
+  const rank = new Map(wanted.map((id, i) => [id, i]));
+  // 指定に入っているものが、いまどの位置にいるか
+  const slots = [];
+  const moving = [];
+  list.forEach((s, i) => {
+    if (!rank.has(s.id)) return;
+    slots.push(i);
+    moving.push(s);
+  });
+  if (moving.length < 2) return list;
+
+  moving.sort((a, b) => rank.get(a.id) - rank.get(b.id));
+  const out = [...list];
+  slots.forEach((at, i) => { out[at] = moving[i]; });
+  return out;
+}
+
+/**
  * 混雑を避ける並べ替え。
  *
  * 混みやすい場所を朝いちに、そうでない場所を昼に回します。
@@ -150,7 +187,9 @@ export function spreadCrowds(spots, opts = {}) {
     // 昨日の場所から近い順に並べることになります。新しい街に着いて
     // いちばん遠い場所から回りはじめる旅程は、こうして出ていました。
     const base = baseByDay?.[day] ?? null;
-    const ordered = orderByRoute(groups.get(day), base ?? from, travelFn, opts);
+    const ordered = applyChosenOrder(
+      orderByRoute(groups.get(day), base ?? from, travelFn, opts),
+      opts.orderedIds);
     out.push(...ordered);
     from = ordered.at(-1) ?? from;
   }
