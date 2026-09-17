@@ -114,7 +114,7 @@
        出たあとも、地図はこの位置に必ずあるためです。
        **pane の外に置きます。**携帯では条件と結果を別画面にするので、
        結果の中に置くと、条件の画面から設定へ入れなくなります。 -->
-  <button type="button" class="md-icon-btn md-state settings-fab" id="open-settings"
+  <button type="button" class="md-icon-btn md-state settings-fab hig-glass" id="open-settings"
           aria-label="設定" title="設定">
     <span aria-hidden="true">⚙</span>
   </button>
@@ -445,7 +445,7 @@
     <div class="tune-group" id="pinned" hidden></div>
     <div id="form-error" hidden></div>
 
-    <div class="make">
+    <div class="make hig-glass hig-glass-thick hig-scroll-edge">
       <button type="button" class="md-fab-extended md-state" id="make-plan">
         <span class="fab-ic" aria-hidden="true">✦</span>
         <span class="fab-tx">旅程をつくる</span>
@@ -466,7 +466,7 @@
          同じ画面に縦に並べていたころは、旅程が出てもまず条件が見えていて、
          結果まで自分でスクロールしないと読めませんでした。戻る道はここ。
          広い画面では左右に並ぶので、このボタンは出しません。 -->
-    <button type="button" class="md-btn md-btn--tonal md-state back-to-form"
+    <button type="button" class="md-btn md-btn--tonal md-state back-to-form hig-glass"
             id="back-to-form">
       <span aria-hidden="true">←</span><span>条件を変更する</span>
     </button>
@@ -508,7 +508,7 @@
 </main>
 
 <dialog id="settings-dialog" class="md-dialog">
-  <h2 class="md-headline-small">設定</h2>
+  <h2 class="hig-title-2">設定</h2>
 
   <!-- 使う人が知りたいこと。「Geminiとは」ではなく「AIは使えるのか」。 -->
   <ul class="md-list">
@@ -625,7 +625,7 @@
     </ul>
     <p id="routes-usage" class="routes-usage" hidden></p>
     <p id="key-result" class="key-result" hidden></p>
-    <p class="md-body-small dev-foot">
+    <p class="hig-footnote dev-foot">
       「確認」は1リクエストだけ送ります。公開するときは
       <code>PROXY_URL</code> に自分のバックエンドを設定して、キーを
       ブラウザに置かないようにしてください（<code>server/README.md</code>）。</p>
@@ -641,11 +641,11 @@
      「APIの使用を続けますか」と出しても、何を聞かれているのか
      伝わりません。同じ確認を、旅の言葉でします。 -->
 <dialog id="quota-dialog" class="md-dialog">
-  <h2 class="md-headline-small">この旅を、もう少し詳しく調べますか</h2>
-  <p class="md-body-medium" id="quota-detail" style="margin:0 0 12px"></p>
+  <h2 class="hig-title-2">この旅を、もう少し詳しく調べますか</h2>
+  <p class="hig-subhead" id="quota-detail" style="margin:0 0 12px"></p>
   <!-- 文面は app.js が入れます。AIをどこで動かしているかで、できることが
        変わるためです（Workers AI には検索がありません）。 -->
-  <p class="md-body-small" id="quota-note"
+  <p class="hig-footnote" id="quota-note"
      style="margin:0;padding:14px 16px;border-radius:var(--hig-r-sm);background:var(--hig-fill);color:var(--hig-label)"></p>
   <div class="md-dialog-actions">
     <button type="button" class="md-btn md-btn--text md-state" id="quota-stop">

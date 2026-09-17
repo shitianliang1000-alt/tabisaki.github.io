@@ -31,7 +31,10 @@ body {
     "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic Medium",
     "Yu Gothic", "Noto Sans JP", "Noto Sans CJK JP", "Meiryo",
     "Segoe UI", sans-serif;
-  font-size: 15px;
+  /* 本文は Body（携帯 17px / 広い画面 15px。css/hig.css の表）。
+     15px 固定にしていたので、携帯では Apple の既定より1段小さい字で
+     読ませていました。ガイドラインの既定は iOS で 17pt です。 */
+  font-size: var(--hig-t-body);
   line-height: 1.7;
   letter-spacing: -.05px;
   overflow: hidden;
@@ -46,7 +49,7 @@ p, li { text-wrap: pretty; }
 
 /* 見出しだけ、和文の字間を詰めます（プロポーショナル）。
    本文に効かせると読みにくくなるので、大きい字に限ります。 */
-.step-title, .itin-head h2, .md-headline-small {
+.step-title, .itin-head h2, .hig-title-2 {
   font-feature-settings: "palt" 1;
 }
 
@@ -127,8 +130,8 @@ p, li { text-wrap: pretty; }
   top: calc(12px + env(safe-area-inset-top));
   right: calc(12px + env(safe-area-inset-right));
   z-index: 600;
-  background: var(--md-sys-color-surface-container-high);
-  box-shadow: var(--md-sys-elevation-1);
+  /* 浮いているものなので、ガラスにします（操作の層）。
+     色は乗せません。ガイドラインは「色は主となる操作だけ」です。 */
   color: var(--md-sys-color-on-surface);
 }
 
@@ -138,7 +141,7 @@ p, li { text-wrap: pretty; }
 #budget-choice button, #transport-choice button { padding-inline: 8px; }
 #budget-choice span, #transport-choice span { white-space: nowrap; }
 @media (max-width: 480px) {
-  #budget-choice span, #transport-choice span { font-size: 13px; }
+  #budget-choice span, #transport-choice span { font-size: var(--hig-t-footnote); }
   #budget-choice button, #transport-choice button { padding-inline: 4px; }
 }
 
@@ -150,7 +153,7 @@ p, li { text-wrap: pretty; }
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 12px;
 }
-.checked-stars { font-size: 15px; letter-spacing: .08em; white-space: nowrap; }
+.checked-stars { font-size: var(--hig-t-subhead); letter-spacing: .08em; white-space: nowrap; }
 .checked-stars b, .checked-stars i {
   display: inline-block;
   /* 左から1つずつ灯します。数えているところが見えるほうが、
@@ -175,7 +178,7 @@ p, li { text-wrap: pretty; }
   align-items: baseline;
   padding: 6px 0;
   border-top: .5px solid var(--hig-separator);
-  font-size: 13px;
+  font-size: var(--hig-t-footnote);
 }
 .check-list li:first-child { border-top: none; }
 .check-list .ck-ic { text-align: center; }
@@ -200,7 +203,7 @@ p, li { text-wrap: pretty; }
 .step-title {
   display: flex; align-items: center; gap: 9px;
   margin: 0 0 12px;
-  font-size: 17px; font-weight: 600; letter-spacing: -.2px;
+  font-size: var(--hig-t-body); font-weight: 600; letter-spacing: -.2px;
   color: var(--hig-label);
 }
 .step-num {
@@ -208,7 +211,7 @@ p, li { text-wrap: pretty; }
   flex: none; width: 22px; height: 22px;
   border-radius: 50%;
   background: var(--hig-blue); color: #fff;
-  font-size: 12px; font-weight: 700; letter-spacing: 0;
+  font-size: var(--hig-t-caption1); font-weight: 700; letter-spacing: 0;
 }
 
 /* 現在地は、押されたときだけ取りにいきます。
@@ -220,11 +223,11 @@ p, li { text-wrap: pretty; }
   min-height: 44px; padding: 10px 12px 10px 10px;
   background: none;
   color: var(--tabi-indigo);
-  font-size: 13px; font-weight: 600;
+  font-size: var(--hig-t-footnote); font-weight: 600;
   border-radius: var(--hig-r-sm);
 }
 .here-btn:hover { background: var(--hig-fill); opacity: 1; }
-.here-btn > span:first-child { font-size: 12px; opacity: .8; }
+.here-btn > span:first-child { font-size: var(--hig-t-caption1); opacity: .8; }
 
 /* 出発と帰着は対で読むものなので、横に並べます。 */
 .when-row { display: flex; gap: 10px; }
@@ -232,14 +235,14 @@ p, li { text-wrap: pretty; }
    ほうが早いことがほとんどです。時刻は、いま入っているものを保ちます。 */
 /* そのまま使える例。自由入力のすぐ下に置きます。 */
 .note-examples { margin: 10px 0 2px; }
-.note-examples .md-chip { min-height: 32px; padding: 5px 12px; font-size: 13px; }
+.note-examples .md-chip { min-height: 32px; padding: 5px 12px; font-size: var(--hig-t-footnote); }
 
 .date-presets { margin: 0 0 12px; }
-.date-presets .md-chip { min-height: 32px; padding: 5px 12px; font-size: 13px; }
+.date-presets .md-chip { min-height: 32px; padding: 5px 12px; font-size: var(--hig-t-footnote); }
 .when-row .md-field { flex: 1; min-width: 0; margin-bottom: 8px; }
-.when-row .md-field > input { font-size: 15px; padding: 11px 10px; }
+.when-row .md-field > input { font-size: var(--hig-t-subhead); padding: 11px 10px; }
 #window-help {
-  margin: 0 2px; font-size: 13px; color: var(--hig-label-2);
+  margin: 0 2px; font-size: var(--hig-t-footnote); color: var(--hig-label-2);
 }
 #window-help.warn { color: var(--hig-red); font-weight: 600; }
 
@@ -274,7 +277,7 @@ p, li { text-wrap: pretty; }
 }
 .mood .m-ic {
   position: absolute; top: 12px; left: 14px;
-  font-size: 28px;
+  font-size: var(--hig-t-title1);
   filter: drop-shadow(0 2px 5px rgba(0, 0, 0, .35));
 }
 /* 写真の上に文字を置くので、下から暗く落とします。 */
@@ -282,7 +285,7 @@ p, li { text-wrap: pretty; }
   position: absolute; inset: auto 0 0 0;
   padding: 28px 14px 12px;
   text-align: left;
-  font-size: 15px; font-weight: 600; letter-spacing: -.1px; line-height: 1.35;
+  font-size: var(--hig-t-subhead); font-weight: 600; letter-spacing: -.1px; line-height: 1.35;
   color: #fff;
   /* 面そのものを濃くしたので、幕と影を薄くできます。幕が濃いと、
      どのカードも下半分が同じ黒になり、色相の違いが消えます。 */
@@ -295,11 +298,11 @@ p, li { text-wrap: pretty; }
 .free > summary {
   list-style: none; cursor: pointer;
   min-height: 44px; display: flex; align-items: center; gap: 6px;
-  font-size: 14px; font-weight: 600; color: var(--tabi-indigo);
+  font-size: var(--hig-t-subhead); font-weight: 600; color: var(--tabi-indigo);
 }
 .free > summary::-webkit-details-marker { display: none; }
 .free > summary::after {
-  content: "\203A"; margin-left: auto; font-size: 18px;
+  content: "\203A"; margin-left: auto; font-size: var(--hig-t-title3);
   color: var(--hig-label-3); transform: rotate(90deg);
 }
 .free[open] > summary::after { transform: rotate(-90deg); }
@@ -351,14 +354,14 @@ p, li { text-wrap: pretty; }
 /* 押すと何が起きるのか。裏で何本も処理が走るので、一言添えます。 */
 .make-note {
   margin: 8px 2px 0; text-align: center;
-  font-size: 12px; color: var(--hig-label-2);
+  font-size: var(--hig-t-caption1); color: var(--hig-label-2);
 }
 
 /* 「または」の区切り。自由入力とカードのあいだ。 */
 .or-line {
   display: flex; align-items: center; gap: 12px;
   margin: 18px 0 12px;
-  font-size: 12px; color: var(--hig-label-2);
+  font-size: var(--hig-t-caption1); color: var(--hig-label-2);
 }
 .or-line::before, .or-line::after {
   content: ""; flex: 1; height: .5px; background: var(--hig-separator);
@@ -426,25 +429,25 @@ p, li { text-wrap: pretty; }
 .mixplot-axis {
   display: grid; grid-template-columns: repeat(3, 1fr);
   gap: 3px; margin-top: 6px;
-  font-size: 11px; line-height: 1.4; text-align: center;
+  font-size: var(--hig-t-caption2); line-height: 1.4; text-align: center;
   color: var(--hig-label-2);
 }
 .mixplot-axis b {
-  display: block; font-size: 12px; font-weight: 600;
+  display: block; font-size: var(--hig-t-caption1); font-weight: 600;
   color: var(--hig-label);
 }
 
 /* 「10か所のうち、定番が5か所、知る人ぞ知る場所が3か所、穴場が2か所
    くらいになります」。3つの数を、同じ扱いで1つの文に言います。 */
 .mix-summary {
-  margin: 4px 0 6px; font-size: 13px; line-height: 1.7;
+  margin: 4px 0 6px; font-size: var(--hig-t-footnote); line-height: 1.7;
   color: var(--hig-label-2);
 }
 .mix-summary b { font-weight: 700; color: var(--hig-label); }
 /* どんな旅になるかを先に1行で言い、数はその下に添えます。 */
 .mix-mood {
   display: block; margin-bottom: 2px;
-  font-size: 15px; font-weight: 600; letter-spacing: -.1px;
+  font-size: var(--hig-t-subhead); font-weight: 600; letter-spacing: -.1px;
   color: var(--hig-label);
 }
 
@@ -456,7 +459,7 @@ p, li { text-wrap: pretty; }
 .day-hours { margin-top: 18px; }
 .day-window { display: flex; gap: 10px; margin-top: 8px; }
 .day-window .md-field { flex: 1; min-width: 0; margin-bottom: 6px; }
-.day-window .md-field > input { font-size: 15px; padding: 11px 10px; }
+.day-window .md-field > input { font-size: var(--hig-t-subhead); padding: 11px 10px; }
 #day-hours-help.warn { color: var(--hig-red); font-weight: 600; }
 
 /* くわしく決める */
@@ -472,7 +475,7 @@ p, li { text-wrap: pretty; }
   list-style: none; cursor: pointer;
   min-height: var(--md-touch);
   display: flex; align-items: center; gap: 8px;
-  font-size: 14px; font-weight: 600; letter-spacing: -.05px;
+  font-size: var(--hig-t-subhead); font-weight: 600; letter-spacing: -.05px;
   color: var(--hig-label-2);
 }
 .tune > summary:hover { color: var(--tabi-indigo); }
@@ -480,7 +483,7 @@ p, li { text-wrap: pretty; }
 /* Apple は開閉を山形（chevron）で示します。 */
 .tune > summary::after {
   content: "›"; margin-left: auto;
-  font-size: 20px; transform: rotate(90deg);
+  font-size: var(--hig-t-title3); transform: rotate(90deg);
   color: var(--md-sys-color-on-surface-variant);
   transition: transform var(--md-sys-motion-short) var(--md-sys-motion-standard);
 }
@@ -490,7 +493,7 @@ p, li { text-wrap: pretty; }
 .tune-group { margin-bottom: 20px; }
 .tune-group > .tune-label {
   display: block; margin-bottom: 8px;
-  font-size: 13px; font-weight: 600; letter-spacing: -.02px;
+  font-size: var(--hig-t-footnote); font-weight: 600; letter-spacing: -.02px;
   color: var(--hig-label-2);
 }
 .chip-set { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -501,10 +504,10 @@ p, li { text-wrap: pretty; }
   min-height: var(--md-touch); padding: 8px 0; cursor: pointer;
 }
 .switch-row .switch-text b {
-  display: block; font-size: 14px; font-weight: 500;
+  display: block; font-size: var(--hig-t-subhead); font-weight: 500;
 }
 .switch-row .switch-text small {
-  display: block; font-size: 12px; line-height: 1.6;
+  display: block; font-size: var(--hig-t-caption1); line-height: 1.6;
   color: var(--md-sys-color-on-surface-variant);
 }
 
@@ -516,11 +519,11 @@ p, li { text-wrap: pretty; }
   border-radius: var(--hig-r-full);
   background: var(--hig-blue-tint);
   color: var(--hig-blue-deep);
-  font-size: 14px; font-weight: 600;
+  font-size: var(--hig-t-subhead); font-weight: 600;
 }
 .pin-chip button {
   border: none; background: transparent; cursor: pointer;
-  color: inherit; font-size: 16px; line-height: 1;
+  color: inherit; font-size: var(--hig-t-callout); line-height: 1;
   width: 32px; height: 32px; border-radius: 50%;
 }
 
@@ -534,7 +537,7 @@ p, li { text-wrap: pretty; }
   gap: 12px; margin-bottom: 8px;
 }
 .recent-head h2 {
-  margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .02em;
+  margin: 0; font-size: var(--hig-t-footnote); font-weight: 600; letter-spacing: .02em;
   color: var(--hig-label-2);
 }
 .recent-list { list-style: none; margin: 0; padding: 0; }
@@ -552,44 +555,45 @@ p, li { text-wrap: pretty; }
 }
 .recent-row .r-body { min-width: 0; flex: 1; }
 .recent-row .r-title {
-  display: block; font-size: 15px; font-weight: 600;
+  display: block; font-size: var(--hig-t-subhead); font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .recent-row .r-sub {
   display: block; margin-top: 2px;
-  font-size: 12px; color: var(--hig-label-2);
+  font-size: var(--hig-t-caption1); color: var(--hig-label-2);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .recent-row .r-when {
-  flex: none; font-size: 12px; color: var(--hig-label-2);
+  flex: none; font-size: var(--hig-t-caption1); color: var(--hig-label-2);
   font-variant-numeric: tabular-nums;
 }
 .recent-del {
   flex: none; width: 28px; height: 28px; padding: 0;
   border: 0; border-radius: 50%; background: none; cursor: pointer;
-  color: var(--hig-label-2); font-size: 15px; line-height: 1;
+  color: var(--hig-label-2); font-size: var(--hig-t-subhead); line-height: 1;
 }
 .recent-del:hover { background: var(--hig-fill); color: var(--hig-label); }
-.recent-note { margin: 8px 0 0; font-size: 11px; color: var(--hig-label-2); }
+.recent-note { margin: 8px 0 0; font-size: var(--hig-t-caption2); color: var(--hig-label-2); }
 .linkish {
   border: 0; background: none; padding: 0; cursor: pointer;
-  font: inherit; font-size: 12px; color: var(--tabi-teal);
+  font: inherit; font-size: var(--hig-t-caption1); color: var(--tabi-teal);
 }
 .linkish:hover { text-decoration: underline; }
 
 /* つくるボタンと、データの出どころ */
 /* 下に貼り付きます。スクロールがどこにあっても押せます。
    後ろの文字が透けないよう、面として敷きます。 */
+/* 貼り付いた帯は、操作の層です（内容の層ではありません）。
+   ガイドラインの Liquid Glass を当てて、後ろの内容が透けるように
+   します。白い箱で塞ぐと、下に続きがあることが伝わりません。
+   境目は線ではなく、上に向かうぼかし（scroll edge effect）で出します。 */
 .make {
+  position: relative;
   position: sticky; bottom: 0; z-index: 5;
   width: 100%;
   margin: 8px -20px 0;
-  padding: 12px 20px;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
   width: calc(100% + 40px);
-  background: var(--hig-card);
-  /* 帯の上に、内容が透けないための境目。貼り付いているものが
-     ただの白い箱に見えると、下に何かあることが伝わりません。 */
-  box-shadow: 0 -1px 0 var(--hig-separator);
 }
 .make .md-fab-extended { width: 100%; }
 .credits {
@@ -598,7 +602,7 @@ p, li { text-wrap: pretty; }
 }
 .credits p {
   margin: 0 0 6px;
-  font-size: 12px; line-height: 1.7;
+  font-size: var(--hig-t-caption1); line-height: 1.7;
   color: var(--hig-label-2);
 }
 .credits a { color: var(--md-sys-color-primary); }
@@ -624,10 +628,10 @@ p, li { text-wrap: pretty; }
 }
 /* 地図が出せないときは、一文ぶんの高さにします。320px の空き箱を
    置いても、読む人にできることはありません。旅程を上へ寄せます。 */
-.map.map-fallback, .home-map.map-fallback { height: auto; font-size: 14px; }
+.map.map-fallback, .home-map.map-fallback { height: auto; font-size: var(--hig-t-subhead); }
 .home-hint {
   margin: 12px 8px 4px; text-align: center;
-  font-size: 12px; color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--hig-t-caption1); color: var(--md-sys-color-on-surface-variant);
 }
 /* 空の右半分に、何が出るのかを3行で。地図の下に横並びで置きます。
    以前はここに margin-top しか無く、地図（flex:1）が伸びられるだけ
@@ -646,7 +650,7 @@ p, li { text-wrap: pretty; }
   border-radius: var(--hig-r-md);
   background: var(--hig-card);
   box-shadow: var(--hig-shadow-1);
-  font-size: 13px; line-height: 1.55; color: var(--hig-label-2);
+  font-size: var(--hig-t-footnote); line-height: 1.55; color: var(--hig-label-2);
 }
 .home-steps li:last-child { color: var(--hig-label); font-weight: 600; }
 .home-steps li > i {
@@ -674,16 +678,16 @@ p, li { text-wrap: pretty; }
   box-shadow: var(--hig-shadow-1);
 }
 .plan-card .step-text {
-  margin: 0 0 4px; font-size: 22px; font-weight: 700; letter-spacing: -.3px;
+  margin: 0 0 4px; font-size: var(--hig-t-title2); font-weight: 700; letter-spacing: -.3px;
 }
 .plan-card .step-detail {
-  margin: 0 0 20px; font-size: 14px;
+  margin: 0 0 20px; font-size: var(--hig-t-subhead);
   color: var(--md-sys-color-on-surface-variant);
 }
 .step-list { list-style: none; margin: 20px 0 0; padding: 0; }
 .step-list li {
   display: flex; align-items: center; gap: 12px;
-  padding: 6px 0; font-size: 14px;
+  padding: 6px 0; font-size: var(--hig-t-subhead);
   color: var(--md-sys-color-on-surface-variant);
   transition: color var(--md-sys-motion-medium) var(--md-sys-motion-standard);
 }
@@ -704,7 +708,7 @@ p, li { text-wrap: pretty; }
 /* 経過時間。段が進まないあいだも、ここは動き続けます。 */
 .step-elapsed {
   display: flex; flex-direction: column; gap: 6px;
-  margin: 18px 0 0; font-size: 13px;
+  margin: 18px 0 0; font-size: var(--hig-t-footnote);
   color: var(--md-sys-color-on-surface-variant);
 }
 .step-clock { font-variant-numeric: tabular-nums; letter-spacing: .5px; }
@@ -743,7 +747,7 @@ p, li { text-wrap: pretty; }
 }
 .trip-pin > span > b {
   transform: rotate(45deg);            /* 中の数字は起こす */
-  font-size: 15px; font-weight: 700; line-height: 1;
+  font-size: var(--hig-t-subhead); font-weight: 700; line-height: 1;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   text-shadow: 0 1px 2px rgba(0, 0, 0, .35);
@@ -777,6 +781,11 @@ p, li { text-wrap: pretty; }
 /* ------------------------------------------------------------ 旅程 --- */
 
 .result { display: flex; flex-direction: column; min-height: 100%; }
+/* 浮いている操作（戻る・設定）のぶんだけ、寄せたときに余白を残します。
+   scrollIntoView で上端に寄せると、地図が帯の下に入って
+   「押したのに隠れた」ように見えていました。 */
+.map { scroll-margin-top: 64px; }
+
 .map {
   position: relative; z-index: 0;
   height: 320px; flex: none;
@@ -793,7 +802,7 @@ p, li { text-wrap: pretty; }
 }
 /* 地図が出せないときは、一文ぶんの高さにします。320px の空き箱を
    置いても、読む人にできることはありません。旅程を上へ寄せます。 */
-.map.map-fallback, .home-map.map-fallback { height: auto; font-size: 14px; }
+.map.map-fallback, .home-map.map-fallback { height: auto; font-size: var(--hig-t-subhead); }
 .map-expand {
   position: absolute; right: 12px; top: 12px; z-index: 500;
   background: var(--md-sys-color-surface-container-high);
@@ -813,13 +822,13 @@ p, li { text-wrap: pretty; }
 
 .itin-head { margin-bottom: 16px; }
 .itin-head h2 {
-  margin: 0 0 4px; font-size: 28px; font-weight: 700; letter-spacing: -.5px;
+  margin: 0 0 4px; font-size: var(--hig-t-title1); font-weight: 700; letter-spacing: -.5px;
 }
 .itin-head .sub {
-  margin: 0; font-size: 14px; color: var(--md-sys-color-on-surface-variant);
+  margin: 0; font-size: var(--hig-t-subhead); color: var(--md-sys-color-on-surface-variant);
 }
 .stay-line {
-  margin: 8px 0 0; font-size: 14px; color: var(--md-sys-color-primary);
+  margin: 8px 0 0; font-size: var(--hig-t-subhead); color: var(--md-sys-color-primary);
 }
 
 /* まとめ（日程・立ち寄り・費用） */
@@ -831,8 +840,8 @@ p, li { text-wrap: pretty; }
   border-radius: var(--hig-r-sm);
   background: var(--hig-fill);
 }
-.verdict strong { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
-.verdict span { font-size: 13px; color: var(--hig-label-2); }
+.verdict strong { font-size: var(--hig-t-body); font-weight: 600; letter-spacing: -.2px; }
+.verdict span { font-size: var(--hig-t-footnote); color: var(--hig-label-2); }
 .verdict.lv-good strong { color: var(--hig-green); }
 .verdict.lv-mid strong  { color: var(--hig-orange); }
 .verdict.lv-bad strong  { color: var(--hig-red); }
@@ -848,15 +857,15 @@ p, li { text-wrap: pretty; }
   list-style: none; cursor: pointer;
   display: flex; align-items: center; gap: 8px;
   min-height: var(--hig-touch); padding: 0 16px;
-  font-size: 15px; font-weight: 600; letter-spacing: -.05px;
+  font-size: var(--hig-t-subhead); font-weight: 600; letter-spacing: -.05px;
   color: var(--hig-blue);
 }
 .more > summary::-webkit-details-marker { display: none; }
 .more > summary .more-count {
-  margin-left: auto; color: var(--hig-label-2); font-weight: 400; font-size: 13px;
+  margin-left: auto; color: var(--hig-label-2); font-weight: 400; font-size: var(--hig-t-footnote);
 }
 .more > summary::after {
-  content: "\203A"; font-size: 20px; color: var(--hig-label-3);
+  content: "\203A"; font-size: var(--hig-t-title3); color: var(--hig-label-3);
   transform: rotate(90deg);
   transition: transform var(--hig-fast) var(--hig-ease);
 }
@@ -869,7 +878,7 @@ p, li { text-wrap: pretty; }
   background: var(--md-sys-color-surface-container);
   padding: 20px; margin-bottom: 16px;
 }
-.summary .why { margin: 0 0 16px; font-size: 14px; line-height: 1.8; }
+.summary .why { margin: 0 0 16px; font-size: var(--hig-t-subhead); line-height: 1.8; }
 .stats {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
   gap: 12px;
@@ -878,14 +887,14 @@ p, li { text-wrap: pretty; }
 }
 .stats > div { text-align: center; min-width: 0; }
 .stats strong {
-  display: block; font-size: 22px; font-weight: 400;
+  display: block; font-size: var(--hig-t-title2); font-weight: 400;
   color: var(--md-sys-color-on-surface);
   /* 「9時間45分」を「9時間45 / 分」と折らない。数は1行で読むものです。 */
   white-space: nowrap; word-break: keep-all;
   font-variant-numeric: tabular-nums;
 }
 .stats span {
-  font-size: 12px; letter-spacing: .5px;
+  font-size: var(--hig-t-caption1); letter-spacing: .5px;
   color: var(--md-sys-color-on-surface-variant);
 }
 
@@ -897,7 +906,7 @@ p, li { text-wrap: pretty; }
 }
 .panel h3 {
   margin: 0 0 12px;
-  font-size: 16px; font-weight: 500; letter-spacing: .15px;
+  font-size: var(--hig-t-callout); font-weight: 500; letter-spacing: .15px;
 }
 .panel-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -907,7 +916,7 @@ p, li { text-wrap: pretty; }
 .panel-list { list-style: none; margin: 0; padding: 0; }
 .panel-list li {
   position: relative; padding-left: 20px; margin-bottom: 6px;
-  font-size: 14px; line-height: 1.75;
+  font-size: var(--hig-t-subhead); line-height: 1.75;
 }
 .panel-list li::before {
   content: ""; position: absolute; left: 6px; top: .7em;
@@ -915,7 +924,7 @@ p, li { text-wrap: pretty; }
   background: var(--md-sys-color-outline);
 }
 .fine {
-  margin: 12px 0 0; font-size: 12px; line-height: 1.7;
+  margin: 12px 0 0; font-size: var(--hig-t-caption1); line-height: 1.7;
   color: var(--md-sys-color-on-surface-variant);
 }
 
@@ -944,36 +953,36 @@ p, li { text-wrap: pretty; }
   background: var(--hig-blue-tint);
 }
 .variant .v-head { display: flex; align-items: center; gap: 7px; }
-.variant .v-ic { font-size: 18px; }
+.variant .v-ic { font-size: var(--hig-t-title3); }
 .variant .v-name {
-  font-size: 16px; font-weight: 600; letter-spacing: -.2px;
+  font-size: var(--hig-t-callout); font-weight: 600; letter-spacing: -.2px;
 }
 /* 何が違うのか。ここがカードの主役です。 */
 .variant .v-distinct {
   display: block; margin: 2px 0;
-  font-size: 14px; font-weight: 600; letter-spacing: -.1px;
+  font-size: var(--hig-t-subhead); font-weight: 600; letter-spacing: -.1px;
   color: var(--hig-blue);
 }
 .variant.is-selected .v-distinct { color: var(--hig-blue-deep); }
-.variant .v-sum { display: block; font-size: 13px; color: var(--hig-label-2); }
+.variant .v-sum { display: block; font-size: var(--hig-t-footnote); color: var(--hig-label-2); }
 .variant .v-blurb {
-  display: block; font-size: 12px; line-height: 1.6;
+  display: block; font-size: var(--hig-t-caption1); line-height: 1.6;
   color: var(--hig-label-2);
 }
 /* 点は根拠。いちばん小さく、いちばん最後に。 */
 .variant .v-score {
   display: block; margin-top: 6px; padding-top: 6px;
   border-top: .5px solid var(--hig-separator);
-  font-size: 12px; color: var(--hig-label-2);
+  font-size: var(--hig-t-caption1); color: var(--hig-label-2);
 }
 .variant .v-badge {
   margin-left: auto; padding: 2px 9px;
   border-radius: var(--hig-r-full);
   background: var(--hig-blue); color: #fff;
-  font-size: 11px; font-weight: 600; letter-spacing: 0;
+  font-size: var(--hig-t-caption2); font-weight: 600; letter-spacing: 0;
 }
 .variant-why {
-  margin: 12px 0 0; font-size: 13px; line-height: 1.75;
+  margin: 12px 0 0; font-size: var(--hig-t-footnote); line-height: 1.75;
   color: var(--hig-label-2);
 }
 
@@ -982,19 +991,19 @@ p, li { text-wrap: pretty; }
   margin: 8px 0 12px; padding: 10px 12px;
   border-radius: var(--hig-r-sm);
   background: var(--hig-fill);
-  font-size: 13px; line-height: 1.7; color: var(--hig-label);
+  font-size: var(--hig-t-footnote); line-height: 1.7; color: var(--hig-label);
 }
 
 /* 「確認済み」と「最新」は別。鮮度は分けて出します。 */
 .freshness {
-  margin: 10px 0 0; font-size: 12px; color: var(--hig-label-2);
+  margin: 10px 0 0; font-size: var(--hig-t-caption1); color: var(--hig-label-2);
 }
 .freshness.lv-stale { color: var(--hig-orange); font-weight: 600; }
 
 /* 現在地の注記。ボタンのすぐ下に、小さく。 */
 .here-note {
   margin: -12px 2px 18px;
-  font-size: 12px; line-height: 1.65; color: var(--hig-label-2);
+  font-size: var(--hig-t-caption1); line-height: 1.65; color: var(--hig-label-2);
 }
 .here-note.warn { color: var(--hig-orange); font-weight: 600; }
 
@@ -1020,7 +1029,7 @@ p, li { text-wrap: pretty; }
   margin: 0 0 10px; padding: 10px 14px;
   border-radius: var(--hig-r-sm);
   background: var(--hig-fill);
-  font-size: 13px; line-height: 1.65; color: var(--hig-label);
+  font-size: var(--hig-t-footnote); line-height: 1.65; color: var(--hig-label);
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .key-result.ok, .keys-note.ok {
@@ -1029,16 +1038,16 @@ p, li { text-wrap: pretty; }
 .key-result.ng, .keys-note.ng, .routes-usage.ng {
   background: var(--hig-red-tint); color: var(--hig-red-deep);
 }
-.routes-usage { font-size: 12px; color: var(--hig-label-2); }
+.routes-usage { font-size: var(--hig-t-caption1); color: var(--hig-label-2); }
 .dev-lead {
-  margin: 4px 0 14px; font-size: 13px; line-height: 1.65;
+  margin: 4px 0 14px; font-size: var(--hig-t-footnote); line-height: 1.65;
   color: var(--hig-label-2);
 }
 .dev-lead b { color: var(--hig-label); }
 .key-field { margin-bottom: 14px; }
 .key-field > input {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 14px; letter-spacing: 0;
+  font-size: var(--hig-t-subhead); letter-spacing: 0;
 }
 .key-field .md-field-help a { color: var(--tabi-indigo); }
 .key-field .md-field-help.ng { color: var(--hig-red-deep); }
@@ -1048,7 +1057,7 @@ p, li { text-wrap: pretty; }
 }
 .key-actions .show-keys {
   margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
-  font-size: 13px; color: var(--hig-label-2); cursor: pointer;
+  font-size: var(--hig-t-footnote); color: var(--hig-label-2); cursor: pointer;
 }
 .dev-foot { margin: 4px 0 0; color: var(--hig-label-2); line-height: 1.65; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -1060,11 +1069,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .dev-settings > summary {
   list-style: none; cursor: pointer;
   min-height: 36px; display: flex; align-items: center;
-  font-size: 14px; font-weight: 600; color: var(--hig-label-2);
+  font-size: var(--hig-t-subhead); font-weight: 600; color: var(--hig-label-2);
 }
 .dev-settings > summary::-webkit-details-marker { display: none; }
 .dev-settings > summary::after {
-  content: "\203A"; margin-left: 6px; font-size: 18px;
+  content: "\203A"; margin-left: 6px; font-size: var(--hig-t-title3);
   transform: rotate(90deg);
 }
 .dev-settings[open] > summary::after { transform: rotate(-90deg); }
@@ -1075,9 +1084,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   display: flex; align-items: baseline; gap: 4px;
   color: var(--md-sys-color-primary);
 }
-.fit-total b { font-size: 32px; font-weight: 400; }
+.fit-total b { font-size: var(--hig-t-title1); font-weight: 400; }
 .fit-total i {
-  font-style: normal; font-size: 12px;
+  font-style: normal; font-size: var(--hig-t-caption1);
   color: var(--md-sys-color-on-surface-variant);
 }
 .axes { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; }
@@ -1085,13 +1094,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   display: grid; grid-template-columns: auto 8.5em 1fr auto;
   gap: 4px 10px; align-items: center;
   grid-template-areas: "ic label stars score" ".  note note note";
-  font-size: 13px;
+  font-size: var(--hig-t-footnote);
 }
 .ax-ic { grid-area: ic; }
 .ax-label { grid-area: label; color: var(--md-sys-color-on-surface-variant); }
 .ax-stars {
   grid-area: stars; letter-spacing: 2px;
-  color: var(--md-sys-color-primary); font-size: 14px;
+  color: var(--md-sys-color-primary); font-size: var(--hig-t-subhead);
 }
 .ax-stars .off { color: var(--md-sys-color-outline-variant); }
 .ax-score {
@@ -1100,7 +1109,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--md-sys-color-on-surface-variant);
 }
 .ax-note {
-  grid-area: note; font-size: 12px; line-height: 1.65;
+  grid-area: note; font-size: var(--hig-t-caption1); line-height: 1.65;
   color: var(--md-sys-color-on-surface-variant);
 }
 
@@ -1111,7 +1120,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   display: inline-flex; align-items: center; gap: 5px;
   min-height: 24px; padding: 0 10px;
   border-radius: var(--md-sys-shape-corner-small);
-  font-size: 11px; font-weight: 500; letter-spacing: .4px;
+  font-size: var(--hig-t-caption2); font-weight: 500; letter-spacing: .4px;
   white-space: nowrap;
 }
 .src--verified {
@@ -1136,15 +1145,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   margin-bottom: 12px;
 }
 .slack .sl-num {
-  font-size: 26px; font-weight: 400; white-space: nowrap;
+  font-size: var(--hig-t-title2); font-weight: 400; white-space: nowrap;
 }
 .slack .sl-body { flex: 1; min-width: 0; }
 .slack .sl-label {
-  display: inline-block; font-size: 12px; font-weight: 500;
+  display: inline-block; font-size: var(--hig-t-caption1); font-weight: 500;
   letter-spacing: .5px; margin-bottom: 2px;
 }
 .slack .sl-text {
-  margin: 0; font-size: 13px; line-height: 1.7;
+  margin: 0; font-size: var(--hig-t-footnote); line-height: 1.7;
   color: var(--md-sys-color-on-surface-variant);
 }
 .slack--safe  .sl-num, .slack--safe  .sl-label { color: var(--md-sys-color-tertiary); }
@@ -1163,7 +1172,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .pace-bar > i.free  { background: var(--md-sys-color-outline-variant); }
 .pace-legend {
   display: flex; flex-wrap: wrap; gap: 8px 18px; list-style: none;
-  margin: 0; padding: 0; font-size: 13px;
+  margin: 0; padding: 0; font-size: var(--hig-t-footnote);
 }
 .pace-legend li { display: flex; align-items: center; gap: 7px; }
 .pace-legend .dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
@@ -1178,7 +1187,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .fatigue {
   display: grid; grid-template-columns: 7em 1fr 5.5em;
   gap: 12px; align-items: center; margin: 12px 0;
-  font-size: 13px;
+  font-size: var(--hig-t-footnote);
 }
 .fg-label { color: var(--md-sys-color-on-surface-variant); }
 .fg-word { text-align: right; font-weight: 500; }
@@ -1194,22 +1203,22 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-radius: var(--md-sys-shape-corner-medium);
   background: var(--md-sys-color-error-container);
   color: var(--md-sys-color-on-error-container);
-  font-size: 13px; line-height: 1.75;
+  font-size: var(--hig-t-footnote); line-height: 1.75;
 }
 
 /* 採点の内訳 */
 .score-total { display: flex; align-items: baseline; gap: 4px; }
-.score-total b { font-size: 32px; font-weight: 400; color: var(--md-sys-color-primary); }
+.score-total b { font-size: var(--hig-t-title1); font-weight: 400; color: var(--md-sys-color-primary); }
 .score-total i {
-  font-style: normal; font-size: 12px;
+  font-style: normal; font-size: var(--hig-t-caption1);
   color: var(--md-sys-color-on-surface-variant);
 }
-.score-summary { margin: 0 0 16px; font-size: 14px; line-height: 1.8; }
+.score-summary { margin: 0 0 16px; font-size: var(--hig-t-subhead); line-height: 1.8; }
 .score-parts { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .score-parts li {
   display: grid; grid-template-columns: 8em 1fr 2.5em;
   grid-template-areas: "label bar num" ". note note";
-  gap: 4px 12px; align-items: center; font-size: 13px;
+  gap: 4px 12px; align-items: center; font-size: var(--hig-t-footnote);
 }
 .sp-label { grid-area: label; color: var(--md-sys-color-on-surface-variant); }
 .sp-bar { grid-area: bar; }
@@ -1218,7 +1227,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--md-sys-color-on-surface-variant);
 }
 .sp-note {
-  grid-area: note; font-size: 12px; line-height: 1.65;
+  grid-area: note; font-size: var(--hig-t-caption1); line-height: 1.65;
   color: var(--md-sys-color-on-surface-variant);
 }
 .score-parts li.weak .md-progress > i { background: var(--md-sys-color-error); }
@@ -1226,12 +1235,29 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
 /* ------------------------------------------------------ タイムライン --- */
 
+/* 日付の札は、内容の上に貼り付く**案内**です（旅程そのものではあり
+   ません）。内容がこの下を流れていくので、ガラスにして、下の行が
+   透けて見えるようにします。不透明な帯だと、貼り付いた瞬間に
+   「読んでいた行が消えた」ように見えます。 */
 .day-tabs {
   position: sticky; top: -1px; z-index: 6;
   display: flex; gap: 8px; overflow-x: auto;
   margin: 0 -20px 4px; padding: 12px 20px;
-  background: var(--md-sys-color-surface);
+  background: var(--hig-glass-tint-2);
+  -webkit-backdrop-filter: var(--hig-glass-blur);
+  backdrop-filter: var(--hig-glass-blur);
   scrollbar-width: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  /* 霜を濃くします（ガラスはやめません。WWDC25「Meet Liquid Glass」） */
+  .day-tabs { background: var(--hig-material); }
+}
+@media (prefers-contrast: more) {
+  .day-tabs {
+    background: var(--md-sys-color-surface);
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    box-shadow: 0 1px 0 var(--hig-label);
+  }
 }
 .day-tabs::-webkit-scrollbar { display: none; }
 .day-tab {
@@ -1243,8 +1269,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--md-sys-color-on-surface-variant);
   font: inherit; cursor: pointer;
 }
-.day-tab b { font-size: 14px; font-weight: 500; }
-.day-tab span { font-size: 11px; }
+.day-tab b { font-size: var(--hig-t-subhead); font-weight: 500; }
+.day-tab span { font-size: var(--hig-t-caption2); }
 .day-tab.on {
   background: var(--md-sys-color-secondary-container);
   color: var(--md-sys-color-on-secondary-container);
@@ -1254,10 +1280,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .day-head {
   display: flex; align-items: baseline; gap: 12px; margin: 20px 0 12px;
 }
-.day-head b { font-size: 22px; font-weight: 400; }
-.day-head span { font-size: 14px; color: var(--md-sys-color-on-surface-variant); }
+.day-head b { font-size: var(--hig-t-title2); font-weight: 400; }
+.day-head span { font-size: var(--hig-t-subhead); color: var(--md-sys-color-on-surface-variant); }
 .day-head i {
-  margin-left: auto; font-style: normal; font-size: 12px;
+  margin-left: auto; font-style: normal; font-size: var(--hig-t-caption1);
   color: var(--md-sys-color-on-surface-variant);
 }
 
@@ -1265,11 +1291,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .tl { display: flex; gap: 14px; align-items: stretch; }
 .tl .time { width: 62px; flex: none; text-align: right; padding-top: 12px; }
 .tl .time b {
-  display: block; font-size: 14px; font-weight: 500;
+  display: block; font-size: var(--hig-t-subhead); font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 .tl .time span {
-  display: block; font-size: 11px; white-space: nowrap;
+  display: block; font-size: var(--hig-t-caption2); white-space: nowrap;
   color: var(--md-sys-color-on-surface-variant);
 }
 .tl .rail {
@@ -1332,7 +1358,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-radius: var(--md-sys-shape-corner-small);
   background: var(--md-sys-color-surface-container-high);
   color: var(--md-sys-color-on-surface);
-  font-size: 11px; font-weight: 500; letter-spacing: .4px;
+  font-size: var(--hig-t-caption2); font-weight: 500; letter-spacing: .4px;
 }
 .tier::before {
   content: ""; width: 8px; height: 8px; border-radius: 50%;
@@ -1347,7 +1373,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   display: inline-flex; align-items: center;
   font-style: normal; min-height: 24px; padding: 0 10px;
   border-radius: var(--md-sys-shape-corner-small);
-  font-size: 11px; font-weight: 500; letter-spacing: .4px;
+  font-size: var(--hig-t-caption2); font-weight: 500; letter-spacing: .4px;
   background: var(--md-sys-color-surface-container-highest);
   color: var(--md-sys-color-on-surface-variant);
 }
@@ -1380,14 +1406,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-radius: var(--md-sys-shape-corner-small);
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
-  font-size: 12px; font-weight: 500;
+  font-size: var(--hig-t-caption1); font-weight: 500;
 }
 
 /* 費用の内訳 */
 .cost-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .cost-rows li {
   display: grid; grid-template-columns: 6em 1fr 6em;
-  gap: 12px; align-items: center; font-size: 13px;
+  gap: 12px; align-items: center; font-size: var(--hig-t-footnote);
 }
 .cr-label { color: var(--md-sys-color-on-surface-variant); }
 .cr-bar {
@@ -1396,7 +1422,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .cr-bar > i { display: block; height: 100%; background: var(--md-sys-color-secondary); }
 .cr-yen { text-align: right; font-variant-numeric: tabular-nums; }
-.cost-total { font-size: 20px; }
+.cost-total { font-size: var(--hig-t-title3); }
 
 /* 希望に応えられたか */
 .coverage {
@@ -1404,7 +1430,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   padding: 16px 20px; margin-bottom: 16px;
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
-  font-size: 14px; line-height: 1.8;
+  font-size: var(--hig-t-subhead); line-height: 1.8;
 }
 .coverage strong { display: block; margin-bottom: 4px; }
 .coverage .alt { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
@@ -1413,7 +1439,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-radius: var(--md-sys-shape-corner-small);
   background: var(--md-sys-color-surface-container-low);
   color: var(--md-sys-color-on-surface);
-  font-size: 12px;
+  font-size: var(--hig-t-caption1);
 }
 
 /* 検証メモ・注意・出典 */
@@ -1422,18 +1448,18 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--md-sys-color-surface-container-high);
   padding: 16px 20px; margin-bottom: 16px;
 }
-.verify-note h3 { margin: 0 0 4px; font-size: 14px; font-weight: 500; }
+.verify-note h3 { margin: 0 0 4px; font-size: var(--hig-t-subhead); font-weight: 500; }
 .verify-note p {
-  margin: 0; font-size: 13px; line-height: 1.8;
+  margin: 0; font-size: var(--hig-t-footnote); line-height: 1.8;
   color: var(--md-sys-color-on-surface-variant);
 }
 .panel.notes, .panel.hours-notes {
   background: var(--md-sys-color-surface-container-high);
 }
 .src-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.src-list a { color: var(--md-sys-color-primary); font-size: 13px; }
+.src-list a { color: var(--md-sys-color-primary); font-size: var(--hig-t-footnote); }
 .critique li { list-style: none; display: flex; gap: 12px; padding: 6px 0;
-               font-size: 13px; line-height: 1.75; }
+               font-size: var(--hig-t-footnote); line-height: 1.75; }
 .critique ul { margin: 0; padding: 0; }
 .c-label { flex: none; width: 7em; color: var(--md-sys-color-on-surface-variant); }
 .critique li.warn .c-text { color: var(--md-sys-color-error); }
@@ -1443,29 +1469,29 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .tl .title {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  font-size: 16px; font-weight: 500; letter-spacing: .15px;
+  font-size: var(--hig-t-callout); font-weight: 500; letter-spacing: .15px;
 }
 .tl.transit .title, .tl.free .title, .tl.luggage .title {
-  font-size: 14px; font-weight: 400;
+  font-size: var(--hig-t-subhead); font-weight: 400;
   color: var(--md-sys-color-on-surface-variant);
 }
-.tl .ic { font-size: 14px; }
+.tl .ic { font-size: var(--hig-t-subhead); }
 .tl .detail {
-  margin: 6px 0 0; font-size: 13px; line-height: 1.7;
+  margin: 6px 0 0; font-size: var(--hig-t-footnote); line-height: 1.7;
   color: var(--md-sys-color-on-surface-variant);
 }
 .tl .reason {
   margin: 10px 0 0; padding: 10px 14px;
   border-radius: var(--md-sys-shape-corner-small);
   background: var(--md-sys-color-surface-container-high);
-  font-size: 13px; line-height: 1.75;
+  font-size: var(--hig-t-footnote); line-height: 1.75;
 }
 .tl .hours, .tl .cost {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin: 8px 0 0; font-size: 13px;
+  margin: 8px 0 0; font-size: var(--hig-t-footnote);
   color: var(--md-sys-color-on-surface-variant);
 }
-.tl .sun { margin: 8px 0 0; font-size: 13px; color: var(--md-sys-color-tertiary); }
+.tl .sun { margin: 8px 0 0; font-size: var(--hig-t-footnote); color: var(--md-sys-color-tertiary); }
 /* 何を食べる土地か。題の横に、印のように小さく添えます
    （知名度の印 .tier と同じ扱いにしています）。 */
 .tl .dish {
@@ -1473,7 +1499,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   padding: 2px 8px; border-radius: var(--hig-r-full);
   background: color-mix(in srgb, var(--hig-orange) 14%, transparent);
   color: var(--hig-orange);
-  font-size: 11px; font-style: normal; font-weight: 600;
+  font-size: var(--hig-t-caption2); font-style: normal; font-weight: 600;
   white-space: nowrap;
 }
 /* 駄目だったときの代わり。
@@ -1484,7 +1510,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   margin: 8px 0 0; padding: 8px 12px;
   border-radius: var(--md-sys-shape-corner-small);
   background: color-mix(in srgb, var(--hig-blue) 8%, transparent);
-  font-size: 13px; line-height: 1.7;
+  font-size: var(--hig-t-footnote); line-height: 1.7;
   color: var(--md-sys-color-on-surface-variant);
 }
 .tl .backup .link {
@@ -1499,7 +1525,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   width: 36px; height: 36px; padding: 0;
   border: 0; border-radius: var(--hig-r-full);
   background: none; color: var(--md-sys-color-on-surface-variant);
-  font: inherit; font-size: 20px; line-height: 1; cursor: pointer;
+  font: inherit; font-size: var(--hig-t-title3); line-height: 1; cursor: pointer;
   transition: background-color var(--md-sys-motion-short) var(--md-sys-motion-standard);
 }
 .tl .chev:hover { background: var(--hig-fill); }
@@ -1512,7 +1538,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border: .5px solid var(--hig-separator-opaque);
   border-radius: var(--md-sys-shape-corner-small);
   color: var(--md-sys-color-primary);
-  font-size: 13px; font-weight: 500; text-decoration: none;
+  font-size: var(--hig-t-footnote); font-weight: 500; text-decoration: none;
 }
 .item-links .primary-link {
   background: var(--md-sys-color-secondary-container);
@@ -1530,7 +1556,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .spot-tune .tune-grip {
   cursor: grab; touch-action: none;
   padding: 4px 6px; border-radius: var(--md-sys-shape-corner-small);
-  color: var(--hig-label-3); font-size: 15px; line-height: 1;
+  color: var(--hig-label-3); font-size: var(--hig-t-subhead); line-height: 1;
   user-select: none;
 }
 .spot-tune .tune-grip:active { cursor: grabbing; color: var(--hig-label); }
@@ -1541,11 +1567,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-radius: var(--hig-r-full);
   background: color-mix(in srgb, var(--hig-label) 4%, transparent);
   color: var(--md-sys-color-on-surface-variant);
-  font: inherit; font-size: 13px; line-height: 1; cursor: pointer;
+  font: inherit; font-size: var(--hig-t-footnote); line-height: 1; cursor: pointer;
 }
 .spot-tune .tune-move:hover { background: var(--hig-fill); }
 .spot-tune .tune-cap {
-  margin-left: 4px; font-size: 12px;
+  margin-left: 4px; font-size: var(--hig-t-caption1);
   color: var(--md-sys-color-on-surface-variant);
 }
 /* いる時間のバー。数字も一緒に出します。バーだけでは、いま何分なのか
@@ -1555,7 +1581,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   height: 28px; margin: 0; accent-color: var(--md-sys-color-primary);
 }
 .spot-tune .tune-out {
-  min-width: 56px; font-size: 12px; font-variant-numeric: tabular-nums;
+  min-width: 56px; font-size: var(--hig-t-caption1); font-variant-numeric: tabular-nums;
   color: var(--hig-label);
 }
 /* 掴んで動かしているあいだ。どれを動かしているかが分かるように。 */
@@ -1585,7 +1611,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-radius: var(--md-sys-shape-corner-small);
   background: color-mix(in srgb, var(--hig-label) 7%, transparent);
   color: var(--md-sys-color-on-surface-variant);
-  font: inherit; font-size: 13px; font-weight: 500;
+  font: inherit; font-size: var(--hig-t-footnote); font-weight: 500;
   cursor: pointer;
   transition: background-color var(--hig-fast) var(--hig-ease);
 }
@@ -1615,7 +1641,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-radius: var(--md-sys-shape-corner-small);
   background: var(--md-sys-color-surface-container);
   color: var(--md-sys-color-primary);
-  font: inherit; font-size: 13px; font-weight: 500;
+  font: inherit; font-size: var(--hig-t-footnote); font-weight: 500;
   cursor: pointer;
 }
 
@@ -1629,12 +1655,12 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .transit-steps > summary {
   list-style: none; cursor: pointer;
   min-height: 44px; display: flex; align-items: center; gap: 10px;
-  padding: 8px 14px; font-size: 13px;
+  padding: 8px 14px; font-size: var(--hig-t-footnote);
   color: var(--md-sys-color-on-surface-variant);
 }
 .transit-steps > summary::-webkit-details-marker { display: none; }
 .transit-steps > summary::before {
-  content: "▸"; font-size: 10px;
+  content: "▸"; font-size: var(--hig-t-caption2);
   transition: transform var(--md-sys-motion-short) var(--md-sys-motion-standard);
 }
 .transit-steps[open] > summary::before { transform: rotate(90deg); }
@@ -1642,7 +1668,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   list-style: none; margin: 0; padding: 4px 14px 12px;
   border-top: .5px solid var(--hig-separator);
 }
-.ts { display: flex; gap: 10px; padding: 7px 0; font-size: 13px; line-height: 1.7; }
+.ts { display: flex; gap: 10px; padding: 7px 0; font-size: var(--hig-t-footnote); line-height: 1.7; }
 .ts + .ts { border-top: .5px solid var(--hig-separator); }
 .ts-ic { flex: none; width: 18px; text-align: center; }
 .ts.ride .ts-tx { font-weight: 500; }
@@ -1661,11 +1687,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   padding: 14px 16px; flex: 1 1 220px;
 }
 .relax-btn b {
-  display: block; font-size: 14px; font-weight: 500;
+  display: block; font-size: var(--hig-t-subhead); font-weight: 500;
   color: var(--md-sys-color-primary); margin-bottom: 4px;
 }
 .relax-btn span {
-  display: block; font-size: 12px; line-height: 1.7;
+  display: block; font-size: var(--hig-t-caption1); line-height: 1.7;
   color: var(--md-sys-color-on-surface-variant);
 }
 
@@ -1692,7 +1718,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-radius: var(--md-sys-shape-corner-medium);
   background: var(--md-sys-color-secondary-container);
   color: var(--md-sys-color-on-secondary-container);
-  font-size: 14px; line-height: 1.8;
+  font-size: var(--hig-t-subhead); line-height: 1.8;
 }
 .talk-out.ng {
   background: var(--md-sys-color-error-container);
@@ -1716,10 +1742,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   margin-top: 3px; width: 18px; height: 18px; flex: none;
   accent-color: var(--md-sys-color-primary);
 }
-.rp-ic { flex: none; font-size: 15px; }
-.rp-tx { font-size: 13px; line-height: 1.75; }
+.rp-ic { flex: none; font-size: var(--hig-t-subhead); }
+.rp-tx { font-size: var(--hig-t-footnote); line-height: 1.75; }
 .rp-actions { margin-top: 14px; }
-.weather-days li { font-size: 13px; }
+.weather-days li { font-size: var(--hig-t-footnote); }
 
 /* ------------------------------------------------------- エラー表示 --- */
 /* 技術用語を表に出さないための箱。詳細は開いた人だけが見ます。 */
@@ -1733,8 +1759,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--md-sys-color-error-container);
   color: var(--md-sys-color-on-error-container);
 }
-.notice h3 { margin: 0 0 6px; font-size: 16px; font-weight: 500; }
-.notice p { margin: 0; font-size: 14px; line-height: 1.8; }
+.notice h3 { margin: 0 0 6px; font-size: var(--hig-t-callout); font-weight: 500; }
+.notice p { margin: 0; font-size: var(--hig-t-subhead); line-height: 1.8; }
 /* 次にできること。「そのまま作れます」を、本文と同じ濃さで埋もれさせない。 */
 .notice-next {
   margin: 10px 0 0 !important; padding: 10px 12px;
@@ -1746,7 +1772,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .notice > details > summary {
   cursor: pointer; list-style: none;
   min-height: 36px; display: flex; align-items: center;
-  font-size: 12px; font-weight: 500;
+  font-size: var(--hig-t-caption1); font-weight: 500;
   color: var(--md-sys-color-on-surface-variant);
 }
 .notice--error > details > summary { color: inherit; opacity: .8; }
@@ -1758,7 +1784,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-radius: var(--md-sys-shape-corner-small);
   background: var(--md-sys-color-surface-container-highest);
   color: var(--md-sys-color-on-surface-variant);
-  font-size: 11px; line-height: 1.6;
+  font-size: var(--hig-t-caption2); line-height: 1.6;
   white-space: pre-wrap; word-break: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -1769,7 +1795,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .md-sheet .sheet-art {
   height: 200px; position: relative; overflow: hidden;
   background-size: cover; background-position: center;
-  margin-bottom: 20px;
+  margin: 0 -20px 20px;
+  /* 写真はシートの端まで。角はシートと同心（同じ丸み）にします。 */
+  border-radius: calc(var(--hig-r-2xl) - 4px) calc(var(--hig-r-2xl) - 4px) 0 0;
 }
 .md-sheet .sheet-art img {
   position: absolute; inset: 0; width: 100%; height: 100%;
@@ -1778,7 +1806,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .md-sheet .sheet-art img.on { opacity: 1; }
 .md-sheet .sheet-art .art-ic {
-  position: absolute; right: 20px; bottom: 14px; font-size: 34px;
+  position: absolute; right: 20px; bottom: 14px; font-size: var(--hig-t-large-title);
 }
 .md-sheet .sheet-art .tier { position: absolute; left: 24px; bottom: 16px; }
 .md-sheet .close {
@@ -1786,33 +1814,36 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--md-sys-color-surface-container-high);
   box-shadow: var(--md-sys-elevation-1);
 }
-.md-sheet h3 { margin: 0 0 4px; font-size: 24px; font-weight: 400; }
+.md-sheet h3 { margin: 0 0 4px; font-size: var(--hig-t-title2); font-weight: 400; }
 .md-sheet .sub {
-  margin: 0 0 16px; font-size: 14px;
+  margin: 0 0 16px; font-size: var(--hig-t-subhead);
   color: var(--md-sys-color-on-surface-variant);
 }
-.md-sheet .desc { margin: 0; font-size: 14px; line-height: 1.85; }
+.md-sheet .desc { margin: 0; font-size: var(--hig-t-subhead); line-height: 1.85; }
 .md-sheet .why-quote {
   position: relative;
   margin: 16px 0 0; padding: 16px 20px 16px 40px;
   border-radius: var(--md-sys-shape-corner-medium);
   background: var(--md-sys-color-secondary-container);
   color: var(--md-sys-color-on-secondary-container);
-  font-size: 14px; line-height: 1.85;
+  font-size: var(--hig-t-subhead); line-height: 1.85;
 }
 .md-sheet .why-quote::before {
   content: "\201C"; position: absolute; left: 14px; top: 8px;
-  font-size: 32px; line-height: 1; opacity: .55;
+  font-size: var(--hig-t-title1); line-height: 1; opacity: .55;
 }
+/* シートの中のカードは、シートの角と**同心**にします。
+   外側 28px、左右の余白 20px なので 8px です（Adopting Liquid Glass の
+   「concentric な角」。入れ子の丸みを揃えると、角が二重に見えません）。 */
 .md-sheet .card {
   margin-top: 16px;
-  border-radius: var(--md-sys-shape-corner-medium);
+  border-radius: calc(var(--hig-r-2xl) - 20px);
   background: var(--md-sys-color-surface-container);
   overflow: hidden;
 }
 .md-sheet .card .row {
   display: flex; justify-content: space-between; gap: 16px;
-  padding: 14px 16px; font-size: 14px;
+  padding: 14px 16px; font-size: var(--hig-t-subhead);
 }
 .md-sheet .card .row + .row {
   border-top: .5px solid var(--hig-separator);
@@ -1825,7 +1856,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border: .5px solid var(--hig-separator-opaque);
   border-radius: var(--md-sys-shape-corner-full);
   color: var(--md-sys-color-primary);
-  font-size: 14px; font-weight: 500; text-decoration: none;
+  font-size: var(--hig-t-subhead); font-weight: 500; text-decoration: none;
 }
 .md-sheet .links a.primary {
   background: var(--md-sys-color-primary);
@@ -1833,7 +1864,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-color: transparent;
 }
 .md-sheet .hint {
-  margin: 12px 0 0; font-size: 12px; line-height: 1.7;
+  margin: 12px 0 0; font-size: var(--hig-t-caption1); line-height: 1.7;
   color: var(--md-sys-color-on-surface-variant);
 }
 .md-sheet .hint.warn-hint {
@@ -1937,9 +1968,37 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   body[data-view="result"] { padding-bottom: env(safe-area-inset-bottom); }
   body[data-view="form"] .pane-result { display: none; }
   body[data-view="result"] .back-to-form {
-    display: inline-flex; position: absolute; z-index: 12;
+    display: inline-flex; position: fixed; z-index: 12;
     top: calc(12px + env(safe-area-inset-top));
     left: calc(12px + env(safe-area-inset-left));
+    /* 浮いている操作なので、ガラスを勝たせます（md-btn--tonal の
+       塗りだと、下の内容が見えず、文字が重なって読めません）。 */
+    background: var(--hig-glass-tint-2);
+    -webkit-backdrop-filter: var(--hig-glass-blur);
+    backdrop-filter: var(--hig-glass-blur);
+    box-shadow: inset 0 .5px 0 var(--hig-glass-hairline),
+                var(--hig-glass-shadow);
+    color: var(--md-sys-color-primary);
+  }
+  /* 浮いている操作のぶんだけ、内容の上を空けます。
+     ガイドラインの安全領域の考え方です（帯の下に文字が隠れない）。 */
+  body[data-view="result"] .pane-result { padding-top: 56px; }
+
+  /* 設定に合わせた変わりかた。ここは詳しさ（specificity）が上なので、
+     hig.css の指定では上書きできません。同じ強さで書き直します。 */
+  @media (prefers-reduced-transparency: reduce) {
+    body[data-view="result"] .back-to-form {
+      background: var(--hig-material);
+      -webkit-backdrop-filter: saturate(120%) blur(30px);
+      backdrop-filter: saturate(120%) blur(30px);
+    }
+  }
+  @media (prefers-contrast: more) {
+    body[data-view="result"] .back-to-form {
+      background: var(--hig-elevated);
+      -webkit-backdrop-filter: none; backdrop-filter: none;
+      box-shadow: inset 0 0 0 1px var(--hig-label), var(--hig-shadow-2);
+    }
   }
   .layout { grid-template-columns: 1fr; height: auto; }
   .pane { overflow: visible; }
@@ -1976,7 +2035,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
      390px で3列に入りきらず、「9時間45分」が2行に折れていました。 */
   .stats { grid-template-columns: repeat(3, 1fr); gap: 12px 6px; }
   .stats strong { font-size: clamp(15px, 4.6vw, 20px); }
-  .stats span { font-size: 11px; letter-spacing: 0; }
+  .stats span { font-size: var(--hig-t-caption2); letter-spacing: 0; }
   /* 歯車は、携帯ではページと一緒に流れます。固定のままだと、旅程を
      読み進めるあいだずっと右上の文字や星に重なっていました。
      上端にあるうちは、広い画面と同じ位置に見えます。 */

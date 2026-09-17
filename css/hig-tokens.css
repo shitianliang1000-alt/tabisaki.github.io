@@ -111,7 +111,31 @@
   --hig-red-tint:   #FFE8E6;
   --hig-red-deep:   #8C1006;
 
-  /* --- 材質（すりガラス） --- */
+  /* --- 材質 ---------------------------------------------------------
+     Human Interface Guidelines / Materials には2種類あります。
+
+       Liquid Glass … **操作と案内の層**の材質。内容の層より上に浮き、
+                      後ろの内容を透かしながら、文字が読めるように
+                      にじみと明るさを調整します。
+       標準の材質   … 内容の層の中で、面を分けるためのもの。
+
+     ガイドラインが名指しで書いていること
+     ------------------------------------
+       ・内容の層に Liquid Glass を使わない（階層が分からなくなります）
+       ・使いすぎない（内容に目を向けさせるための材質です）
+       ・clear（透明度の高いほう）は、写真や動画の上だけ
+       ・色を乗せるのは、主となる操作1つだけ
+
+     ここでは、浮いているもの（設定・戻る・作るボタンの帯・日付の札）
+     にだけ使います。カードや旅程の行は内容の層なので、これまでどおり
+     不透明です。 */
+  --hig-glass-tint:     #F7F5F0A8;
+  --hig-glass-tint-2:   #F7F5F0CC;   /* 文字が多いもの（濃いめ） */
+  --hig-glass-blur:     saturate(180%) blur(20px);
+  --hig-glass-hairline: #FFFFFFB0;   /* ガラスの縁の光 */
+  --hig-glass-shadow:   0 6px 24px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.06);
+
+  /* 内容の層の材質（標準の材質。透けますが、にじませません） */
   --hig-material:      #F4F1EBE0;
   --hig-material-thin: #F4F1EBB8;
   --hig-scrim:         #00000040;
@@ -168,6 +192,11 @@
     --hig-teal-deep:  #A6E7F3;
     --hig-red-tint:   #4A1512;
     --hig-red-deep:   #FFB9B3;
+
+    --hig-glass-tint:     #1C1A15A8;
+    --hig-glass-tint-2:   #1C1A15D9;
+    --hig-glass-hairline: #FFFFFF26;
+    --hig-glass-shadow:   0 6px 24px rgba(0,0,0,.45), 0 1px 2px rgba(0,0,0,.3);
 
     --hig-material:      #16140FE6;
     --hig-material-thin: #16140FBF;
@@ -227,4 +256,53 @@
   --md-sys-color-scrim: #000000;
   --md-sys-color-shadow: #000000;
   --md-sys-color-surface-tint: var(--hig-blue);
+}
+
+/* =====================================================================
+   コントラストを上げる設定
+
+   ガイドライン（Color / Accessibility）は、自分で決めた色にも
+   「明るい配色・暗い配色のそれぞれに、コントラストを上げた変種を
+   用意する」ことを求めています。設定を上げている人には、補助の文字や
+   境目が**はっきり違って見える**必要があります。
+
+   ここでやっていること
+     ・補助の文字を、本文に近づける（薄い灰色をやめる）
+     ・境目を、見える線にする（ヘアラインは消えます）
+     ・塗り（入力欄・チップ）の差を強くする
+   透け（ガラス）を外すのは css/hig.css のほうでやっています。
+   ===================================================================== */
+@media (prefers-contrast: more) {
+  :root {
+    --hig-label-2:         #1F1D1A;
+    --hig-label-3:         #3C3C43;
+    --hig-separator:        #00000059;
+    --hig-separator-opaque: #8A8275;
+    --hig-fill:          #DCD4C4;
+    --hig-fill-2:        #CEC4B0;
+    --hig-fill-3:        #BFB39B;
+    --hig-blue:   #003F87;
+    --tabi-indigo: #0A3557;
+    --tabi-teal:   #0B4A50;
+    --hig-green:  #0A5227;
+    --hig-orange: #6B3F00;
+    --hig-red:    #8C1006;
+  }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root {
+    --hig-label-2:         #F2F2F7;
+    --hig-label-3:         #C7C7CC;
+    --hig-separator:        #FFFFFF59;
+    --hig-separator-opaque: #6E675C;
+    --hig-fill:          #45403A;
+    --hig-fill-2:        #524B43;
+    --hig-fill-3:        #605850;
+    --hig-blue:   #6FB8FF;
+    --tabi-indigo: #A8D0F5;
+    --tabi-teal:   #8FDDE6;
+    --hig-green:  #5FE08A;
+    --hig-orange: #FFC46B;
+    --hig-red:    #FF8F86;
+  }
 }
