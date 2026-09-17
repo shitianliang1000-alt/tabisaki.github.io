@@ -13,7 +13,8 @@ import { callModel, canGround, describeSpot, diagnoseGeminiKey, hasApiKey }
   from "./ai.js";
 import { proxyStatus } from "./endpoints.js";
 import { discoverArea } from "./discover.js";
-import { loadKnowledgeBase, loadRegionIndex, mergeIntoKb } from "./kb.js";
+import { loadKnowledgeBase, loadRegionIndex, mergeIntoKb, stagedKb }
+  from "./kb.js";
 
 import { clearRouteCache, diagnoseMapsKey, diagnoseYahooTransit,
          resetRoutesBreaker, routesUsage }
@@ -85,21 +86,26 @@ async function boot() {
   wireChrome();
   updateWindowHelp();
 
-  // 収録は約4MBあります。**読み終わるまで待たせません。**
+  // 収録は 29,706件・4.8MB（gzip で約1MB）あります。
+  // **要るぶんだけ読みます。**
   //
-  // これまでは、全部読み終わるまでボタンを押せなくしていました。低速な
-  // 回線では、開いてから最初の操作までがそのぶん遅れます。条件を書いて
-  // いるあいだに後ろで取りにいき、押された時点でまだなら、そこで待ちます
-  // （たいていは書き終わるまでに済んでいます）。
+  // これまでは起動時に全部読んでいました。ところが「島根の旅程」に
+  // 使うのは島根のぶんだけで、残り46県は読んで、照合して、捨てて
+  // いました。行き先の絞り込みは、地名から**エリアの一覧**だけで
+  // 決まります（js/pipeline.js の scope）。エリアの一覧は
+  // regions.json（gzip で 66KB）にあり、スポットはそのあとで足ります。
   //
-  // 先に索引とエリア（約380KB）だけを取ります。残り（スポット）は
-  // そのあと、同じ流れの中で。
+  // ここで取るのは索引とエリアだけです。県ごとの段は、旅程を組む
+  // ときに、その希望に要るものだけを取ります（kb.js の ensureRegions。
+  // 地名が書かれていない希望では、絞る材料が無いので全部です）。
   const fab = $("#make-plan");
   fab.querySelector(".fab-tx").textContent = "旅程をつくる";
 
   state.kbPromise = (async () => {
     const pre = await loadRegionIndex();
-    return loadKnowledgeBase(undefined, undefined, pre);
+    // 段ごとに読める索引があるときだけ、遅れて読みます。
+    // 無いとき（同梱データ、古い索引）は、これまでどおりまとめて読みます。
+    return stagedKb(pre) ?? await loadKnowledgeBase(undefined, undefined, pre);
   })();
 
   try {
@@ -1442,7 +1448,11 @@ async function shareConditions() {
 
 function kbBadgeText() {
   if (!state.kb) return "";
-  return `収録 ${state.kb.regions.length}エリア / ${state.kb.spots.length}スポット`
+  // 件数は索引の数を出します。読み込み済みの数を出すと、県ごとに
+  // 遅れて読むぶんだけ「収録が減った」ように見えます（実際の収録は
+  // 29,706件のままで、読んでいないだけです）。
+  const spots = state.kb.manifest?.counts?.spots ?? state.kb.spots.length;
+  return `収録 ${state.kb.regions.length}エリア / ${spots}スポット`
     + (state.aiSpots ? `（うちAI調べ ${state.aiSpots}件）` : "");
 }
 
@@ -1885,9 +1895,12 @@ async function buildPlans(trip, progress) {
   const variants = tripsFor(trip);
 
   // 1案目。ここで希望文の読み取りと検索用ベクトルが決まります。
+  // （収録のうち要るぶんも、ここで読まれます。pipeline.js の
+  //   loadNeededSpots。2案目以降は読み込み済みなので取りません。）
   const first = await planTrip({
     trip: variants[0].trip, kb: state.kb,
     ignoreAreas: state.clearArea,
+    mustRegionIds: pinnedRegionIds(),
     useRoutes: false, useWeather: false, onProgress,
   });
 
@@ -1899,6 +1912,7 @@ async function buildPlans(trip, progress) {
       rest.push({ key: v.key, trip: v.trip, itin: await planTrip({
         trip: v.trip, kb: state.kb,
         ignoreAreas: state.clearArea,
+        mustRegionIds: pinnedRegionIds(),
         useRoutes: false, useWeather: false,
         query: first.query, vector: first.vector,
       }) });
@@ -1920,6 +1934,22 @@ async function buildPlans(trip, progress) {
 }
 
 /**
+ * 「必ず行く」に指定された場所のエリア。
+ *
+ * 収録は県ごとに遅れて読みます（kb.js）。指定された場所が読んでいない
+ * 県にあると、**指定が黙って落ちます**。押した場所が消えるのは
+ * いちばん悪い結果なので、そのエリアだけは先に読ませます。
+ * 指定はこの画面で押されたものなので、エリアはこちらが知っています。
+ */
+function pinnedRegionIds() {
+  const out = new Set();
+  for (const spot of state.pinned?.values() ?? []) {
+    if (spot?.regionId) out.add(spot.regionId);
+  }
+  return out;
+}
+
+/**
  * 採用した案だけ、実際の経路と天気を取って仕上げます。
  * ここが唯一の課金対象です。
  */
@@ -1931,6 +1961,7 @@ async function finishPlan(key, onProgress) {
   const itin = await planTrip({
     trip: chosen.trip, kb: state.kb,
     ignoreAreas: state.clearArea,
+    mustRegionIds: pinnedRegionIds(),
     query: chosen.itin.query, vector: chosen.itin.vector,
     onProgress,
   });

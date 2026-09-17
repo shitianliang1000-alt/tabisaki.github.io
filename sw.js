@@ -18,7 +18,9 @@
 
 // 先に入れるものを増やしたので、版を上げます。上げないと、前の版の
 // 殻（js/ の入っていないもの）を持っている端末は入れ直しません。
-const VERSION = "tabisaki-v3";
+// 収録の入れ物が変わりました（出典ごと → 県ごと。tools/reshard_kb.py）。
+// 版を上げないと、前の版で溜めた 4.8MB が端末に残り続けます。
+const VERSION = "tabisaki-v4";
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
 

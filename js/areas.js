@@ -284,13 +284,44 @@ const NOT_PLACE = new Set([
   "スノーボード", "ゆっくり", "のんびり",
 ]);
 
+/**
+ * 「地名らしい語」だけを先に拾います。
+ *
+ * 収録と照らす前の段階です。段を遅れて読むようにしたので、
+ * **照らす相手（名前の索引）を取りにいく必要があるかどうか**を、
+ * 通信の前に知りたい、という用途です（js/kb.js の ensureNames）。
+ * 拾うものが無ければ、索引は要りません。
+ */
+export function placeCandidates(text) {
+  const s = String(withJapanesePlaces(text) ?? "");
+  if (!s.trim()) return [];
+  const out = [];
+  for (const term of new Set(wordRuns(s))) {
+    if (!PLACE_SUFFIX.test(term)) continue;
+    if (MACRO_AREAS[term]) continue;
+    out.push(term);
+  }
+  for (const m of s.matchAll(/[ァ-ヶー]{2,}/g)) {
+    const term = m[0];
+    if (term.length < 2 || NOT_PLACE.has(term)) continue;
+    if (!out.includes(term)) out.push(term);
+  }
+  return out;
+}
+
 export function unknownPlaceTerms(text, kb) {
   // ここも同じです。読み替えれば分かる地名を「知らない場所」として
   // 報告すると、断り文句だけが出て旅程が組めません。
   text = withJapanesePlaces(text);
   const s = String(text ?? "");
-  if (!s.trim() || !kb?.spots?.length) return [];
+  // 名前の索引（kb.names）があれば、スポットが読み込まれていなくても
+  // 照らせます。索引が無く、スポットも1件も無いときは、**照らす相手が
+  // いないので何も言いません**（全部を「知らない場所」と言うより、
+  // 黙っているほうが正しい）。
+  if (!s.trim() || !(kb?.spots?.length || kb?.names)) return [];
   const haystack = kb.__searchHaystack ?? (kb.__searchHaystack = [
+    // 名前の索引。段を遅れて読んでも、判定は変わりません（js/kb.js）。
+    kb.names ?? "",
     ...kb.spots.map((x) => `${x.name} ${x.region} ${x.prefecture} ${x.category} ${x.description ?? ""}`),
     ...kb.regions.map((r) => `${r.name} ${r.prefecture} ${r.station ?? ""} ${r.description ?? ""}`),
   ].join("\n"));

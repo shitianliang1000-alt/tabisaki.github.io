@@ -14,9 +14,10 @@ const FUJI_5GO = { lat: 35.3606, lng: 138.7364 };
 const FUJI_SUMMIT = { lat: 35.3606, lng: 138.7305 };
 const TOKYO = { lat: 35.6812, lng: 139.7671 };
 
-function withStops(rail, bus, fn) {
+function withStops(rail, bus, fn, asked = null) {
   const real = globalThis.fetch;
   globalThis.fetch = async (url) => {
+    asked?.push(String(url));
     const body = String(url).includes("stops-bus") ? bus : rail;
     return { ok: true, json: async () => body };
   };
@@ -90,9 +91,29 @@ test("打った文字で候補を絞る。前方一致を先に返す", () =>
   withStops(NAMED.rail, NAMED.bus, async () => {
     const found = await searchStops("新宿", 20);
     assert.equal(found[0].name, "新宿", "前方一致が先頭に来ていません");
-    assert.ok(found.some((s) => s.name === "新宿駅西口"));
     assert.ok(!found.some((s) => s.name === "大阪"));
   }));
+
+test("入力補完は、駅に当たるならバス停まで読まない", async () => {
+  // 出発地の欄に触れただけで 2.6MB を取っていました。駅名を打つ人に
+  // 要るのは駅で、バス停 25万件ではありません（駅に1つも当たらない
+  // ときだけ、バス停まで見ます）。
+  const asked = [];
+  await withStops(NAMED.rail, NAMED.bus, async () => {
+    const found = await searchStops("新宿", 20);
+    assert.ok(found.some((s) => s.name === "新宿"));
+    assert.ok(!asked.some((u) => u.includes("stops-bus")),
+      `バス停まで読んでいます: ${asked.join(", ")}`);
+  }, asked);
+
+  asked.length = 0;
+  await withStops(NAMED.rail, NAMED.bus, async () => {
+    // 駅に当たらない名前なら、そこで初めてバス停を読みます
+    const found = await searchStops("五合目", 20);
+    assert.ok(found.some((s) => s.name === "富士山五合目"));
+    assert.ok(asked.some((u) => u.includes("stops-bus")));
+  }, asked);
+});
 
 test("候補は数を絞る（7万件を一度に並べない）", () =>
   withStops(NAMED.rail, NAMED.bus, async () => {

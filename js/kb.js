@@ -205,6 +205,144 @@ export async function loadKnowledgeBase(onProgress, signal, pre = null) {
 }
 
 /**
+ * 段を遅れて読むための、スポットが空の知識ベース。
+ *
+ * なぜこうするか
+ * --------------
+ * 収録は 29,706件・4.8MB（gzip で約1MB）あります。これを起動時に全部
+ * 読んでいました。ところが「島根の旅程」に使うのは島根のぶんだけで、
+ * 残り 46 県は読んで、照合して、捨てていました。
+ *
+ * 行き先の絞り込み（pipeline.js の scope）は、地名から**エリアの一覧**
+ * だけで決まります。エリアの一覧は regions.json（gzip で 66KB）にあり、
+ * スポットはそのあとで足ります。
+ *
+ * ここで返すのは入れ物です。中身は ensureRegions / ensureAllSpots が
+ * 足していきます。**足りないまま使われても壊れないこと**が条件なので、
+ * spots は空配列、索引は空の Map にしておきます（undefined を混ぜると、
+ * 読む側のあちこちで落ちます）。
+ *
+ * @param {object} pre loadRegionIndex の結果
+ */
+export function stagedKb(pre) {
+  if (!pre?.manifest?.shards?.length) return null;
+  const regions = pre.regions ?? [];
+  const kb = {
+    source: "remote",
+    staged: true,
+    base: pre.base,
+    manifest: pre.manifest,
+    regions,
+    spots: [],
+    ...index(regions, []),
+    loadedShards: new Set(),
+    // ベクトルがあるかどうかは、1枚でも読むまで分かりません。
+    // 分からないうちは「無い」として扱います（語での検索に落ちます）。
+    hasVectors: false,
+    attribution: pre.manifest.sources ?? [],
+  };
+  return kb;
+}
+
+/** その段は、これらのエリアのどれかを含むか。 */
+function shardHasRegion(shard, ids) {
+  const list = shard.regions;
+  if (!list?.length) return true;   // 書いていない段は、分けられません
+  return list.some((id) => ids.has(id));
+}
+
+/**
+ * これらのエリアのスポットが入っている段のファイル名。
+ *
+ * index.json の段ごとに「どのエリアが入っているか」が書かれています
+ * （tools/reshard_kb.py）。書かれていない古い索引では、全部を返します
+ * （分けられないので、分けたふりをしません）。
+ */
+export function shardsForRegions(kb, regionIds) {
+  const ids = regionIds instanceof Set ? regionIds : new Set(regionIds ?? []);
+  const shards = kb?.manifest?.shards ?? [];
+  if (!ids.size) return [];
+  return shards.filter((sh) => shardHasRegion(sh, ids)).map((sh) => sh.file);
+}
+
+/** まだ読んでいない段を読み、知識ベースに足します。 */
+export async function ensureShards(kb, files, opts = {}) {
+  if (!kb?.staged) return 0;
+  const todo = [...new Set(files)].filter((f) => !kb.loadedShards.has(f));
+  if (!todo.length) return 0;
+
+  const base = kb.base;
+  let done = 0;
+  const total = todo.length;
+  opts.onProgress?.(0, total, `スポット 0/${total}`);
+  const docs = await Promise.all(todo.map(async (file) => {
+    const doc = await getJson(new URL(file, base).toString(), opts.signal);
+    opts.onProgress?.(++done, total, `スポット ${done}/${total}`);
+    return { file, doc };
+  }));
+
+  let added = 0;
+  for (const { file, doc } of docs) {
+    const from = doc.dataSource;
+    const spots = [];
+    for (const spot of doc.spots ?? []) {
+      if (from && !spot.dataSource) spot.dataSource = from;
+      hydrate(spot, kb.regionsById.get(spot.regionId));
+      spots.push(spot);
+    }
+    added += mergeIntoKb(kb, { spots });
+    kb.loadedShards.add(file);
+    if (!kb.hasVectors && spots.some((x) => x.v)) kb.hasVectors = true;
+  }
+  return added;
+}
+
+/** これらのエリアのスポットを、読み込み済みにします。 */
+export function ensureRegions(kb, regionIds, opts = {}) {
+  return ensureShards(kb, shardsForRegions(kb, regionIds), opts);
+}
+
+/**
+ * 残り全部を読み込みます。
+ *
+ * 地名の書かれていない希望（「温泉でゆっくり」）では、どの県が候補に
+ * なるか分からないので、全部が必要です。**分からないときに勘で絞る**と、
+ * 行けたはずの旅先が黙って消えます。
+ */
+export function ensureAllSpots(kb, opts = {}) {
+  return ensureShards(kb, (kb?.manifest?.shards ?? []).map((s) => s.file), opts);
+}
+
+/** 読み終わっていない段があるか。 */
+export function hasAllShards(kb) {
+  if (!kb?.staged) return true;
+  return (kb.manifest?.shards ?? []).every((s) => kb.loadedShards.has(s.file));
+}
+
+/**
+ * 地名の索引（kb/names.json）を読み込みます。
+ *
+ * 「収録に無い土地」の判定（areas.js の unknownPlaceTerms）は、収録の
+ * 名前を全部つないだ文字列への部分一致で行っています。段を遅れて読むと、
+ * 読んでいない県の場所が「収録に無い」と判定され、要らない調べものが
+ * 走ります。名前だけを別に持っておけば、その判定は段の読み込みと
+ * 関係なく正しくなります（gzip で 226KB。**打たれた語に地名らしい
+ * ものがあるときだけ**取りにいきます）。
+ */
+export async function ensureNames(kb, signal) {
+  if (!kb?.staged || kb.names !== undefined) return kb?.names ?? null;
+  try {
+    const doc = await getJson(new URL("names.json", kb.base).toString(), signal);
+    kb.names = String(doc?.names ?? "");
+  } catch {
+    // 取れなければ、読み込み済みのスポットから作ります（areas.js 側）。
+    kb.names = null;
+  }
+  kb.__searchHaystack = undefined;
+  return kb.names;
+}
+
+/**
  * 調べて得たエリア・スポットを、いま読み込んでいる知識ベースに足します。
  *
  * ファイルには書き戻しません。収録データ（確認済み）と、その場で調べた

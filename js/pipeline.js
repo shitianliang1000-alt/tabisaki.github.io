@@ -16,7 +16,8 @@ import {
   aiStatus, embedQuery, hasApiKey, noteAiError, proposePlan, resetAiStatus,
   resolvedModel, understandRequest,
 } from "./ai.js";
-import { areaNote, areaScope, detectAreas, unknownPlaceTerms } from "./areas.js";
+import { areaNote, areaScope, detectAreas, placeCandidates, unknownPlaceTerms }
+  from "./areas.js";
 import { isTouring } from "./touring.js";
 import { readIntent } from "./intent.js";
 import { nightTrainLeg } from "./trains.js";
@@ -24,7 +25,8 @@ import { TUNING } from "./config.js";
 import { discoverArea, resolveDestination } from "./discover.js";
 import { atHour, estimateMinutes, haversineKm } from "./feasibility.js";
 import {
-  mergeIntoKb, rankRegions, reachableRegions, searchSpots, searchSpotsByKeyword,
+  ensureAllSpots, ensureNames, ensureRegions, mergeIntoKb, rankRegions,
+  reachableRegions, searchSpots, searchSpotsByKeyword,
 } from "./kb.js";
 import { extractKeywords } from "./keywords.js";
 import { analyzeCoverage, coverageMessage, seasonalNotes } from "./match.js";
@@ -97,6 +99,18 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     .flatMap((a) => [a.term, a.term.replace(/[都道府県]$/, "")]));
   const searchWords = [...query.keywords, ...query.interests]
     .filter((w) => !areaWords.has(w));
+
+  // 必要なぶんの収録を、ここで読みます。
+  //
+  // 収録は 29,706件・4.8MB（gzip で約1MB）あります。これを起動時に
+  // 全部読んでいました。ところが「島根の旅程」に使うのは島根のぶん
+  // だけで、残り46県は読んで、照合して、捨てていました。
+  //
+  // 地名が書かれていれば、そのエリアのぶんだけで足ります
+  // （行き先の絞り込みは、下の scope が**エリアの一覧**だけで決めます）。
+  // 書かれていなければ、どの県が候補になるか分からないので全部です。
+  // **分からないときに勘で絞る**と、行けたはずの旅先が黙って消えます。
+  await loadNeededSpots(kb, trip, { ...opts, onProgress });
 
   // 車の旅なら、走って気持ちのいい場所を前に出します（js/touring.js）。
   const touring = isTouring(trip);
@@ -1461,6 +1475,59 @@ function withDwell(spot, dwellById) {
   const min = dwellById?.[spot.id];
   if (!Number.isFinite(min)) return spot;
   return { ...spot, dwell: Math.max(10, Math.round(min)) };
+}
+
+/**
+ * その希望に要る収録だけを読み込みます。
+ *
+ * 判断の材料は3つです。
+ *   ・書かれた地名から当たるエリア（detectAreas。エリアの一覧だけで分かる）
+ *   ・「必ず行く」に指定されたスポットのエリア（呼ぶ側が渡します）
+ *   ・地名が1つも当たらない → 全部（絞る材料がありません）
+ *
+ * 名前の索引（names.json）は、**地名らしい語が書かれているときだけ**
+ * 取りにいきます。「温泉でゆっくり」には地名らしい語が無いので、
+ * 226KB を取る理由がありません。
+ */
+async function loadNeededSpots(kb, trip, opts = {}) {
+  if (!kb?.staged) return;   // まとめて読んである（試験・admin・道具）
+
+  const onProgress = opts.onProgress ?? (() => {});
+  const signal = opts.signal;
+  const prog = (done, total, label) => {
+    if (total > 1) onProgress(1, label);
+  };
+
+  const areas = opts.ignoreAreas ? [] : detectAreas(trip.note, kb);
+  const scope = areaScope(areas);
+  const wanted = new Set(scope.regionIds ?? []);
+  // 「必ず行く」のエリアは、地名が書かれていなくても要ります。
+  for (const id of opts.mustRegionIds ?? []) wanted.add(id);
+
+  if (!wanted.size) {
+    await ensureAllSpots(kb, { onProgress: prog, signal });
+    return;
+  }
+  await ensureRegions(kb, wanted, { onProgress: prog, signal });
+
+  // 指定された「必ず行く」が、読んだぶんに入っていなければ、
+  // どの段にいるのか分かりません。そのときは全部読みます。
+  // **黙って落とす**のがいちばん悪い結果です（押した場所が消えます）。
+  if ((trip.must?.spotIds ?? []).some((id) => !kb.spotsById.has(id))) {
+    await ensureAllSpots(kb, { onProgress: prog, signal });
+    return;
+  }
+
+  // 名前の索引は、**最後の手段**です。
+  //
+  // 「収録に無い土地」と判定した語があるときだけ取りにいきます。
+  // 読んだ県の中に見つかるなら、索引は要りません（226KB あります）。
+  // 「出雲と松江。神社と海」の「神社」は語尾が地名らしいので候補に
+  // 挙がりますが、島根のスポットの中に見つかるので、取りません。
+  if (placeCandidates(trip.note).length
+      && unknownPlaceTerms(trip.note, kb).length) {
+    await ensureNames(kb, signal);
+  }
 }
 
 /**

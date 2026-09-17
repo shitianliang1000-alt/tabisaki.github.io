@@ -40,54 +40,154 @@ function buildGrid(stops) {
   return grid;
 }
 
-async function fetchStops(name) {
+async function fetchJson(name) {
   try {
     const url = new URL(`../kb/${name}`, import.meta.url).toString();
     const res = await fetch(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data.stops) ? data.stops : [];
+    if (!res.ok) return null;
+    return await res.json();
   } catch {
     // 読めなくても、経路の計算そのものは止めない（直線距離の目安に戻る）。
-    return [];
+    return null;
   }
 }
 
-let loadPromise = null;
-
-/**
- * 読み込みは1回だけ。位置で引く索引と、名前で引く索引の両方を作ります。
- *
- * 名前の索引は、出発地・到着地の入力補完に使います。datalist に
- * 7万件を並べるとブラウザが固まるので、打たれた文字で絞ってから
- * 20件だけ差し込みます。
- */
-function load() {
-  loadPromise ??= Promise.all([
-    fetchStops("stops-rail.json"),
-    fetchStops("stops-bus.json"),
-  ]).then(([rail, bus]) => {
-    // 駅を先に置きます。同じ名前ならバス停より駅を採ります
-    // （「新宿駅」と打った人が新宿駅前のバス停に案内されないように）。
-    const all = [
-      ...rail.map((s) => ({ lat: s[0], lng: s[1], name: s[2], kind: "rail" })),
-      ...bus.map((s) => ({ lat: s[0], lng: s[1], name: s[2], kind: "bus" })),
-    ];
-    const byName = new Map();
-    for (const s of all) {
-      const key = normalizeName(s.name);
-      if (!byName.has(key)) byName.set(key, s);
-    }
-    return {
-      grid: buildGrid(all.map((s) => [s.lat, s.lng, s.name, s.kind])),
-      all, byName,
-    };
-  });
-  return loadPromise;
+async function fetchStops(name) {
+  const data = await fetchJson(name);
+  return Array.isArray(data?.stops) ? data.stops : [];
 }
 
-function loadGrid() {
-  return load().then((x) => x.grid);
+/**
+ * 駅とバス停は、分けて読みます。バス停はさらに、地図のように**タイル**で。
+ *
+ * 大きさ
+ * ------
+ *   駅     kb/stops-rail.json   0.3MB（gzip 117KB）
+ *   バス停 kb/stops-bus/        2.5MB・65,606件・67タイル（1度四方ごと）
+ *
+ * これを毎回まとめて読んでいました。出発地の欄に触れただけで 2.6MB です。
+ *
+ * どう分けたか
+ * ------------
+ *   ・駅は最初に読みます（名前で引く・座標で引く、どちらにも使います）
+ *   ・バス停は**座標で引くとき**、その周りのタイルだけを読みます
+ *     （旅程1本が触るのは1〜3枚。50〜300KB）
+ *   ・バス停を**名前で引くとき**は、どのタイルか分からないので全部
+ *     読みます。駅に当たらない名前を打たれたときだけなので、
+ *     めったに起きません
+ *
+ * 数えたこと
+ * ----------
+ * 旅程に入りやすいスポット373件のうち、3km圏内に駅があるのは 57%
+ * だけです（2駅以上 47%、3駅以上 40%）。**旅程を1本組めば、たいてい
+ * 駅の無い立ち寄りが1つは入ります。** だからバス停を「駅で足りない
+ * ときだけ」にしても、旅程では結局読むことになります。効くのはタイルで
+ * 切るほうです。
+ *
+ * 答えを変えないこと
+ * ------------------
+ * 経路の見積もりでは、**頼まれた数に足りなければ必ずバス停まで見ます**
+ * （2番目・3番目の候補が Yahoo!の名前解決に効くので、ここを節約すると
+ * 時刻が引けなくなります）。節約するのは通信量だけで、答えではありません。
+ */
+
+/** 1タイルの大きさ（度）。tools/tile_stops.py と合わせています。 */
+const TILE_DEG = 1;
+
+let railPromise = null;      // 駅（最初に1回）
+let busIndexPromise = null;  // バス停のタイル索引
+let allBusPromise = null;    // バス停を全部（名前で引くときだけ）
+const busTiles = new Map();  // タイル名 → Promise
+const busGrid = new Map();   // 読んだバス停の位置索引
+let busAll = [];             // 読んだバス停（名前の一覧に使います）
+let busByName = new Map();
+
+function loadRail() {
+  railPromise ??= fetchStops("stops-rail.json").then((rail) => ({
+    grid: buildGrid(rail.map((s) => [s[0], s[1], s[2], "rail"])),
+    all: rail.map((s) => ({ lat: s[0], lng: s[1], name: s[2], kind: "rail" })),
+    byName: nameIndex(rail, "rail"),
+  }));
+  return railPromise;
+}
+
+/**
+ * バス停の入れ物を読みます。
+ *
+ * 古い形（{stops:[...]}）もそのまま読めるようにしてあります。索引に
+ * tiles が無ければ、これまでどおり全件として扱います（試験はこの形です）。
+ */
+function loadBusIndex() {
+  busIndexPromise ??= fetchJson("stops-bus.json").then((doc) => {
+    if (Array.isArray(doc?.stops)) {
+      addBus(doc.stops);
+      return { tiles: null };   // 全部そろっています
+    }
+    return { tiles: Array.isArray(doc?.tiles) ? doc.tiles : [] };
+  });
+  return busIndexPromise;
+}
+
+function addBus(stops) {
+  for (const s of stops) {
+    const key = cellOf(s[0], s[1]);
+    const row = [s[0], s[1], s[2], "bus"];
+    const list = busGrid.get(key);
+    if (list) list.push(row); else busGrid.set(key, [row]);
+    const at = { lat: s[0], lng: s[1], name: s[2], kind: "bus" };
+    busAll.push(at);
+    const nk = normalizeName(s[2]);
+    if (!busByName.has(nk)) busByName.set(nk, at);
+  }
+}
+
+/** その点の周りにあるタイルを読みます。 */
+async function loadBusNear(point, maxKm) {
+  const { tiles } = await loadBusIndex();
+  if (!tiles) return;                    // 古い形。もう全部あります
+  const span = Math.max(0, Math.ceil(maxKm / (TILE_DEG * 111)));
+  const want = new Set();
+  for (let dx = -span; dx <= span; dx++) {
+    for (let dy = -span; dy <= span; dy++) {
+      want.add(`${Math.floor(point.lat) + dx}_${Math.floor(point.lng) + dy}`);
+    }
+  }
+  const files = tiles.filter((t) => want.has(`${t.lat}_${t.lng}`));
+  await Promise.all(files.map((t) => {
+    let p = busTiles.get(t.file);
+    if (!p) {
+      p = fetchStops(t.file).then(addBus);
+      busTiles.set(t.file, p);
+    }
+    return p;
+  }));
+}
+
+/** バス停を全部読みます（名前で引くときだけ）。 */
+function loadAllBus() {
+  allBusPromise ??= loadBusIndex().then(async ({ tiles }) => {
+    if (!tiles) return;
+    await Promise.all(tiles.map((t) => {
+      let p = busTiles.get(t.file);
+      if (!p) {
+        p = fetchStops(t.file).then(addBus);
+        busTiles.set(t.file, p);
+      }
+      return p;
+    }));
+  });
+  return allBusPromise;
+}
+
+function nameIndex(stops, kind) {
+  const byName = new Map();
+  for (const s of stops) {
+    const key = normalizeName(s[2]);
+    if (!byName.has(key)) {
+      byName.set(key, { lat: s[0], lng: s[1], name: s[2], kind });
+    }
+  }
+  return byName;
 }
 
 /** 「新宿駅」「 新宿 」を同じ鍵にします。 */
@@ -102,7 +202,9 @@ function normalizeName(name) {
  * 取りにいくと、その数秒ぶん候補が出ません。触れた時点で始めます。
  */
 export function preloadStops() {
-  load().catch(() => { /* 読めなくても、直線距離の目安に戻るだけです */ });
+  // 先に読むのは駅だけです（0.3MB）。バス停は、座標で引くときに
+  // その周りのタイルだけを読みます。
+  loadRail().catch(() => { /* 読めなくても、直線距離の目安に戻るだけです */ });
 }
 
 /**
@@ -112,8 +214,13 @@ export function preloadStops() {
 export async function findStop(name) {
   const q = normalizeName(name);
   if (!q) return null;
-  const { byName } = await load();
-  return byName.get(q) ?? null;
+  const rail = await loadRail();
+  const hit = rail.byName.get(q) ?? busByName.get(q);
+  if (hit) return hit;
+  // 駅に無い名前は、バス停かもしれません。名前ではどのタイルか
+  // 分からないので、ここでだけ全部読みます。
+  await loadAllBus();
+  return busByName.get(q) ?? null;
 }
 
 /**
@@ -124,10 +231,18 @@ export async function findStop(name) {
 export async function searchStops(query, limit = 20) {
   const q = normalizeName(query);
   if (q.length < 1) return [];
-  const { all } = await load();
+  const rail = await loadRail();
+  let pool = [...rail.all, ...busAll];
+  // 駅の名前に1つも当たらないときだけ、バス停まで見ます。
+  // 「松江」と打った人に要るのは松江駅で、松江市内のバス停400件では
+  // ありません（打ち込みのたびに全部読むわけにもいきません）。
+  if (!pool.some((s) => normalizeName(s.name).includes(q))) {
+    await loadAllBus();
+    pool = [...rail.all, ...busAll];
+  }
   const starts = [];
   const contains = [];
-  for (const s of all) {
+  for (const s of pool) {
     const n = normalizeName(s.name);
     if (n === q || n.startsWith(q)) starts.push(s);
     else if (n.includes(q)) contains.push(s);
@@ -175,7 +290,20 @@ export async function nearestStop(point, maxKm = 3) {
  * @returns {Promise<Array<{lat,lng,name,kind,km}>>}
  */
 export async function nearbyStops(point, maxKm = 3, limit = 3) {
-  const grid = await loadGrid();
+  if (!Number.isFinite(point?.lat) || !Number.isFinite(point?.lng)) return [];
+  const rail = await loadRail();
+  let out = scan([rail.grid, busGrid], point, maxKm, limit);
+  // 頼まれた数に足りないなら、その周りのバス停タイルも読みます。
+  // ここを節約すると、駅の無い土地で時刻が引けなくなります。
+  if (out.length < limit) {
+    await loadBusNear(point, maxKm);
+    out = scan([rail.grid, busGrid], point, maxKm, limit);
+  }
+  return out;
+}
+
+/** 格子（駅とバス停）から、近い順にいくつか拾います。 */
+function scan(grids, point, maxKm, limit) {
   const cx = Math.round(point.lat / CELL_DEG);
   const cy = Math.round(point.lng / CELL_DEG);
   // 見るマスの数は、探す半径から決めます。
@@ -189,12 +317,14 @@ export async function nearbyStops(point, maxKm = 3, limit = 3) {
   const found = [];
   for (let dx = -span; dx <= span; dx++) {
     for (let dy = -span; dy <= span; dy++) {
-      const list = grid.get(`${cx + dx},${cy + dy}`);
-      if (!list) continue;
-      for (const s of list) {
-        const km = haversineKm(point, { lat: s[0], lng: s[1] });
-        if (km <= maxKm) {
-          found.push({ lat: s[0], lng: s[1], name: s[2], kind: s[3], km });
+      for (const grid of grids) {
+        const list = grid.get(`${cx + dx},${cy + dy}`);
+        if (!list) continue;
+        for (const s of list) {
+          const km = haversineKm(point, { lat: s[0], lng: s[1] });
+          if (km <= maxKm) {
+            found.push({ lat: s[0], lng: s[1], name: s[2], kind: s[3], km });
+          }
         }
       }
     }
@@ -203,7 +333,7 @@ export async function nearbyStops(point, maxKm = 3, limit = 3) {
   // 駅とバス停があるなら駅を先にします。
   found.sort((a, b) => {
     if (Math.abs(a.km - b.km) > 0.3) return a.km - b.km;
-    const rank = (s) => (s.kind === "rail" ? 0 : 1);
+    const rank = (x) => (x.kind === "rail" ? 0 : 1);
     return rank(a) - rank(b) || a.km - b.km;
   });
   const seen = new Set();
@@ -220,5 +350,11 @@ export async function nearbyStops(point, maxKm = 3, limit = 3) {
 
 /** テスト・診断用に、読み込み状態をリセットします。 */
 export function resetStopsCache() {
-  loadPromise = null;
+  railPromise = null;
+  busIndexPromise = null;
+  allBusPromise = null;
+  busTiles.clear();
+  busGrid.clear();
+  busAll = [];
+  busByName = new Map();
 }
