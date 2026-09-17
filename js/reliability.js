@@ -48,6 +48,8 @@ export function travelSource(item) {
  */
 /** 車（またはバイク）で回る旅か。 */
 function byCar(itin) { return itin?.transport === "car"; }
+/** 区間で乗るものが変わる旅（電車で行って、現地は車）。 */
+function mixedRide(itin) { return itin?.transport === "transit+car"; }
 
 export function estimatedTravel(itin) {
   const moves = (itin?.days ?? [])
@@ -97,6 +99,22 @@ export function tripReliability(itin) {
       //
       // 車の旅では「便」も「時刻表」も出てきません。引くのは道のりです。
       detail: !moves.length ? "移動がありません。"
+        // 電車で行って現地は車。同じ旅程に、便で決まる区間と道のりで
+        // 決まる区間が並びます。ひとまとめに「◯区間は実際の便から」と
+        // 書くと、運転する区間にも便があるように読めます。
+        : mixedRide(itin)
+          // 0区間しか取れていないのに「遠出は実際の便」と書くと、
+          // 取れているように読めます。取れた数で言い分けます。
+          ? (realMoves.length === 0
+            ? `${moves.length}区間はすべて距離からの目安です`
+              + "（もう一度調べると、遠出は便の時刻、現地は道のりが"
+              + "入ることがあります）。"
+            : `${moves.length}区間のうち${realMoves.length}区間は確認済み`
+              + "（遠出は実際の便、現地は経路検索の道のり）。"
+              + (est.retryable
+                ? `残り${est.retryable}区間は距離からの目安です`
+                  + "（もう一度調べると入ることがあります）。"
+                : ""))
         : byCar(itin)
           ? `${moves.length}区間のうち${realMoves.length}区間は経路検索で確認。`
             + (est.retryable

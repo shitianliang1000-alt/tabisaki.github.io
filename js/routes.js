@@ -186,6 +186,9 @@ export function pickMode(points, transport = "any") {
   // 人にも「バスがないので行けません」と言うことになります。
   if (transport === "car") return "DRIVE";
   if (transport === "walk") return "WALK";
+  // 電車＋現地の車。区間ごとに分けて聞きます（pipeline.js の
+  // modeGroups）。ここに1つだけ返すときは、遠出のほうを答えます。
+  if (transport === "transit+car") return "TRANSIT";
   let max = 0;
   for (let i = 0; i < points.length; i++) {
     for (let j = i + 1; j < points.length; j++) {

@@ -588,6 +588,31 @@ await check("車を選ぶと、車の旅として組み直す", async () => {
   assert(/道の楽しさ/.test(got.reasons), "道の楽しさの軸が出ていません");
 });
 
+await check("電車＋現地の車では、区間ごとに乗るものが変わる", async () => {
+  // 新幹線で行って駅でレンタカー。同じ旅程に、便で決まる区間と
+  // 道のりで決まる区間が並びます。どちらかに寄せると嘘になります。
+  await page.evaluate(() => { document.getElementById("tune").open = true; });
+  await page.click('#transport-choice [data-transport="transit+car"]');
+  await page.click("#make-plan");
+  await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
+  await until(page, () => document.querySelectorAll(".tl.transit").length > 1,
+             { timeout: 120_000 });
+
+  const got = await page.evaluate(() => ({
+    icons: [...document.querySelectorAll(".tl.transit .ic")]
+      .map((e) => e.textContent).join(""),
+    detail: document.querySelector(".check-list li .ck-detail")
+      ?.textContent ?? "",
+  }));
+  // 遠出は電車の絵、現地は車の絵。どちらも出ていること。
+  assert(got.icons.includes("🚃"), `電車の区間がありません: ${got.icons}`);
+  assert(got.icons.includes("🚗"), `運転の区間がありません: ${got.icons}`);
+  // 取れていない区間を、取れたように書かないこと
+  assert(!/0区間は確認済み/.test(got.detail), `妙な言い方です: ${got.detail}`);
+  // もとに戻します（このあとの確認は、おまかせのままで続けます）
+  await page.click('#transport-choice [data-transport="any"]');
+});
+
 // --- 泊まりの旅（宿・食事・荷物・代わりの案）-------------------------------
 // 1泊すると出てくるもの。日帰りの旅程には出ません。
 

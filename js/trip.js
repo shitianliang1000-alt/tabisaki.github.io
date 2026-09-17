@@ -146,8 +146,16 @@ export function makeTrip(init = {}) {
      * バスが1日3本の土地では、車があれば回れる場所が、なければ
      * 回れません。距離だけから推し量れないので、聞きます。
      */
-    transport: ["any", "transit", "car", "walk"].includes(init.transport)
-      ? init.transport : "any",
+    /*
+     * "transit+car" は、行きは電車で、現地だけ車という旅です。
+     *
+     * 遠出でいちばん多い形なのに、これまでは選べませんでした。
+     * 「車」を選ぶと出発地から目的地まで運転する旅程になり、
+     * 「電車・バス」を選ぶとバスが1日3本の土地を歩かされます。
+     * 新幹線で行って駅でレンタカーを借りる旅は、そのどちらでもありません。
+     */
+    transport: ["any", "transit", "car", "walk", "transit+car"]
+      .includes(init.transport) ? init.transport : "any",
     hiddenBias: init.hiddenBias ?? 0.5,
     /**
      * 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。

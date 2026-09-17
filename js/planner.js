@@ -320,6 +320,11 @@ export function buildItinerary(input) {
           // 読む人がどちらを信じてよいか分からなくなります。
           from: cur, to: v.spot,
           walk: onFoot, km: v.km ?? 0,
+          // 車で行く区間か。電車＋現地の車では、同じ旅程の中に
+          // 新幹線の区間と運転の区間が並びます。絵と言葉を区間ごとに
+          // 変えないと、新幹線に車の絵が付きます（pipeline.js の
+          // modeGroups が区間に書いています）。
+          drive: leg?.mode === "DRIVE" && !onFoot,
           routed: routed && fits,
           noTransit: leg?.noTransit === true && !onFoot,
           taxi: leg?.taxi === true && !onFoot,

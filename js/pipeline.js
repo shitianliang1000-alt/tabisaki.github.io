@@ -1204,6 +1204,9 @@ export function dropSamePlace(spots) {
 function chainOf(visits, ctx, trip, stays) {
   const points = [trip.origin, stays[0].station];
   const times = [new Date(trip.departAt)];
+  // それぞれの点が何なのか（出発地・拠点・立ち寄り・終点）。
+  // 電車＋現地の車では、**どの区間を電車で聞くか**をこれで決めます。
+  const kinds = ["origin", "station"];
   let stayIdx = 0;
   for (const v of visits) {
     // 滞在が変わる日に入ったら、その朝の拠点移動を挟みます。
@@ -1213,13 +1216,61 @@ function chainOf(visits, ctx, trip, stays) {
       times.push(dayTime(trip, stays[stayIdx].dayFrom,
                          ctx.dayStartHour ?? TUNING.dayStartHour));
       points.push(stays[stayIdx].station);
+      kinds.push("station");
     }
     times.push(new Date(v.arrive.getTime() - (v.travel + v.wait) * 60000));
     points.push(v.spot);
+    kinds.push("spot");
   }
   times.push(new Date(visits.at(-1).end));
   points.push(ctx.end);
-  return { points, times };
+  kinds.push("end");
+  return { points, times, kinds };
+}
+
+/**
+ * 区間を、移動手段ごとのひと続きに分けます。
+ *
+ * 「新幹線で行って、駅でレンタカーを借りる」旅では、区間によって
+ * 乗るものが違います。ひとつの手段で全部を聞くと、どちらかが嘘に
+ * なります。DRIVE で聞けば新幹線が車の所要時間になり、TRANSIT で
+ * 聞けばバスが1日3本の土地を待ち続ける旅程になります。
+ *
+ * 分けかたは1つだけです。
+ *   ・出発地 ↔ 拠点、拠点 ↔ 拠点、最後 → 終点 …… 電車（遠出）
+ *   ・それ以外（拠点と立ち寄りのあいだ）  …… 車（現地）
+ *
+ * ほかの移動手段では、これまでどおり**ひと続きのまま**返します。
+ * 区間を分けると経路検索の回数が増えるので、分ける理由があるときだけ
+ * 分けます。
+ *
+ * @returns {Array<{mode:string, points:Array, times:Array}>}
+ */
+export function modeGroups(points, times, kinds, transport) {
+  const one = [{ mode: pickMode(points, transport), points, times }];
+  if (transport !== "transit+car" || points.length < 2 || !kinds) return one;
+
+  // 拠点に着く区間と、終点に着く区間が遠出です。
+  //
+  // 立ち寄りから次の拠点へ移る区間も、ここでは電車にします。
+  // 車は**その土地で借りて、その土地で返す**前提です（乗り捨ては
+  // 別料金なので、勝手に前提にはできません）。
+  const longHaul = (i) => kinds[i + 1] === "station" || kinds[i + 1] === "end";
+
+  const out = [];
+  let start = 0;
+  let mode = longHaul(0) ? "TRANSIT" : "DRIVE";
+  for (let i = 1; i + 1 < points.length + 1 && i < points.length - 1; i++) {
+    const m = longHaul(i) ? "TRANSIT" : "DRIVE";
+    if (m === mode) continue;
+    // 境目の点は、両方のひと続きに入れます（区間が抜けないように）
+    out.push({ mode, points: points.slice(start, i + 1),
+               times: times.slice(start, i + 1) });
+    start = i;
+    mode = m;
+  }
+  out.push({ mode, points: points.slice(start), times: times.slice(start) });
+  return out.filter((g) => g.points.length >= 2);
 }
 
 /**
@@ -1277,22 +1328,45 @@ async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
   for (let round = 0; round < MEASURE_ROUNDS; round++) {
     const visits = current.result?.visits ?? [];
     if (!visits.length) break;
-    const { points, times } = chainOf(visits, ctx, trip, stays);
+    const { points, times, kinds } = chainOf(visits, ctx, trip, stays);
     const usable = points.filter(Boolean);
     if (usable.length !== points.length || usable.length < 2) break;
 
-    let route;
-    try {
-      route = await routeChain(points, {
-        mode: pickMode(points, trip.transport),
-        departAt: times[0], departTimes: times,
-      });
-    } catch {
-      break;   // 取れなければ、いま組んである旅程のままにします
+    // 乗るものが区間で変わる旅（電車＋現地の車）は、分けて聞きます。
+    // ほかの旅では、これまでどおりひと続きで1回です。
+    const groups = modeGroups(points, times, kinds, trip.transport);
+    const merged = [];
+    const parts = [];
+    let failed = false;
+    for (const g of groups) {
+      try {
+        const part = await routeChain(g.points, {
+          mode: g.mode, departAt: g.times[0], departTimes: g.times,
+        });
+        if (!part?.legs?.length) { failed = true; break; }
+        // どの手段で調べた区間なのかを、区間そのものに書いておきます。
+        // 画面（絵・言葉）と .ics の説明が、これを見て変わります。
+        for (const leg of part.legs) leg.mode = g.mode;
+        merged.push([g.points, part.legs]);
+        parts.push(part);
+      } catch {
+        failed = true;
+        break;   // 取れなければ、いま組んである旅程のままにします
+      }
     }
-    if (!route?.legs?.length) break;
-
-    const merged = [[points, route.legs]];
+    if (failed || !merged.length) break;
+    const allLegs = merged.flatMap(([, legs]) => legs);
+    // ひと続きで聞いたときは、返ってきたものをそのまま使います
+    // （どこまで引けたか・どの手段だったかを、そのまま持たせます）。
+    const route = parts.length === 1
+      ? { ...parts[0], legs: allLegs }
+      : {
+        legs: allLegs,
+        routed: parts.every((x) => x.routed),
+        mode: "MIXED",
+        modeNote: "遠出は電車・バス、現地は車で調べています",
+        error: parts.find((x) => x.error)?.error,
+      };
     const nextTravel = legLookupAll(merged);
     const nextDetail = legDetailLookup(merged);
 

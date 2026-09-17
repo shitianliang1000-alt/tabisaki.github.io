@@ -29,6 +29,10 @@ function iconFor(item, itin) {
   if (item.kind === "transit") {
     if (item.taxi) return "🚕";
     if (item.walk) return "🚶";
+    // 区間ごとに乗るものが違う旅（電車＋現地の車）では、区間の側が
+    // 答えを持っています。持っているほうを先に見ます。
+    if (item.drive === true) return "🚗";
+    if (itin?.transport === "transit+car") return "🚃";
     // 車の旅で電車の絵を出すと、乗り換えを探すことになります。
     if (isTouring(itin)) return "🚗";
   }
