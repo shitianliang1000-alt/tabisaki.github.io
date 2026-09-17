@@ -222,6 +222,29 @@ await check("何をしてくれるサイトかが書いてある", async () => {
   assert(visible, "つくりかたが隠れています");
 });
 
+await check("停留所の読み解きを、別のスレッドに回している", async () => {
+  // 停留所のデータは2.6MB（駅0.3MB＋バス停2.3MB）あります。本体側で
+  // 読んで解くと、低スペックの携帯では400msほど画面が止まり、しかも
+  // 2.6MBが本体側の記憶に載り続けます。返すのは「最寄り3件」のような
+  // 小さな答えだけなので、本体側に置いておく理由がありません。
+  await page.click("#depart-place");
+  await page.fill("#depart-place", "松江");
+  await until(page, () =>
+    document.querySelectorAll("#place-list option").length > 0,
+             { timeout: 60_000 });
+
+  const workers = page.workers().map((w) => w.url().split("/").pop());
+  assert(workers.includes("stops-worker.js"),
+    `別のスレッドが動いていません: ${workers.join(",") || "なし"}`);
+
+  // 答えが返ってきていること（回した先で止まっていないこと）
+  const opts = await page.$$eval("#place-list option",
+    (els) => els.map((e) => e.value));
+  assert(opts.some((v) => v.includes("松江")),
+    `停留所の候補が出ていません: ${opts.slice(0, 5).join("・")}`);
+  await page.fill("#depart-place", "東京駅");
+});
+
 await check("開いただけでは、現在地を聞かない", async () => {
   // 何も操作していない相手にいきなり権限を求めると、断られて当然です。
   const granted = await page.evaluate(async () => {

@@ -8,6 +8,7 @@ import test from "node:test";
 
 import { findStop, nearbyStops, nearestStop, resetStopsCache, searchStops }
   from "../js/stops.js";
+import * as data from "../js/stops-data.js";
 
 const FUJI_5GO = { lat: 35.3606, lng: 138.7364 };
 const FUJI_SUMMIT = { lat: 35.3606, lng: 138.7305 };
@@ -135,3 +136,24 @@ test("2番目の候補があるので、最寄りが同じでも別の名前を�
       const near = await nearbyStops(TOKYO, 5, 3);
       assert.deepEqual(near.map((s) => s.name), ["東京", "日本橋"]);
     }));
+
+test("Worker が無い場でも、同じ答えを返す", async () => {
+  // 停留所の読み解きは別のスレッドに回しています（2.6MBあり、
+  // 本体側で解くと画面が止まります）。ただし Worker が使えない場
+  // （この試験、file:// で開いたとき、古い環境）でも動かなければ
+  // なりません。**使えないときに止まる**より、その場で計算します。
+  //
+  // 計算は1か所（stops-data.js）にまとめてあるので、どちらで
+  // 計算しても答えは同じです。ここでそれを固定します。
+  assert.equal(typeof Worker, "undefined");
+  await withStops(
+    { stops: [[35.3606, 138.7364, "富士山五合目"]] },
+    { stops: [] },
+    async () => {
+      const viaProxy = await nearbyStops(FUJI_5GO, 3, 3);
+      resetStopsCache();
+      const direct = await data.nearbyStops(FUJI_5GO, 3, 3);
+      assert.deepEqual(viaProxy, direct);
+      assert.equal(viaProxy[0].name, "富士山五合目");
+    });
+});
