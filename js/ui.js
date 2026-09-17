@@ -58,7 +58,8 @@ export function el(tag, attrs = {}, ...children) {
       node.addEventListener(k.slice(2).toLowerCase(), v);
     } else if (["href", "src", "action"].includes(k) && typeof v === "string") {
       const sanitized = v.replace(/[\x00-\x20]/g, "").toLowerCase();
-      if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:")) {
+      const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
+      if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
         // XSS防止: href への javascript: の埋め込みを防ぐ
         // AIや外部データからのURLに悪意のあるコードが含まれていても発火しないようにします
         node.setAttribute(k, "about:blank");

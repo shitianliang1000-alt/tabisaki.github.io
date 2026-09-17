@@ -20,3 +20,7 @@
 **Vulnerability:** The javascript: URI check in href attributes could be bypassed using control characters (e.g. \x09 or \x00), and other attributes like src and action were not checked, leading to potential XSS execution. Additionally, vbscript: was not restricted.
 **Learning:** Checking for javascript: URIs must account for how browsers parse URLs, specifically by ignoring control characters (ASCII 0-32). Checking only href is insufficient as src and action can also execute code.
 **Prevention:** Sanitize href, src, and action attributes by stripping all [\x00-\x20] control characters before matching against javascript: and vbscript:.
+## 2026-09-17 - Prevent XSS via data: URIs in attributes
+**Vulnerability:** The central `el()` DOM helper in `js/ui.js` and `admin/admin.js` protected against `javascript:` and `vbscript:` URI XSS, but lacked validation for dangerous `data:` URIs (e.g. `data:text/html`). Attackers could exploit this to inject malicious code using `href`, `src`, or `action` attributes.
+**Learning:** `data:` URIs can act as a vector for XSS in addition to `javascript:` and `vbscript:`. Allowing arbitrary `data:` URIs, especially those containing text or HTML, presents a security risk. However, completely blocking `data:` URIs breaks legitimate use cases like inline `data:image/` URIs.
+**Prevention:** Added check for dangerous `data:` URIs in the `el()` function (excluding `data:image/`) to neutralize them in `href`, `src`, or `action` attributes by replacing them with `about:blank`.

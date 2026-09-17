@@ -29,7 +29,8 @@ function el(tag, attrs = {}, ...kids) {
     if (k === "class") node.className = v;
     else if (["href", "src", "action"].includes(k) && typeof v === "string") {
       const sanitized = v.replace(/[\x00-\x20]/g, "").toLowerCase();
-      if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:")) {
+      const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
+      if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
         node.setAttribute(k, "about:blank");
       } else {
         node.setAttribute(k, v);
