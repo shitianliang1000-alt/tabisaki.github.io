@@ -371,6 +371,59 @@ test("区間の中身が引ければ、スポット間の移動にも載せる",
     "スポット間の移動に公共交通の中身が載っていません");
 });
 
+test("駅もバス停も無い区間は、タクシーの区間として旅程に載る", () => {
+  // 近くに乗り物が無い区間に、電車・バスの目安（待ちと乗り換えを含む
+  // 数字）を当てると、**乗り物が来ない場所ほど長く出る**という逆のことが
+  // 起きます。routes.js がタクシーとして見積もった区間は、旅程の行にも
+  // タクシーとして出ること。
+  const trip = makeTrip({ origin: TOKYO, departAt: d("2026-09-12T09:00"),
+                          arriveBy: d("2026-09-12T19:00") });
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+  });
+  const itin = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(),
+    legs: { outbound: { minutes: 60, routed: false,
+                        noTransit: true, taxi: true },
+            inbound: { minutes: 60, routed: false } },
+  });
+  const first = itin.days.flatMap((x) => x.items)
+    .find((i) => i.kind === "transit");
+  assert.equal(first.taxi, true, "タクシーの印が載っていません");
+  assert.equal(first.noTransit, true);
+  assert.match(first.detail, /タクシー/);
+});
+
+test("歩ける区間は、タクシーを名乗らない", () => {
+  // routes.js が近くに停留所を見つけられなくても、200m なら歩きます。
+  // 行に「徒歩約7分」と書きながら、確からしさの印に「タクシー」と
+  // 出すと、読む人はどちらを信じてよいか分かりません。
+  const trip = makeTrip({ origin: TOKYO, departAt: d("2026-09-12T09:00"),
+                          arriveBy: d("2026-09-12T19:00") });
+  const v = verifyOrder(spots, {
+    start: { lat: REGION.stationLat, lng: REGION.stationLng },
+    startAt: d("2026-09-12T10:00"), end: TOKYO, endBy: trip.arriveBy,
+  });
+  const legDetail = (a, b) =>
+    (a?.id === "s1" && b?.id === "s2")
+      ? { minutes: 9, routed: false, noTransit: true, taxi: true }
+      : null;
+  const itin = buildItinerary({
+    trip, region: REGION, visits: v.visits, reasons: new Map(), legDetail,
+    legs: { outbound: { minutes: 60, routed: false },
+            inbound: { minutes: 60, routed: false } },
+  });
+  const between = itin.days.flatMap((x) => x.items)
+    .filter((i) => i.kind === "transit" && /へ移動$/.test(i.title ?? ""));
+  assert.ok(between.length, "立ち寄り間の移動がありません");
+  for (const i of between) {
+    if (!/徒歩/.test(i.detail)) continue;
+    assert.notEqual(i.taxi, true, `${i.detail} にタクシーの印が付いています`);
+    assert.notEqual(i.noTransit, true);
+  }
+});
+
 test("中身が分からない移動には、何も足さない（推定を装わない）", () => {
   const trip = makeTrip({ origin: TOKYO, departAt: d("2026-09-12T09:00"),
                           arriveBy: d("2026-09-12T19:00") });

@@ -70,6 +70,21 @@ export function confidenceOf(kind, subject, opts = {}) {
       walk.source = "";
       return walk;
     }
+    // 「目安」には2通りあります。**直せるものと、直せないものです。**
+    //
+    //   近くに駅・バス停が無い … 何度作り直しても同じです。車かタクシー。
+    //   時刻を引けなかった     … 通信や混雑のことがあり、作り直すと入ります。
+    //
+    // 同じ「🟡 目安」で並べていたので、読む人には区別がつかず、
+    // 直らないものを何度も作り直すことになっていました。
+    if (!routed && s.noTransit === true) {
+      const taxi = build("estimated",
+        "近くに駅・バス停が見当たりません。タクシーで行くものとして、"
+        + "距離から時間と運賃を見積もっています", checkedAt, age);
+      taxi.label = "タクシー";
+      taxi.source = "";
+      return taxi;
+    }
     const out = build(routed ? "verified" : "estimated",
       s.yahoo
         ? "Yahoo!路線情報の時刻です（乗換・待ち時間を含みます）"

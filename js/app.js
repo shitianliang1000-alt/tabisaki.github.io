@@ -951,51 +951,32 @@ function fillMoodRail() {
 // 粒が増えるのが見えれば、動かしながら決められます。
 
 function renderStardust(value) {
-  const box = $("#stardust");
-  if (!box) return;
-  const n = Math.round(4 + (value / 100) * 46);
-
-  // 毎回作り直すと、粒に付いた出現アニメーションが動かすたびに
-  // 頭から始まり、掴んで動かしているあいだ点が消えたままになります。
-  // 足りないぶんだけ足し、多いぶんだけ外します。
-  const have = box.children.length;
-  for (let i = have; i < n; i++) {
-    // 位置と大きさは番号から決めます。動かすたびに散らばりが
-    // 変わると、増えたのか減ったのかが分からなくなります。
-    const x = ((i * 37) % 100);
-    const y = ((i * 61) % 100);
-    const size = 1.5 + ((i * 13) % 5) * 0.6;
-    box.append(el("i", { style: `left:${x}%;top:${y}%;`
-      + `width:${size}px;height:${size}px` }));
-  }
-  for (let i = have; i > n; i--) box.lastElementChild?.remove();
-
-  // 星の粒だけでは、どちらへ寄っているのかが分かりませんでした
-  // （増えているのは分かるが、それが「定番」なのか「穴場」なのか）。
-  // 10か所行くとしたら何対何になるのか、数で先に言います。
-  //
-  // 以前は「5 定番／2 穴場」と数字を並べ、残りの「知る人ぞ知る」だけ
-  // 別の文で「残り3か所は…」と言っていました。3つの数を、1つの文の
-  // 中で同じ扱いで言うほうが分かりやすいとのことなので、そろえます。
+  // 10か所ぶんの点を、定番・知る人ぞ知る・穴場の3つの区画に置きます。
+  // **人が多いところに、点が多い。** つまみを動かすと点が区画から区画へ
+  // 移るので、何が変わるのかが目で分かります。
   //
   // **実際に選ぶ関数から引きます。** ここで別の式を持つと、画面には
   // 「穴場10」と出ているのに定番のほうが多く返る、ということが起きます
   // （実際そうなっていて、スライダーの向きが逆に見えていました）。
   const t = mixTargets(10, value / 100);
+
+  // 毎回作り直すと、点に付いた出現アニメーションが動かすたびに頭から
+  // 始まり、掴んで動かしているあいだ点が消えたままになります。
+  // 足りないぶんだけ足し、多いぶんだけ外します。
+  for (const [id, n] of [["#mix-dots-major", t.major],
+                         ["#mix-dots-known", t.known],
+                         ["#mix-dots-hidden", t.hidden]]) {
+    const box = $(id);
+    if (!box) continue;
+    const have = box.children.length;
+    for (let i = have; i < n; i++) box.append(el("b", {}));
+    for (let i = have; i > n; i--) box.lastElementChild?.remove();
+  }
+
   const set = (id, text) => { const e = $(id); if (e) e.textContent = text; };
   set("#mix-classic-n", String(t.major));
   set("#mix-known-n", String(t.known));
   set("#mix-hidden-n", String(t.hidden));
-  // 帯は3段。定番→知る人ぞ知る→穴場の順に、そのまま割合で埋めます。
-  // 「穴場」を帯の地色（塗っていない残り）として見せていたのをやめ、
-  // 3つとも塗った区画にします。塗っていない部分が「何か」を、
-  // 読む人が推測しなくて済みます。
-  const fill = $("#mix-fill");
-  if (fill) fill.style.width = `${t.major * 10}%`;
-  const mid = $("#mix-known-fill");
-  if (mid) mid.style.width = `${t.known * 10}%`;
-  const last = $("#mix-hidden-fill");
-  if (last) last.style.width = `${t.hidden * 10}%`;
 
   const help = $("#hidden-bias-help");
   if (help) {
@@ -2052,6 +2033,11 @@ function show(itin, trip) {
     },
     onSpotEdit: (req) => editSpot(req, trip, itin),
     onRestore: (d) => restoreSpot(d, trip),
+    // 「まだ目安があります」への答え。同じ条件で組み直します。
+    // 引けなかった区間だけをもう一度聞く仕組みは持っていないので、
+    // 素直に組み直します（時刻表に聞く回数と間隔は組むたびに
+    // 数え直すので、混んでいて外した区間が入ることがあります）。
+    onRecheck: () => run(trip),
     onSpot: (item) => {
       state.map.focus(item.place.lat, item.place.lng);
       openSheet(item, { describe: (s) => describeSpot(s) });

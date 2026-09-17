@@ -151,8 +151,20 @@ p, li { text-wrap: pretty; }
   gap: 12px;
 }
 .checked-stars { font-size: 15px; letter-spacing: .08em; white-space: nowrap; }
+.checked-stars b, .checked-stars i {
+  display: inline-block;
+  /* 左から1つずつ灯します。数えているところが見えるほうが、
+     「5段階で2」と書いてあるより早く伝わります。 */
+  animation: star-pop 420ms var(--md-sys-motion-emphasized-decelerate) both;
+  animation-delay: calc(var(--i, 0) * 90ms + 120ms);
+}
 .checked-stars b { color: var(--md-sys-color-primary); font-weight: 600; }
 .checked-stars i { color: var(--hig-separator-opaque); font-style: normal; }
+@keyframes star-pop {
+  from { opacity: 0; transform: scale(.4) rotate(-18deg); }
+  60%  { opacity: 1; transform: scale(1.18) rotate(4deg); }
+  to   { opacity: 1; transform: scale(1) rotate(0); }
+}
 .panel.checked.lv-low .checked-stars b { color: var(--hig-orange, #c46a1b); }
 
 .check-list { list-style: none; margin: 10px 0 0; padding: 0; }
@@ -257,19 +269,21 @@ p, li { text-wrap: pretty; }
   box-shadow: 0 0 0 3px var(--tabi-indigo), var(--hig-shadow-2);
 }
 .mood .m-ic {
-  position: absolute; top: 10px; left: 12px;
-  font-size: 22px;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .4));
+  position: absolute; top: 12px; left: 14px;
+  font-size: 28px;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, .35));
 }
 /* 写真の上に文字を置くので、下から暗く落とします。 */
 .mood .m-tx {
   position: absolute; inset: auto 0 0 0;
-  padding: 26px 12px 11px;
+  padding: 28px 14px 12px;
   text-align: left;
-  font-size: 14px; font-weight: 600; letter-spacing: -.1px; line-height: 1.35;
+  font-size: 15px; font-weight: 600; letter-spacing: -.1px; line-height: 1.35;
   color: #fff;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, .55);
-  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, .62) 78%);
+  /* 面そのものを濃くしたので、幕と影を薄くできます。幕が濃いと、
+     どのカードも下半分が同じ黒になり、色相の違いが消えます。 */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, .42) 82%);
 }
 
 /* 自分の言葉で書く（畳んでおきます）。 */
@@ -358,38 +372,77 @@ p, li { text-wrap: pretty; }
   display: flex; align-items: center;
   margin-bottom: 10px;
 }
-/* 「寄っているほうを大きく／薄く」という側ごとの数字表示（.mix-side）は
-   やめました。3つの数を1つの文（.mix-summary）で言うようにしたので、
-   帯の左右に別々の数字を置く必要が無くなっています。 */
-/* 帯。左が定番（藍）、まん中が「知る人ぞ知る」（藍を薄めた色）、
-   右が穴場（青緑）。3つとも塗った区画にします。以前は穴場だけ
-   「塗っていない残り」で表していて、何を表しているかが帯だけでは
-   分かりませんでした。 */
-.mix-bar {
-  flex: 1; height: 12px; border-radius: 6px; overflow: hidden;
-  background: var(--hig-fill-3, rgba(120, 120, 128, .16));
-  position: relative;
-  display: flex;
+/* 定番と穴場のまぜかた。
+   ------------------------------------------------------------------
+   10か所ぶんの点を、3つの区画に置くだけの絵です。**人が多いところに、
+   点が多い。** つまみを動かすと点が区画から区画へ移ります。
+
+   以前は「割合の帯」と「意味のない点の散らばり」と「文」が並んでいて、
+   同じことを3通りで言っていました。しかも点は 1.5〜4px で位置もでたらめ
+   だったので、何を表しているのか読み取れないとのことでした。帯と散らばりを
+   やめて、点そのものを答えにしています。 */
+.mixplot { margin: 4px 0 0; }
+.mixplot-zones {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 4px; height: 58px;
 }
-.mix-bar > i {
-  display: block; height: 100%; flex: none;
-  transition: width var(--hig-mid) var(--hig-ease);
+.mixzone {
+  position: relative; overflow: hidden;
+  border-radius: var(--md-sys-shape-corner-medium);
+  display: grid; place-items: center;
 }
-.mix-fill-major { background: var(--tabi-indigo); }
-.mix-fill-known {
+/* 区画の地色は、その区画の点の色を薄めたものにします。地の色を
+   灰に混ぜていたころは、明るい配色でも暗い配色でも3つとも同じ灰色に
+   見えて、区切りの意味がありませんでした。 */
+.mixzone--major  { background: color-mix(in srgb, var(--tabi-indigo) 16%, transparent); }
+.mixzone--known  { background: color-mix(in srgb, var(--tabi-indigo) 9%, transparent); }
+.mixzone--hidden { background: color-mix(in srgb, var(--tabi-teal) 10%, transparent); }
+
+/* 点の入れもの。中央にまとめ、折り返します。数が増えるほど密になります。 */
+.mixzone > i {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+  gap: 5px; width: 100%; padding: 6px; max-width: 106px;
+}
+.mixzone > i > b {
+  display: block; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--tabi-indigo);
+  animation: star-in var(--md-sys-motion-medium)
+             var(--md-sys-motion-emphasized-decelerate) both;
+}
+.mixzone--known > i > b {
   background: color-mix(in srgb, var(--tabi-indigo) 42%, var(--tabi-teal));
 }
-.mix-fill-hidden { background: var(--tabi-teal); }
+.mixzone--hidden > i > b { background: var(--tabi-teal); }
+@keyframes star-in {
+  from { opacity: 0; transform: scale(.2); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* 区画の名前。どちらが「人が多い」側なのかを、軸として言います。 */
+.mixplot-axis {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 3px; margin-top: 6px;
+  font-size: 11px; line-height: 1.4; text-align: center;
+  color: var(--hig-label-2);
+}
+.mixplot-axis b {
+  display: block; font-size: 12px; font-weight: 600;
+  color: var(--hig-label);
+}
 
 /* 「10か所のうち、定番が5か所、知る人ぞ知る場所が3か所、穴場が2か所
-   くらいになります」。3つの数を、同じ扱いで1つの文に言います。
-   以前は「5 定番／2 穴場」を大きな数字で並べ、残りの「知る人ぞ知る」
-   だけ別の文で言っていて、比の読み取りに手間がかかりました。 */
+   くらいになります」。3つの数を、同じ扱いで1つの文に言います。 */
 .mix-summary {
-  margin: 10px 0 10px; font-size: 13px; line-height: 1.7;
+  margin: 4px 0 6px; font-size: 13px; line-height: 1.7;
   color: var(--hig-label-2);
 }
 .mix-summary b { font-weight: 700; color: var(--hig-label); }
+/* どんな旅になるかを先に1行で言い、数はその下に添えます。 */
+.mix-mood {
+  display: block; margin-bottom: 2px;
+  font-size: 15px; font-weight: 600; letter-spacing: -.1px;
+  color: var(--hig-label);
+}
 
 /* --- 1日のうち、動く時間帯 ------------------------------------------------ */
 /*
@@ -437,25 +490,6 @@ p, li { text-wrap: pretty; }
   color: var(--hig-label-2);
 }
 .chip-set { display: flex; flex-wrap: wrap; gap: 8px; }
-
-/* 穴場の度合いを、星の粒で見せます。数字より、増えるのが見えるほうが早い。 */
-/* 穴場の度合いを、星の粒で。帯が「割合」を、粒が「量」を出します。
-   帯だけだと 6:4 も 60:40 も同じに見えるので、粒で density を足します。 */
-.stardust {
-  height: 34px; margin-bottom: 4px;
-  border-radius: var(--md-sys-shape-corner-medium);
-  background: var(--hig-fill);
-  position: relative; overflow: hidden;
-}
-.stardust i {
-  position: absolute; border-radius: 50%;
-  background: var(--tabi-teal);
-  animation: star-in var(--md-sys-motion-medium) var(--md-sys-motion-emphasized-decelerate) both;
-}
-@keyframes star-in {
-  from { opacity: 0; transform: scale(.2); }
-  to   { opacity: 1; transform: scale(1); }
-}
 
 /* スイッチの行 */
 .switch-row {
@@ -1428,6 +1462,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--md-sys-color-on-surface-variant);
 }
 .tl .sun { margin: 8px 0 0; font-size: 13px; color: var(--md-sys-color-tertiary); }
+/* 長い運転に添える休憩のこと。日没の注記と同じ扱いの一行です。
+   色は本文寄りにします（警告ではなく、気づいてほしい程度のこと）。 */
+.tl .sun.rest { color: var(--hig-label-2); display: flex; gap: 6px; }
 .tl .chev {
   position: absolute; right: 12px; bottom: 12px;
   display: grid; place-items: center;
@@ -1464,17 +1501,34 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   margin-top: 10px; padding-top: 10px;
   border-top: .5px solid var(--hig-separator-non-opaque, rgba(0,0,0,.08));
 }
+/* カードには分類ごとの色が薄く敷いてあります。その上で枠線だけに
+   頼ると、暗い配色では枠が地の色に沈んで、**ただの文字に見えます**
+   （「別の候補」「外す」が押せるものだと分かりませんでした）。
+   文字色から作った薄い面を敷きます。どの色のカードの上でも、
+   明るい配色でも暗い配色でも、同じだけ浮きます。 */
 .spot-action {
   min-height: 36px; padding: 0 14px;
-  border: .5px solid var(--hig-separator-opaque);
+  border: .5px solid color-mix(in srgb, var(--hig-label) 20%, transparent);
   border-radius: var(--md-sys-shape-corner-small);
-  background: transparent;
+  background: color-mix(in srgb, var(--hig-label) 7%, transparent);
   color: var(--md-sys-color-on-surface-variant);
   font: inherit; font-size: 13px; font-weight: 500;
   cursor: pointer;
+  transition: background-color var(--hig-fast) var(--hig-ease);
 }
-.spot-action:hover { background: var(--md-sys-color-surface-container-high); }
+.spot-action:hover {
+  background: color-mix(in srgb, var(--hig-label) 14%, transparent);
+}
 .spot-action[data-action="remove"] { color: var(--md-sys-color-error, #b3261e); }
+
+/* 「まだ目安があります。もう一度調べますか」の1行。
+   確かめたことの下に、そのまま押せる形で置きます。 */
+.recheck {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 18px; padding-top: 16px;
+  border-top: .5px solid var(--hig-separator-opaque);
+}
+.recheck .fine { margin: 0; flex: 1 1 220px; }
 
 /* 外した場所を戻す */
 .dropped { margin-top: 12px; }
@@ -1713,6 +1767,80 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   padding: 12px 14px; border-radius: var(--md-sys-shape-corner-small);
   background: var(--md-sys-color-error-container);
   color: var(--md-sys-color-on-error-container);
+}
+
+/* ------------------------------------------------------------ 出かた ---
+
+   旅程は「出てくる」ものです。
+
+   組み終わった瞬間に全部が同時に現れると、どこから読めばよいのか
+   分かりません。**上から順に、少しずつ**出します。読む順番と同じ順で
+   出せば、目の動きがそのまま案内になります。
+
+   動かすのは opacity と translate/scale だけにします。どちらも描画の
+   やり直しが要らないので、古い端末でも詰まりません。translate は
+   transform とは別の性質なので、指を乗せたときの動き（transform を
+   使っています）と取り合いになりません。
+
+   「動きを減らす」設定にしている人には、どれも一瞬で終わります
+   （css/hig.css のいちばん下）。 */
+
+@keyframes rise-in {
+  from { opacity: 0; translate: 0 10px; }
+  to   { opacity: 1; translate: 0 0; }
+}
+
+/* 旅程の中身（要約・確かめたこと・日ごとの旅程・3案…）。 */
+#itinerary > * {
+  animation: rise-in 460ms var(--md-sys-motion-emphasized-decelerate) both;
+}
+#itinerary > :nth-child(2) { animation-delay: 60ms; }
+#itinerary > :nth-child(3) { animation-delay: 120ms; }
+#itinerary > :nth-child(4) { animation-delay: 180ms; }
+#itinerary > :nth-child(5) { animation-delay: 240ms; }
+#itinerary > :nth-child(6) { animation-delay: 300ms; }
+#itinerary > :nth-child(n+7) { animation-delay: 340ms; }
+
+/* 数の並び。左から順に置きます。 */
+.stats > div {
+  animation: rise-in 420ms var(--md-sys-motion-emphasized-decelerate) both;
+}
+.stats > :nth-child(2) { animation-delay: 50ms; }
+.stats > :nth-child(3) { animation-delay: 100ms; }
+.stats > :nth-child(4) { animation-delay: 150ms; }
+.stats > :nth-child(5) { animation-delay: 200ms; }
+.stats > :nth-child(6) { animation-delay: 250ms; }
+
+/* その日の行。時刻の早い順に出します（--i は js/ui.js が入れます）。
+   日を切り替えたときも、隠れていた側が表に出た時点で動き直します。 */
+.tl {
+  animation: rise-in 420ms var(--md-sys-motion-emphasized-decelerate) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+.day { animation: hig-fade 260ms var(--md-sys-motion-standard) both; }
+
+/* 前につくった旅の一覧。 */
+.recent-row {
+  animation: rise-in 360ms var(--md-sys-motion-emphasized-decelerate) both;
+}
+.recent-list > :nth-child(2) .recent-row { animation-delay: 50ms; }
+.recent-list > :nth-child(3) .recent-row { animation-delay: 100ms; }
+.recent-list > :nth-child(n+4) .recent-row { animation-delay: 140ms; }
+
+/* 選んだときの手ごたえ。押した先で何かが起きるまでのあいだ、
+   「受け取った」ことだけは即座に返します。 */
+@keyframes pick-pop {
+  0%   { scale: 1; }
+  45%  { scale: 1.04; }
+  100% { scale: 1; }
+}
+.mood.is-selected, .variant.is-selected {
+  animation: pick-pop 360ms var(--md-sys-motion-emphasized) both;
+}
+
+/* 言葉で直したときの返事。下からすっと出します。 */
+.talk-out:not([hidden]) {
+  animation: rise-in 320ms var(--md-sys-motion-emphasized-decelerate) both;
 }
 
 /* -------------------------------------------------------- 画面の幅 --- */

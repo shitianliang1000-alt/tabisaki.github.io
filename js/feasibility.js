@@ -167,6 +167,27 @@ export function isSlowTerrain(spot) {
  *   （距離に応じた車・鉄道への切り替えもしません。区間ぜんぶが徒歩の
  *   前提だからです）。
  */
+/**
+ * タクシーで行くときの所要時間（分）。
+ *
+ * 近くに駅もバス停も無い区間で使います。電車・バスの見積もり
+ * （estimateMinutes）をそのまま当てると、待ち時間や乗り換えを含んだ数字に
+ * なるので、**乗り物が来ない場所ほど長く出る**という逆のことが起きます。
+ *
+ * 道路の実効速度は、直線距離あたりで見ると思ったより遅くなります。
+ * 信号と曲がりのぶんです。短い区間ほど遅く見ます。
+ * 呼んでから乗るまでの数分も乗せます（流しを拾える街なかでも0分では
+ * ありません）。
+ *
+ * @param {number} km 直線距離
+ * @returns {number} 分
+ */
+export function taxiMinutes(km) {
+  if (!Number.isFinite(km) || km <= 0) return 0;
+  const speed = km <= 3 ? 20 : km <= 10 ? 26 : 34;
+  return Math.max(5, Math.round((km / speed) * 60) + 6);
+}
+
 export function estimateMinutes(a, b, opts = {}) {
   const km = haversineKm(a, b);
   if (opts.slow) return Math.max(10, Math.round((km / 2.2) * 60) + 10);

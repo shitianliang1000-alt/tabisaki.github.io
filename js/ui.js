@@ -14,11 +14,24 @@ import { VARIANTS } from "./variants.js";
 import { qualityOf, spotFit, tripFit } from "./fit.js";
 import { currentStep } from "./today.js";
 import { photoFor } from "./photos.js";
+import { estimatedTravel } from "./reliability.js";
+import { isTouring, longDriveNote } from "./touring.js";
 import { itineraryText } from "./share.js";
 
 const ICON = {
   transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕",
 };
+
+/** 行の先頭の絵。乗り物は、乗るものによって変えます。 */
+function iconFor(item, itin) {
+  if (item.kind === "transit") {
+    if (item.taxi) return "🚕";
+    if (item.walk) return "🚶";
+    // 車の旅で電車の絵を出すと、乗り換えを探すことになります。
+    if (isTouring(itin)) return "🚗";
+  }
+  return ICON[item.kind] ?? "•";
+}
 
 export const $ = (sel) => document.querySelector(sel);
 export const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -277,15 +290,22 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     container.append(el("section", { class: `panel checked lv-${r.level}` },
       el("div", { class: "panel-head" },
         el("h3", {}, "確かめたこと"),
-        el("span", { class: "checked-stars", "aria-label": `5段階で${r.stars}` },
-          el("b", {}, "★".repeat(r.stars)),
-          el("i", {}, "☆".repeat(5 - r.stars)))),
+        // 星は1つずつの要素にします。まとめて "★★☆☆☆" と書くと、
+        // 1つずつ灯すことも、数を読み上げに渡すこともできません。
+        // 星の並びは1つの絵として読ませます。span のままでは名前
+        // （aria-label）を付けられず、読み上げには★の羅列が流れます。
+        el("span", { class: "checked-stars", role: "img",
+                     "aria-label": `5段階で${r.stars}` },
+          Array.from({ length: 5 }, (_, i) => el(i < r.stars ? "b" : "i", {
+            "aria-hidden": "true", style: `--i:${i}`,
+          }, i < r.stars ? "★" : "☆")))),
       el("p", { class: "score-summary" }, r.summary),
       el("ul", { class: "check-list" }, r.checks.map((c) => el("li",
         { class: c.ok ? "ok" : "warn" },
         el("span", { class: "ck-ic", "aria-hidden": "true" }, c.ok ? "✓" : "⚠"),
         el("span", { class: "ck-label" }, c.label),
-        el("span", { class: "ck-detail" }, c.detail))))));
+        el("span", { class: "ck-detail" }, c.detail)))),
+      recheckRow(itin, handlers)));
   }
 
   // 1. 旅の意味づけ。
@@ -973,7 +993,7 @@ function axisList(axes) {
   return el("ul", { class: "axes" }, (axes ?? []).map((a) => el("li", {},
     el("span", { class: "ax-ic", "aria-hidden": "true" }, a.icon),
     el("span", { class: "ax-label" }, a.label),
-    el("span", { class: "ax-stars", "aria-label": `${a.stars} / 5` },
+    el("span", { class: "ax-stars", role: "img", "aria-label": `${a.stars} / 5` },
       el("span", {}, "★".repeat(a.stars)),
       el("span", { class: "off" }, "★".repeat(5 - a.stars))),
     el("span", { class: "ax-score" }, String(a.score)),
@@ -981,6 +1001,37 @@ function axisList(axes) {
 }
 
 /** 情報の出どころの印。色だけでなく、必ず言葉を添えます。 */
+/**
+ * 「まだ目安があります。もう一度調べますか」の1行。
+ *
+ * **出すのは、もう一度調べれば直ることがあるときだけです。**
+ * 近くに駅もバス停も無い区間は、何度作り直しても目安のままです。
+ * そこへ「もう一度調べる」を出すと、直らないことに時間を使わせます。
+ *
+ * 押すと、同じ条件でもう一度組み直します。時刻表に聞く回数と間隔は
+ * 組むたびに数え直すので、混んでいて引けなかった区間が入ることが
+ * あります（区間そのものに便が無いなら、やはり変わりません）。
+ */
+function recheckRow(itin, handlers) {
+  const est = estimatedTravel(itin);
+  if (!est.retryable || !handlers.onRecheck) return null;
+  // 車の旅に「時刻」はありません。引くのは道のりです。
+  const what = isTouring(itin) ? "道のり" : "時刻";
+  const row = el("div", { class: "recheck" });
+  const btn = el("button", {
+    type: "button", class: "md-btn md-btn--tonal md-state",
+  }, el("span", {}, `${what}をもう一度調べる`));
+  btn.addEventListener("click", () => {
+    btn.disabled = true;
+    btn.querySelector("span").textContent = "調べています…";
+    handlers.onRecheck();
+  });
+  row.append(btn, el("p", { class: "fine" },
+    `${est.retryable}区間は${what}を引けませんでした。`
+    + "同じ条件で組み直すと、入ることがあります。"));
+  return row;
+}
+
 function srcChip(c, extra = "", source = "") {
   const title = [c.text, c.checkedAt ? `（${c.checkedAt} 時点）` : ""]
     .filter(Boolean).join("");
@@ -1154,7 +1205,8 @@ function renderItem(item, index, itin, handlers, sunNote) {
   if (item.kind === "spot") body.append(info);
 
   const title = el("div", { class: "title" },
-    el("span", { class: "ic", "aria-hidden": "true" }, spotArt?.icon ?? ICON[item.kind] ?? "•"),
+    el("span", { class: "ic", "aria-hidden": "true" },
+       spotArt?.icon ?? iconFor(item, itin)),
     el("span", { class: "tx" }, item.title));
   if (item.place?.fame_tier) {
     title.append(el("em", { class: `tier ${item.place.fame_tier}` },
@@ -1181,6 +1233,17 @@ function renderItem(item, index, itin, handlers, sunNote) {
       line.append(" ", srcChip(c, "", src));
     }
     info.append(line);
+    // 長い運転には、休憩のことを添えます。「4時間の移動」と1行だけ
+    // 書いておいて、休むことに触れないのは不親切です。
+    if (item.kind === "transit" && isTouring(itin) && item.walk !== true) {
+      const note = longDriveNote(
+        Math.round((new Date(item.end) - new Date(item.start)) / 60000));
+      if (note) {
+        info.append(el("p", { class: "sun rest" },
+          el("span", { "aria-hidden": "true" }, "☕"),
+          el("span", {}, note)));
+      }
+    }
   }
 
   // 公共交通の中身。所要時間だけでは、現地で予定どおりかを確かめられません。
@@ -1208,7 +1271,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
         qualityOf(item.place).map((q) => el("li", {},
           el("span", { class: "q-ic", "aria-hidden": "true" }, q.icon),
           el("span", { class: "q-label" }, q.label),
-          el("span", { class: "q-stars", "aria-label": `${q.stars} / 5` },
+          el("span", { class: "q-stars", role: "img", "aria-label": `${q.stars} / 5` },
             el("span", {}, "★".repeat(q.stars)),
             el("span", { class: "off" }, "★".repeat(5 - q.stars)))))));
       box.append(inner);
@@ -1402,7 +1465,7 @@ export function openSheet(item, { onClose, describe }) {
     qualityOf(spot).map((q) => el("li", {},
       el("span", { class: "q-ic", "aria-hidden": "true" }, q.icon),
       el("span", { class: "q-label" }, q.label),
-      el("span", { class: "q-stars", "aria-label": `${q.stars} / 5` },
+      el("span", { class: "q-stars", role: "img", "aria-label": `${q.stars} / 5` },
         el("span", {}, "★".repeat(q.stars)),
         el("span", { class: "off" }, "★".repeat(5 - q.stars)))))));
 

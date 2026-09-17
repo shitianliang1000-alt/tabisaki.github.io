@@ -38,7 +38,8 @@ import { endpointFor, keyHeaders, missingSecretHelp, proxyStatus, usingProxy }
   from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
 import { QuotaBlockedError, meteredFetch } from "./quota.js";
-import { estimateMinutes, haversineKm, isSlowTerrain } from "./feasibility.js";
+import { estimateMinutes, haversineKm, isSlowTerrain, taxiMinutes }
+  from "./feasibility.js";
 import { findStop, nearbyStops, nearestStop } from "./stops.js";
 import { summarizeTransitLeg, transitFieldMask } from "./transit.js";
 import { resetYahooCooldown, resetYahooPace, searchYahooTransit, yahooCooldown }
@@ -572,6 +573,11 @@ async function computeViaStations(points, opts) {
   let walkLegs = 0;
   // 近くに駅・バス停が1つも無い区間の数。車が要る区間です。
   let noTransitLegs = 0;
+  // どの区間がそれだったか。数だけだと、**画面でその行に印を出せません**。
+  // 「目安」とだけ書かれた行を見て、読む人は「調べそこねたのか、
+  // そもそも便が無いのか」を判断できず、作り直しても直らないものを
+  // 何度も作り直すことになります。
+  const noTransitAt = new Array(n).fill(false);
   // 拾い直した区間の数（画面の注記に出します）。
   let retried = 0;
   for (let i = 0; i < n; i++) {
@@ -625,7 +631,7 @@ async function computeViaStations(points, opts) {
       yahooBudget -= hit.spent;
       yahooBudgetSpent.spent += hit.spent;
     }
-    if (hit?.noTransit) noTransitLegs++;
+    if (hit?.noTransit) { noTransitLegs++; noTransitAt[i] = true; }
     if (hit && !hit.miss) {
       yahooLegs[i] = hit;
       plans[i] = { minutes: hit.minutes, walkKm: 0,
@@ -635,6 +641,16 @@ async function computeViaStations(points, opts) {
                                             { slow: isSlowTerrain(points[i])
                                                  || isSlowTerrain(points[i + 1]) }),
                    walkKm: 0, walk: true,
+                   fromStop: null, toStop: null, walkMeasured: false };
+    } else if (hit?.noTransit) {
+      // 近くに駅もバス停もありません。歩くには遠い区間なので、
+      // **タクシーで行くものとして**時間と運賃を見積もります。
+      // 電車・バスの目安（待ち時間や乗り換えを含む数字）を当てると、
+      // 乗り物が来ない場所ほど長く出るという逆のことが起きます。
+      //
+      // 聞き直しても停留所が生えるわけではないので、あとの拾い直しの
+      // 列（askedAt）には入れません。
+      plans[i] = { minutes: taxiMinutes(legKm), walkKm: 0, taxi: true,
                    fromStop: null, toStop: null, walkMeasured: false };
     } else {
       askedAt[i] = at;
@@ -701,6 +717,10 @@ async function computeViaStations(points, opts) {
     meters: Math.round(haversineKm(points[i], points[i + 1]) * 1000),
     line: null,
     walk: p.walk === true,
+    // 近くに駅・バス停が無かった区間。もう一度聞いても同じ答えなので、
+    // タクシーで行くものとして組んであります。
+    noTransit: noTransitAt[i] === true,
+    taxi: p.taxi === true,
     // 真ん中（乗車）が目安なので、区間としては実測扱いにしません。
     routed: false,
     stations: p.fromStop && p.toStop

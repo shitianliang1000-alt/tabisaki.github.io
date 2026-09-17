@@ -128,3 +128,35 @@ test("収録の駅から遠すぎるところでは、何も返さない", () =>
   assert.equal(nearestPlaceInfo(20, 170), null);
   assert.equal(nearestPlaceInfo(NaN, 139), null);
 });
+
+// --- タクシーの運賃 -------------------------------------------------------
+// 初乗りと、そのあとの加算でできています。地域で幅がありますが、
+// 「だいたいいくらか」を知るには足ります。
+
+test("タクシーは初乗りから始まり、距離で増える", () => {
+  assert.equal(fareFor(0.8, { mode: "TAXI" }), 500, "初乗りの内側");
+  const short = fareFor(2, { mode: "TAXI" });
+  const long = fareFor(6, { mode: "TAXI" });
+  assert.ok(short > 500, `2kmで ¥${short}`);
+  assert.ok(long > short, `2km ¥${short} / 6km ¥${long}`);
+});
+
+test("タクシーは、同じ距離の電車・バスより高い", () => {
+  for (const km of [2, 5, 12]) {
+    assert.ok(fareFor(km, { mode: "TAXI" }) > fareFor(km),
+      `${km}km: タクシー ¥${fareFor(km, { mode: "TAXI" })} / `
+      + `電車 ¥${fareFor(km)}`);
+  }
+});
+
+test("タクシーの区間は、タクシーの運賃で数える", () => {
+  const km = 6;
+  const itin = { days: [{ items: [
+    { kind: "transit", km, taxi: true, from: {}, to: {} },
+  ] }] };
+  const c = costBreakdown(itin);
+  const row = c.rows.find((r) => r.key === "transit");
+  assert.equal(row.yen, fareFor(km, { mode: "TAXI" }));
+  // 実額ではないので、「距離からの概算」と言い続けること。
+  assert.match(row.note, /概算/);
+});

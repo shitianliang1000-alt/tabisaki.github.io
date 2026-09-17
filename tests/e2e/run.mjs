@@ -150,10 +150,19 @@ await check("どちらへ寄っているかが、数で分かる", async () => {
   assert(classic + known + hidden === 10,
     `${classic} + ${known} + ${hidden} が10になりません`);
   assert(hidden > classic, "穴場寄りにしたのに、定番のほうが多い表示です");
-  // 帯の向きが数字と合っていること（以前は逆を向いていました）
-  const w = await page.$eval("#mix-fill", (e) => parseFloat(e.style.width));
-  assert(Math.abs(w - classic * 10) < 1,
-    `定番 ${classic} 割なのに、帯が ${w}% です`);
+
+  // 点の数が、文の数と合っていること。
+  // 絵と文が食い違うと、どちらを信じてよいか分かりません（以前は帯が
+  // 数字と逆を向いていました）。区画ごとに数えます。
+  const dots = await page.$$eval(
+    "#mix-dots-major, #mix-dots-known, #mix-dots-hidden",
+    (els) => els.map((e) => e.children.length));
+  assert(dots.join(",") === [classic, known, hidden].join(","),
+    `点が ${dots.join("/")}、文が ${classic}/${known}/${hidden} です`);
+  assert(dots.reduce((a, b) => a + b, 0) === 10, "点が10個ではありません");
+
+  // 穴場側へ寄せたら、穴場の区画の点がいちばん多いこと。
+  assert(dots[2] > dots[0], "穴場寄りにしたのに、定番の区画の点が多いままです");
 });
 
 await check("1日のうち、動く時間帯を選べる", async () => {
@@ -472,6 +481,46 @@ await check("電波が無くても開ける（Service Worker）", async () => {
     return rs.map((r) => r.scope).join(",");
   });
   assert(scope.length > 0, "登録はされたのに、担当範囲がありません");
+});
+
+// --- 車の旅 ---------------------------------------------------------------
+// 車で来ている人に、駅前と時刻表の話をしないこと。
+// ここだけは条件を変えて、もう一度組み直します。
+
+await check("車を選ぶと、車の旅として組み直す", async () => {
+  await page.evaluate(() => { document.getElementById("tune").open = true; });
+  await page.click('#transport-choice [data-transport="car"]');
+  await page.click("#make-plan");
+  await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
+  await until(page, () => {
+    const l = [...document.querySelectorAll(".check-list .ck-label")]
+      .map((e) => e.textContent);
+    return l.includes("運転時間");
+  }, { timeout: 60_000 });
+
+  const got = await page.evaluate(() => {
+    const txt = (s) => document.querySelector(s)?.textContent?.trim() ?? "";
+    for (const d of document.querySelectorAll(".tl details")) d.open = true;
+    return {
+      detail: txt(".check-list li .ck-detail"),
+      recheck: txt(".recheck .md-btn"),
+      icons: [...document.querySelectorAll(".tl.transit .ic")]
+        .map((e) => e.textContent).join(""),
+      reasons: [...document.querySelectorAll(".tl details")]
+        .map((e) => e.textContent).join(" "),
+    };
+  });
+  // 車の旅で「便」や「時刻」を数えてはいけません。引くのは道のりです。
+  assert(!/便|時刻/.test(got.detail), `運転時間の行が妙です: ${got.detail}`);
+  assert(/経路検索/.test(got.detail), `道のりの話になっていません: ${got.detail}`);
+  if (got.recheck) {
+    assert(/道のり/.test(got.recheck), `調べ直しの言葉が妙です: ${got.recheck}`);
+  }
+  // 電車の絵を出すと、乗り換えを探すことになります。
+  assert(!got.icons.includes("🚃"), `電車の絵が残っています: ${got.icons}`);
+  assert(got.icons.includes("🚗"), `車の絵がありません: ${got.icons}`);
+  // 「道の楽しさ」が、選んだ理由の軸に出ること。
+  assert(/道の楽しさ/.test(got.reasons), "道の楽しさの軸が出ていません");
 });
 
 await check("ページの例外が出ていない", () => {

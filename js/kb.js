@@ -5,6 +5,7 @@
 // 問題ありません。独自のキャッシュ層は置きません。
 
 import { KB_INDEX_URL } from "./config.js";
+import { drivingAppeal } from "./touring.js";
 import { genresForCategory } from "./feasibility.js";
 import { SAMPLE_KB } from "./sample-data.js";
 
@@ -258,16 +259,31 @@ export function cosineToQuantized(query, q) {
 /**
  * 意味検索。hiddenBias が高いほど、知名度の低い場所を押し上げます。
  */
-export function searchSpots(kb, queryVector, { limit = 260, hiddenBias = 0 } = {}) {
+export function searchSpots(kb, queryVector,
+                            { limit = 260, hiddenBias = 0, touring = false } = {}) {
   const out = [];
   for (const spot of kb.spots) {
     if (!spot.v) continue;
     const sim = cosineToQuantized(queryVector, decodeVector(spot.v));
     const obscurity = 1 - Math.min(100, Math.max(0, spot.fame_score ?? 50)) / 100;
-    out.push({ spot, score: sim + hiddenBias * 0.12 * obscurity });
+    out.push({ spot,
+      score: sim + hiddenBias * 0.12 * obscurity + touringBonus(spot, touring) });
   }
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, limit);
+}
+
+/**
+ * 車の旅のときだけ足す重み。
+ *
+ * 峠・岬・展望台・湖畔は前へ、商店街や古い町並みは少し後ろへ。
+ * 消してはいけません（車で行けないわけではありません）。**並びを
+ * 変えるだけ**です。0.12 は穴場の重みと同じ幅で、希望との一致
+ * （0〜1）を覆すほどではありません。
+ */
+function touringBonus(spot, touring) {
+  if (!touring) return 0;
+  return (drivingAppeal(spot) - 0.5) * 0.12;
 }
 
 /**
@@ -282,7 +298,8 @@ const FIELD_WEIGHT = {
   name: 1.0, category: 0.6, genre: 0.5, region: 0.15, description: 0.3,
 };
 
-export function searchSpotsByKeyword(kb, keywords, { limit = 260, hiddenBias = 0 } = {}) {
+export function searchSpotsByKeyword(kb, keywords,
+  { limit = 260, hiddenBias = 0, touring = false } = {}) {
   const terms = (keywords ?? []).map((k) => String(k).trim()).filter(Boolean);
   if (!terms.length) {
     return kb.spots.slice(0, limit).map((spot) => ({ spot, score: 0.1 }));
@@ -309,7 +326,8 @@ export function searchSpotsByKeyword(kb, keywords, { limit = 260, hiddenBias = 0
     if (spot.verified !== false) score *= 1.12;
 
     const obscurity = 1 - fame / 100;
-    out.push({ spot, score: score + hiddenBias * 0.12 * obscurity });
+    out.push({ spot,
+      score: score + hiddenBias * 0.12 * obscurity + touringBonus(spot, touring) });
   }
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, limit);
