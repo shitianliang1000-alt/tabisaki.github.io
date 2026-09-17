@@ -588,6 +588,113 @@ await check("車を選ぶと、車の旅として組み直す", async () => {
   assert(/道の楽しさ/.test(got.reasons), "道の楽しさの軸が出ていません");
 });
 
+// --- 泊まりの旅（宿・食事・荷物・代わりの案）-------------------------------
+// 1泊すると出てくるもの。日帰りの旅程には出ません。
+
+await check("連泊を選ぶと、宿を動かさない旅になる", async () => {
+  await page.evaluate(() => { document.getElementById("tune").open = true; });
+  await page.click('#transport-choice [data-transport="any"]');
+  await page.click('#stay-choice [data-stay="base"]');
+  // 1泊2日にします（日帰りでは宿の話が出ません）
+  await page.$eval("#depart-at", (e) => { e.value = "2026-10-10T09:00"; });
+  await page.$eval("#arrive-by", (e) => { e.value = "2026-10-11T19:00"; });
+  await page.$eval("#note", (e) => {
+    e.value = "松江と出雲をゆっくり。神社と海";
+    e.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.click("#make-plan");
+  await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
+  await until(page, () => document.querySelectorAll(".day").length > 1,
+             { timeout: 120_000 });
+
+  const line = await page.$eval(".stay-line", (e) => e.textContent)
+    .catch(() => "");
+  assert(/泊/.test(line), `どこに泊まる旅か書かれていません: ${line}`);
+});
+
+await check("食事が、その土地のものになっている", async () => {
+  // 「昼食 / ◯◯で」だけでは、旅程として何も言っていません。
+  const got = await page.evaluate(() => ({
+    details: [...document.querySelectorAll(".tl.meal .detail")]
+      .map((e) => e.textContent),
+    links: [...document.querySelectorAll(".tl.meal .item-links a")]
+      .map((e) => e.textContent),
+  }));
+  assert(got.details.length > 0, "食事の行がありません");
+  // 名物か、収録の食事どころか、少なくともどちらかに触れていること。
+  assert(got.details.some((t) => /名物|収録|お店/.test(t)),
+    `食事の説明が空です: ${got.details.join(" / ")}`);
+  assert(got.links.some((t) => /地図で探す/.test(t)),
+    `店を探す先がありません: ${got.links.join(" / ")}`);
+});
+
+await check("駄目だったときの代わりが書かれている", async () => {
+  // 現地で困るのは、雨や休館そのものより、その場で代わりを探すこと
+  // のほうです。無ければ出しません（近くに無いこともあります）。
+  await page.click(".day-tabs button:last-child").catch(() => {});
+  const backups = await page.$$eval(".backup", (els) =>
+    els.map((e) => e.textContent.replace(/\s+/g, " ")));
+  for (const t of backups) {
+    assert(/雨|閉ま/.test(t), `何のための代わりか書かれていません: ${t}`);
+    assert(/m|km/.test(t), `どのくらい近いのか書かれていません: ${t}`);
+  }
+});
+
+await check("荷物を預けるのが、朝いちの一手として入っている", async () => {
+  // 案を下の囲みに書いても、現地では旅程の行しか追いません。
+  const got = await page.evaluate(() => {
+    const step = document.querySelector(".tl.luggage");
+    return {
+      has: Boolean(step),
+      text: step?.textContent?.replace(/\s+/g, " ") ?? "",
+      panel: Boolean(document.querySelector(".panel.luggage")),
+    };
+  });
+  if (got.panel) {
+    assert(got.has, "荷物の案はあるのに、旅程の中に手数が入っていません");
+    assert(/預け/.test(got.text), `何をするのか書かれていません: ${got.text}`);
+  }
+});
+
+// --- 携帯での地図と説明 ----------------------------------------------------
+
+await check("携帯では、説明が半分の高さで開く（地図が残る）", async () => {
+  // 全画面で開くと地図が隠れます。場所を確かめたくて押したのに
+  // 場所が見えない、という順番になっていました。
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.click(".day-tabs button:first-child").catch(() => {});
+  await page.click(".tl.spot .chev");
+  await until(page, () => Boolean(document.querySelector(".md-sheet")),
+             { timeout: 20_000 });
+  const got = await page.evaluate(() => {
+    const sh = document.querySelector(".md-sheet");
+    return {
+      state: sh.dataset.state,
+      topRatio: sh.getBoundingClientRect().top / innerHeight,
+      toggle: Boolean(sh.querySelector(".sheet-toggle")),
+      blurred: getComputedStyle(document.querySelector(".md-sheet-scrim"))
+        .backdropFilter,
+    };
+  });
+  assert(got.state === "peek", `半分で開いていません: ${got.state}`);
+  assert(got.topRatio > 0.35,
+    `画面を覆いすぎています（上端が ${Math.round(got.topRatio * 100)}%）`);
+  assert(got.toggle, "全部見るための摘みがありません");
+  // 曇らせると、後ろの地図が読めません
+  assert(!/blur/.test(got.blurred), `後ろが曇っています: ${got.blurred}`);
+
+  // 摘みを押したら、全部開くこと（指以外でも開けること）
+  await page.click(".sheet-toggle");
+  await until(page, () =>
+    document.querySelector(".md-sheet")?.dataset.state === "full",
+             { timeout: 10_000 });
+
+  await page.click(".md-sheet .close");
+  await until(page, () => !document.querySelector(".md-sheet"),
+             { timeout: 10_000 });
+  await page.setViewportSize({ width: 1280, height: 1000 });
+});
+
 await check("ページの例外が出ていない", () => {
   assert(pageErrors.length === 0, pageErrors.join(" / "));
 });

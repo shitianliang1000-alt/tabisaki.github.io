@@ -2060,21 +2060,42 @@ function show(itin, trip) {
     // 素直に組み直します（時刻表に聞く回数と間隔は組むたびに
     // 数え直すので、混んでいて外した区間が入ることがあります）。
     onRecheck: () => run(trip),
-    onSpot: (item) => {
-      state.map.focus(item.place.lat, item.place.lng);
-      openSheet(item, { describe: (s) => describeSpot(s) });
-    },
+    onSpot: openSpotSheet,
   });
 
   rememberTrip(itin, trip);
 
-  const points = pointsFromItinerary(itin, trip);
+  // ピンを押したときも、旅程の行と同じシートを開きます（往復できます）。
+  const points = pointsFromItinerary(itin, trip, { onSpot: openSpotSheet });
   state.map.render(points);
   state.map.invalidate();
   // 背景の地図も、その旅先へ寄せます。左で条件を直しているあいだも
   // 「いまどこの話をしているか」が背後に残ります。
   const first = points.find((p) => p.kind === "spot") ?? points[0];
   if (first) moveBackgroundMap(first.lat, first.lng, 9);
+}
+
+/**
+ * 立ち寄り1件の説明を開きます。旅程の行からも、地図のピンからも。
+ *
+ * 携帯では、地図は旅程の上にあります。下のほうの立ち寄りを押すと、
+ * ピンは寄っているのに**画面の外**、という状態になっていました。
+ * 押されたら地図を画面に入れてから、シートを半分の高さで開きます
+ * （上半分に地図が残ります。ui.js の dragSheet）。
+ */
+function openSpotSheet(item) {
+  const id = item.spotId ?? item.place?.id;
+  if (item.place) {
+    state.map.focus(item.place.lat, item.place.lng);
+    state.map.highlight(id, true);
+  }
+  if (isNarrow()) {
+    $("#map")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  openSheet(item, {
+    describe: (sp) => describeSpot(sp),
+    onClose: () => state.map.highlight(id, false),
+  });
 }
 
 document.addEventListener("DOMContentLoaded", boot);

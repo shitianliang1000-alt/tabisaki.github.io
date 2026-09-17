@@ -1215,6 +1215,109 @@ function cardArt(spot, { tall = false } = {}) {
   return box;
 }
 
+/** 携帯の幅か。シートを半分で開くかどうかの判断に使います。 */
+function isNarrowScreen() {
+  return Boolean(globalThis.matchMedia?.("(max-width: 860px)")?.matches);
+}
+
+/**
+ * シートを、摘みで上下に動かせるようにします。
+ *
+ * 止まる場所は3つだけです。半分（peek）、全部（full）、閉じる。
+ * 指を離した位置に一番近いところへ寄せます。中途半端な高さで止めると、
+ * 次にどう動かせるのかが分からなくなります。
+ *
+ * 引いている途中は transition を切ります（指に付いてこないと、
+ * 引いているのか固まっているのか分かりません）。
+ */
+function dragSheet(sheet, scrim, close) {
+  const PEEK = 0.52;          // 画面のこれだけを下へ隠して開きます
+  const height = () => sheet.getBoundingClientRect().height || 1;
+  let y = Math.round(height() * PEEK);
+  let state = "peek";
+  let from = null;
+  let startY = 0;
+
+  const put = (px, smooth = true) => {
+    sheet.style.transition = smooth
+      ? "transform var(--hig-mid, .3s) var(--hig-ease, ease)" : "none";
+    sheet.style.transform = `translateY(${Math.max(0, px)}px)`;
+  };
+
+  // 入ってくる動きは、下から半分の位置まで。CSS の登場アニメーションは
+  // translateY を上書きするので、ここでは使いません。
+  sheet.classList.add("dragging-sheet");
+  sheet.dataset.state = "peek";
+  scrim.dataset.state = "peek";
+  put(height(), false);
+  requestAnimationFrame(() => put(y));
+
+  /** 3つのうちどれかへ寄せます。 */
+  const go = (next) => {
+    if (next === "closed") { put(height()); setTimeout(close, 220); return; }
+    state = next;
+    y = next === "full" ? 0 : Math.round(height() * PEEK);
+    sheet.dataset.state = state;
+    scrim.dataset.state = state;
+    put(y);
+  };
+
+  const settle = (px) => {
+    const h = height();
+    const peek = Math.round(h * PEEK);
+    // 半分より下へ引ききったら閉じます
+    if (px > peek + h * 0.18) { go("closed"); return; }
+    go(px < peek * 0.5 ? "full" : "peek");
+  };
+
+  const onDown = (e) => {
+    // 中身をスクロールしているときは、シートを動かしません
+    if (state === "full" && sheet.scrollTop > 0) return;
+    if (e.target.closest("a, button, summary, input")) return;
+    from = e.pointerId;
+    startY = e.clientY - y;
+    sheet.setPointerCapture?.(e.pointerId);
+  };
+  const onMove = (e) => {
+    if (from !== e.pointerId) return;
+    put(e.clientY - startY, false);
+    e.preventDefault();
+  };
+  const onUp = (e) => {
+    if (from !== e.pointerId) return;
+    from = null;
+    settle(e.clientY - startY);
+  };
+
+  sheet.addEventListener("pointerdown", onDown);
+  sheet.addEventListener("pointermove", onMove);
+  sheet.addEventListener("pointerup", onUp);
+  sheet.addEventListener("pointercancel", onUp);
+
+  // 摘みは、押しても（キーボードでも）開け閉めできるようにします。
+  // 引く操作しか用意しないと、指以外では半分のままになります。
+  const grip = sheet.querySelector(".md-sheet-handle");
+  if (grip) {
+    const btn = el("button", {
+      type: "button", class: "sheet-toggle",
+      "aria-label": "この場所の説明を全部見る",
+    });
+    // 摘みそのものを押せるようにします。摘みの横に別のボタンを足すより、
+    // 「ここをつかむ」場所と「ここを押す」場所が同じほうが迷いません。
+    const bar = grip.querySelector("i");
+    if (bar) btn.append(bar);
+    btn.append(el("span", { class: "arrow", "aria-hidden": "true" }, "▲"));
+    btn.addEventListener("click", () => {
+      const next = state === "full" ? "peek" : "full";
+      go(next);
+      btn.setAttribute("aria-label", next === "full"
+        ? "説明を半分に戻す" : "この場所の説明を全部見る");
+      btn.querySelector(".arrow").textContent = next === "full" ? "▼" : "▲";
+    });
+    grip.append(btn);
+  }
+}
+
 /**
  * 外した場所と、戻すためのボタン。
  *
@@ -1578,6 +1681,15 @@ export function openSheet(item, { onClose, describe }) {
   bg.append(sheet);
   bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
   document.body.append(bg);
+
+  // 携帯では、半分の高さで開きます。
+  //
+  // 全画面で開くと、地図が隠れます。地図で場所を確かめたくて押したのに
+  // 場所が見えない、という順番になっていました。上半分を地図に残し、
+  // 摘みを上へ引けば全部、下へ引けば閉じる、という形にします。
+  // 広い画面では地図が横に出ているので、これまでどおり全部開きます。
+  const draggable = isNarrowScreen();
+  if (draggable) dragSheet(sheet, bg, close);
 
   // aria-modal="true" は、支援技術に「これは前面のものです」と伝えるだけで、
   // Tab の行き先までは変えません。実装しないと、Tab を押しつづけたときに

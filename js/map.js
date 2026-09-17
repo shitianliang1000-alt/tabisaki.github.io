@@ -157,7 +157,7 @@ export class TripMap {
 
 
 /** 旅程から、地図に落とす点の並びを作ります。 */
-export function pointsFromItinerary(itin, trip) {
+export function pointsFromItinerary(itin, trip, opts = {}) {
   const points = [];
   if (trip?.origin) {
     points.push({ lat: trip.origin.lat, lng: trip.origin.lng,
@@ -173,6 +173,9 @@ export function pointsFromItinerary(itin, trip) {
         label: item.title, kind: "spot", order: n,
         time: fmtTime(item.start),
         spotId: item.spotId, day: di,
+        // ピンを押しても、旅程の行を押したときと同じものが開きます。
+        // 片方向だけだと、地図で見つけた場所の説明に辿りつけません。
+        onClick: opts.onSpot ? () => opts.onSpot(item) : undefined,
       });
     }
   }

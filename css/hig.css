@@ -371,10 +371,38 @@
   animation: hig-sheet-in var(--hig-mid) var(--hig-ease);
 }
 .md-sheet-handle { display: flex; justify-content: center; padding: 6px 0 10px; }
-.md-sheet-handle > i {
+/* 摘みの棒。ボタンの中に入れることがあるので、直下に限りません
+   （ui.js の dragSheet が、棒そのものを押せるボタンにします）。 */
+.md-sheet-handle i {
   display: block; width: 36px; height: 5px; border-radius: 3px;
   background: var(--hig-label-3);
 }
+/* 携帯では、半分の高さで開きます（ui.js の dragSheet）。
+   上半分に地図を残すためです。全画面で開くと、場所を確かめたくて
+   押したのに場所が見えない、という順番になります。 */
+.md-sheet.dragging-sheet {
+  /* 引き上げたときに全部が見えるよう、高さを取っておきます。
+     中身が短いときは中身ぶんです（空白を引っぱっても意味がありません）。 */
+  max-height: 92vh; max-height: 92dvh;
+  animation: none;                 /* translateY は JS が持ちます */
+  touch-action: none;              /* 指の動きを、シートの上下に使います */
+}
+.md-sheet.dragging-sheet[data-state="peek"] { overflow-y: hidden; }
+/* 半分のときは、地図が見えるように曇らせません。
+   押せば閉じます（地図を触るには、まず閉じてもらいます）。 */
+.md-sheet-scrim[data-state="peek"] {
+  background: transparent;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.md-sheet .sheet-toggle {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  min-width: 72px; min-height: 30px; padding: 2px 18px;
+  border: 0; background: none; color: var(--hig-label-3);
+  font: inherit; font-size: 10px; line-height: 1; cursor: pointer;
+}
+.md-sheet .sheet-toggle:active { color: var(--hig-label); }
+.md-sheet .sheet-toggle .arrow { letter-spacing: 0; }
+
 @keyframes hig-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes hig-sheet-in {
   from { transform: translateY(100%); } to { transform: translateY(0); }
