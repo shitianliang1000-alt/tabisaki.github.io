@@ -48,6 +48,8 @@ import { attachBackups } from "./backup.js";
 import { attachMeals, dietNote } from "./meals.js";
 import { attachScenic } from "./scenic.js";
 import { coLocated } from "./dedupe.js";
+import { attachShapes } from "./shapes.js";
+import { nearestStop } from "./stops.js";
 import { eventNotesFor } from "./events.js";
 import { attachLuggage, luggagePlanFor } from "./luggage.js";
 import { storyFor } from "./story.js";
@@ -660,6 +662,21 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   //
   //     時刻も費用も経路も変えません。**説明だけ**を足します。
   itin.scenicCount = attachScenic(itin, { transport: trip.transport });
+  // 8.55 点ではないもの（道・広い場所）を、点として案内しない。
+  //
+  //      「山背古道 40分」と書かれても、どこから入ってどこへ抜けるのか
+  //      が決まっていません。「舞洲 40分」も、島のどこへ行くのかが
+  //      決まっていません。
+  //
+  //      **経路は組み替えません。** 組み替えるには道の形が要り、
+  //      収録で両端が分かるのは144本中1本だけです（山背古道）。
+  //      持っていないものを推し量ると、行けない旅程ができます。
+  //      分かることを言い切り、分からないことは分からないと書きます。
+  itin.shapeCount = await attachShapes(itin, {
+    spots: kb.spots,
+    nearestStop,
+  });
+
   // 8.6 同じ地点にある立ち寄りを、そう書く。
   //
   //     名前が違うので1つにはまとめませんでした（別のものかもしれない

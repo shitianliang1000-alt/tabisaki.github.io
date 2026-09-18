@@ -1725,6 +1725,57 @@ function renderItem(item, index, itin, handlers, sunNote) {
   if (item.alternatives?.length) {
     info.append(alternativeRoutes(item.alternatives));
   }
+  // 点ではないもの（道・広い場所）。
+  //
+  // 「山背古道 40分」と書かれても、どこから入ってどこへ抜けるのかが
+  // 決まっていません。**経路は組み替えていません**（道の形を持って
+  // いないので、推し量ると行けない旅程ができます）。分かることを
+  // 言い切り、分からないことは分からないと書きます。
+  if (item.shape?.kind === "trail") {
+    const sh = item.shape;
+    const stop = (st) => (st ? `最寄り: ${st.name}${st.km ? `・約${st.km}km` : ""}` : "最寄りは分かりません");
+    if (sh.entry && sh.exit) {
+      info.append(el("p", { class: "sun shape" },
+        el("span", { "aria-hidden": "true" }, "⇢"),
+        el("span", {},
+          `これは道の名前です。収録には両端があります（約${sh.km}km）。`
+          + `入口: ${sh.entry.name}（${stop(sh.entryStop)}）／`
+          + `出口: ${sh.exit.name}（${stop(sh.exitStop)}）。`
+          + "歩き通すなら、帰りは入口ではなく出口の最寄りから乗ることに"
+          + "なります。この旅程の時刻は入口へ戻る前提で組んであるので、"
+          + "通り抜ける場合は次の移動を出口から確かめてください。")));
+    } else {
+      info.append(el("p", { class: "sun shape" },
+        el("span", { "aria-hidden": "true" }, "⇢"),
+        el("span", {},
+          "これは道の名前です。収録にあるのは道の上の1点だけで、"
+          + "入口ではありません。どこから入ってどこへ抜けるのかは、"
+          + "こちらでは分かりません。"
+          + (sh.entryStop ? `この点の最寄りは ${sh.entryStop.name}`
+              + `（約${sh.entryStop.km}km）です。` : "")
+          + "通り抜けるなら、帰りは抜けた先の最寄りから乗ることになります。")));
+    }
+  } else if (item.shape?.kind === "wide") {
+    const sh = item.shape;
+    const parts = [
+      "これは広い場所の名前です。座標は代表の1点で、入口ではありません。",
+    ];
+    if (sh.inside?.length) {
+      parts.push("中の行き先として収録にあるのは: "
+        + sh.inside.map((x) => `${x.name}（約${x.km}km）`).join("、")
+        + "。どこへ行くかで最寄りもかかる時間も変わります。");
+    } else {
+      parts.push("中の行き先は収録にありません。どこへ行くかで最寄りも"
+        + "かかる時間も変わります。");
+    }
+    if (sh.stop) {
+      parts.push(`代表の点の最寄りは ${sh.stop.name}（約${sh.stop.km}km）です。`);
+    }
+    info.append(el("p", { class: "sun shape" },
+      el("span", { "aria-hidden": "true" }, "◫"),
+      el("span", {}, parts.join(""))));
+  }
+
   // 同じ地点にある別の立ち寄り。
   //
   // 座標が同じなので、移動は0分です。ただし**同じものかどうかは
