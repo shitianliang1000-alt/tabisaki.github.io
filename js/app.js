@@ -28,6 +28,7 @@ import { planTrip } from "./pipeline.js";
 import { haversineKm } from "./feasibility.js";
 import { configureQuota, describeUsage, quota } from "./quota.js";
 import { artFor, moodArt } from "./art.js";
+import { icon } from "./icons.js";
 import { mixTargets } from "./mix.js";
 import { photoFor } from "./photos.js";
 import { applyEdit, describeEdit, parseEdit } from "./edit.js";
@@ -46,6 +47,10 @@ import { addHistory, clearHistory, freezeItinerary, loadHistory, removeHistory,
 import { applyTypeScale, initTypeScale, saveTypeScale } from "./typescale.js";
 import { mergeTrips, readTripFile, toBackupFile, toTripFile, tripFilename }
   from "./transfer.js";
+
+/** 待ち画面の絵に渡す、収録スポットの上限。読み込んだ順の末尾です
+    （遅れて読むので、末尾が旅先の県のぶんになります）。 */
+const MAX_SKETCH_STARS = 1200;
 
 const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
                 endMode: "origin", mode: "plan",
@@ -201,7 +206,7 @@ function renderRecent() {
       type: "button", class: "recent-del",
       "aria-label": `${item.title} を一覧から消す`,
       onclick: () => { removeHistory(item.id); renderRecent(); },
-    }, "\u2715");
+    }, icon("close"));
 
     list.append(el("li", { class: "recent-item" }, row, del));
   }
@@ -930,7 +935,7 @@ function moodChip(label, full, onPick) {
                              "aria-pressed": "false",
                              style: `background-image:${art.css}` });
   btn.append(
-    el("span", { class: "m-ic", "aria-hidden": "true" }, art.icon),
+    icon(art.icon, { class: "m-ic" }),
     el("span", { class: "m-tx" }, label));
   btn.addEventListener("click", () => onPick(full, btn));
   return btn;
@@ -1293,6 +1298,14 @@ function wireForm() {
   // アレルギー・ハラール・子ども向けがどこにも入りませんでした。
   // 店は持っていないので変わるのは地図へ渡す言葉までですが、
   // そこが変われば店選びは変わります。
+  // 同行者。足の話です（食事の条件は上の diet が持ちます）。
+  for (const btn of document.querySelectorAll("#companions-choice button")) {
+    btn.addEventListener("click", () => {
+      const on = btn.getAttribute("aria-pressed") !== "true";
+      btn.setAttribute("aria-pressed", String(on));
+      btn.classList.toggle("is-selected", on);
+    });
+  }
   for (const btn of document.querySelectorAll("#diet-choice button")) {
     btn.addEventListener("click", () => {
       const on = btn.getAttribute("aria-pressed") !== "true";
@@ -1438,7 +1451,28 @@ async function readTrip() {
     '.md-chip[data-genre][aria-pressed="true"]')].map((c) => c.dataset.genre);
   const other = state.endMode === "other";
   const end = other ? await resolvePlace($("#end-place").value) : null;
+  // 予約済みの宿。決まっているなら、毎晩そこを終点にします。
+  //
+  // 旅程を組む側は「指定された宿」を前から受け取れました
+  // （planner.js の pushLodging → lodging.js の explicit）。無かったのは
+  // 入力する欄です。住所か駅名で足ります（予約番号は要りません）。
+  const lodgingText = String($("#lodging-place")?.value ?? "").trim();
+  const lodgingPlace = lodgingText ? await resolvePlace(lodgingText) : null;
+  if (lodgingText && !lodgingPlace) {
+    // 引けない名前を黙って落とすと、「宿を書いたのに別の場所に泊まる
+    // 旅程」が出ます。書いた人には分かりません。
+    throw Object.assign(new Error(
+      `宿の場所「${lodgingText}」が見つかりませんでした。`
+      + "駅名か、収録にある地名で入れてください。"), { suggestions: [] });
+  }
   return makeTrip({
+    // 泊数ぶん、同じ宿を並べます（validateTrip は泊数と件数が合わないと
+    // 断ります）。泊数は出発と帰着の日付差です。
+    lodging: lodgingPlace ? Array.from(
+      { length: Math.max(0, Math.round(
+        (new Date($("#arrive-by").value).setHours(0, 0, 0, 0)
+         - new Date($("#depart-at").value).setHours(0, 0, 0, 0)) / 86400000)) },
+      () => ({ place: lodgingPlace })) : [],
     origin: await resolvePlace($("#depart-place").value),
     destination: end,
     returnTo: null,
@@ -1457,8 +1491,13 @@ async function readTrip() {
     foodGenre: state.foodGenre ?? "any",
     diet: [...document.querySelectorAll(
       '#diet-choice button[aria-pressed="true"]')].map((b) => b.dataset.diet),
+    companions: [...document.querySelectorAll(
+      '#companions-choice button[aria-pressed="true"]')]
+      .map((b) => b.dataset.companion),
     // 宿の取りかた。連泊か、泊まるたびに移動か。
-    stayStyle: state.stayStyle ?? "auto",
+    // 宿が決まっているなら連泊です。予約したホテルがあるのに
+    // 「泊まり歩く」で組むと、別の街に宿が置かれます。
+    stayStyle: lodgingPlace ? "base" : (state.stayStyle ?? "auto"),
     // 定番と穴場のまぜかた。画面では星の粒として出しています。
     hiddenBias: (Number($("#hidden-bias")?.value ?? 40)) / 100,
     // 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
@@ -1494,6 +1533,7 @@ function formState() {
     dayStart: $("#day-start")?.value ?? "09:00",
     dayEnd: $("#day-end")?.value ?? "18:30",
     pinned: [...state.pinned.keys()],
+    lodging: $("#lodging-place")?.value ?? "",
   };
 }
 
@@ -1502,6 +1542,7 @@ function applyFormState(v) {
   if (v.note) $("#note").value = v.note;
   if (v.from) $("#depart-place").value = v.from;
   if (v.to) $("#end-place").value = v.to;
+  if (v.lodging && $("#lodging-place")) $("#lodging-place").value = v.lodging;
   if (v.dep) $("#depart-at").value = v.dep;
   if (v.arr) $("#arrive-by").value = v.arr;
   if (typeof v.crowd === "boolean") $("#avoid-crowds").checked = v.crowd;
@@ -2101,7 +2142,9 @@ async function run(override) {
     // まだ読み終わっていなければ、ここで待ちます。押した人にとっては
     // 「組み立ての一部」で、待つ理由も画面に出ます。
     if (!state.kb) {
-      renderProgress(progress, 0, "旅先のデータを読んでいます");
+      renderProgress(progress, 0, "旅先のデータを読んでいます", {
+        trip, stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+      });
       state.kb = await state.kbPromise;
     }
     if (!state.kb) throw new Error("データを読み込めていません。");
@@ -2135,7 +2178,15 @@ async function run(override) {
  * 採用が決まった案にだけ、実際の経路と天気を取りにいきます。
  */
 async function buildPlans(trip, progress) {
-  const onProgress = (step, note) => renderProgress(progress, step, note);
+  // 絵に渡す材料。段が進むたびに、読み込まれた収録（星）と候補を
+  // 渡します。pipeline が候補と決まった順を extra に乗せてきます。
+  // 星は「取りに行く関数」で渡します。収録は県ごとに遅れて読まれる
+  // ので、写しを渡すと読み込みが終わる前の空のままになります。
+  const onProgress = (step, note, extra) => renderProgress(progress, step, note, {
+    trip,
+    stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+    ...(extra ?? {}),
+  });
   const variants = tripsFor(trip);
 
   // 1案目。ここで希望文の読み取りと検索用ベクトルが決まります。
@@ -2275,7 +2326,11 @@ async function switchVariant(key) {
   progress.textContent = "";
   try {
     const itin = await finishPlan(key,
-      (step, note) => renderProgress(progress, step, note));
+      (step, note, extra) => renderProgress(progress, step, note, {
+        trip: state.chosenTrip ?? state.trip,
+        stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+        ...(extra ?? {}),
+      }));
     showRoutesUsage();
     state.trip = state.chosenTrip;
     syncFormTo(state.chosenTrip);

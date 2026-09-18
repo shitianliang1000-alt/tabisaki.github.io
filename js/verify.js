@@ -228,7 +228,30 @@ export function verifyOrder(spots, ctx) {
     cur = baseByDay[dayIndex] ?? cur;
   }
 
+  // 同じ名前の場所を、2度入れません。
+  //
+  // 収録には、**同じ名前で座標の違うもの**があります。
+  //
+  //   久住山  32.97385, 131.39778
+  //   久住山  33.08222, 131.24083   （12km 離れています）
+  //
+  // どちらかの座標が誤っているのですが、どちらかは決められません。
+  // ただ、旅程に「久住山 → 移動30分 → 久住山」と並ぶのは、どう転んでも
+  // 誤りです。読んだ人は2つの山があると思い、行った先で同じ山を見ます。
+  // **先に入ったほうを使い、同じ名前の2つ目は入れません。**
+  const takenNames = new Set();
+  const nameKey = (sp) => String(sp?.name ?? "").normalize("NFKC")
+    .replace(/[\s　]+/g, "").toLowerCase();
+
   for (const spot of spots) {
+    // 同じ名前は1度だけ。
+    const nk = nameKey(spot);
+    if (nk && takenNames.has(nk)) {
+      issues.push({ spotId: spot.id, reason: REJECT.DUPLICATE,
+                    detail: `「${spot.name}」は、もう旅程に入っています` });
+      continue;
+    }
+
     // そのスポットを回る日が決まっている（＝どのエリアに滞在している日か）
     // なら、そこまで日を進めます。これが無いと、拠点は徳島のままで
     // 高松のスポットを回る、という旅程ができてしまいます。
@@ -288,6 +311,7 @@ export function verifyOrder(spots, ctx) {
 
     morningIdleMin += out.dawnWait ?? 0;
     dayFirstAt ??= out.arrive;
+    if (nk) takenNames.add(nk);
     visits.push({ spot, arrive: out.arrive, end: out.end, travel: out.travel,
                   wait: out.wait, km: out.km, dwell: out.prof.dwell,
                   fee: out.prof.fee, estimated: out.prof.estimated,

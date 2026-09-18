@@ -44,8 +44,9 @@ test("CSS としてそのまま使える文字列を返す", () => {
 });
 
 test("絵に添える記号は、分類から決まる", () => {
-  assert.equal(artFor(spot({ category: "温泉" })).icon, "♨");
-  assert.equal(artFor(spot({ category: "城" })).icon, "🏯");
+  // 返すのは絵文字ではなく、js/icons.js の名前です。
+  assert.equal(artFor(spot({ category: "温泉" })).icon, "onsen");
+  assert.equal(artFor(spot({ category: "城" })).icon, "castle");
   // 知らない分類でも、必ず何か返します
   assert.ok(artFor(spot({ category: "謎の分類" })).icon);
 });

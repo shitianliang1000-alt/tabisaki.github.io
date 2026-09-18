@@ -662,7 +662,7 @@ await check("車を選ぶと、車の旅として組み直す", async () => {
       detail: txt(".check-list li .ck-detail"),
       recheck: txt(".recheck .md-btn"),
       icons: [...document.querySelectorAll(".tl.transit .ic")]
-        .map((e) => e.textContent).join(""),
+        .map((e) => e.dataset.icon).join(" "),
       reasons: [...document.querySelectorAll(".tl details")]
         .map((e) => e.textContent).join(" "),
     };
@@ -674,8 +674,8 @@ await check("車を選ぶと、車の旅として組み直す", async () => {
     assert(/道のり/.test(got.recheck), `調べ直しの言葉が妙です: ${got.recheck}`);
   }
   // 電車の絵を出すと、乗り換えを探すことになります。
-  assert(!got.icons.includes("🚃"), `電車の絵が残っています: ${got.icons}`);
-  assert(got.icons.includes("🚗"), `車の絵がありません: ${got.icons}`);
+  assert(!got.icons.includes("transit"), `電車の記号が残っています: ${got.icons}`);
+  assert(got.icons.includes("car"), `車の記号がありません: ${got.icons}`);
   // 「道の楽しさ」が、選んだ理由の軸に出ること。
   assert(/道の楽しさ/.test(got.reasons), "道の楽しさの軸が出ていません");
 });
@@ -692,13 +692,13 @@ await check("電車＋現地の車では、区間ごとに乗るものが変わ�
 
   const got = await page.evaluate(() => ({
     icons: [...document.querySelectorAll(".tl.transit .ic")]
-      .map((e) => e.textContent).join(""),
+      .map((e) => e.dataset.icon).join(" "),
     detail: document.querySelector(".check-list li .ck-detail")
       ?.textContent ?? "",
   }));
   // 遠出は電車の絵、現地は車の絵。どちらも出ていること。
-  assert(got.icons.includes("🚃"), `電車の区間がありません: ${got.icons}`);
-  assert(got.icons.includes("🚗"), `運転の区間がありません: ${got.icons}`);
+  assert(got.icons.includes("transit"), `電車の区間がありません: ${got.icons}`);
+  assert(got.icons.includes("car"), `運転の区間がありません: ${got.icons}`);
   // 取れていない区間を、取れたように書かないこと
   assert(!/0区間は確認済み/.test(got.detail), `妙な言い方です: ${got.detail}`);
   // もとに戻します（このあとの確認は、おまかせのままで続けます）
@@ -1098,6 +1098,99 @@ await check("指で押した跡が、残らない", async () => {
     }
     assert(bad.length === 0,
       `@media (hover: hover) の外に :hover があります: ${bad.join(" / ")}`);
+  }
+});
+
+// 画面に出ている記号が、絵文字でないこと。
+//
+// 絵文字は端末ごとに別の絵で、多色で、大きさと重心がそろいません。
+// 同じ旅程が iPhone と Android で別の顔になります。単線SVGに
+// 置き換えました（js/icons.js）。**置き換え漏れは、この端末で見ても
+// 分かりません**（Chromium は自前の絵文字を持っているので、ちゃんと
+// 絵が出てしまいます）。組み上がった画面の文字を機械で見ます。
+await check("画面の記号が、絵文字になっていない", async () => {
+  const got = await page.evaluate(() => {
+    // ★☆ は活字なので残してあります（5段階の点を5つ並べる読ませかたは
+    // 記号1つに置き換えられません）。それ以外の絵文字を探します。
+    const re = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{2604}\u{2607}-\u{27BF}]/u;
+    const bad = [];
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const m = n.textContent.match(re);
+      if (m) bad.push(`${m[0]} … ${n.textContent.trim().slice(0, 30)}`);
+    }
+    return {
+      bad,
+      // 記号そのものが出ていること。0個なら、置き換えたつもりで
+      // 何も描いていないことになります。
+      icons: document.querySelectorAll("svg.ic").length,
+      // どの記号かが読めること（data-icon）。
+      named: [...document.querySelectorAll("svg.ic")]
+        .filter((e) => e.dataset.icon || e.closest("#open-settings, #use-here,"
+          + " #make-plan, #map-expand, #back-to-form")).length,
+      // 線の太さが、ぜんぶ同じであること。ここがそろっていないと、
+      // 並べたときに太さの違いだけが目に付きます。
+      widths: [...new Set([...document.querySelectorAll("svg.ic")]
+        .map((e) => getComputedStyle(e).strokeWidth))],
+      // 読み上げに出ないこと。字は必ず横に書いてあります。
+      spoken: [...document.querySelectorAll("svg.ic")]
+        .filter((e) => e.getAttribute("aria-hidden") !== "true"
+          && e.getAttribute("role") !== "img").length,
+    };
+  });
+  assert(got.bad.length === 0, `絵文字が残っています: ${got.bad.join(" / ")}`);
+  assert(got.icons > 20, `記号が ${got.icons} 個しか出ていません`);
+  assert(got.named === got.icons,
+    `名前の無い記号が ${got.icons - got.named} 個あります`);
+  // px に直すと、字の大きさごとに値が変わります（1.6 は viewBox の中の
+  // 数なので、描かれる太さは表示の大きさで変わります）。ここで見たいのは
+  // **指定がそろっているか**なので、種類の数で見ます。
+  assert(got.widths.length <= 2,
+    `線の太さが ${got.widths.length} 種類あります: ${got.widths.join(", ")}`);
+  assert(got.spoken === 0, `読み上げに出る記号が ${got.spoken} 個あります`);
+});
+
+// 待っているあいだの絵が、本当に描かれること。
+//
+// 旅程を組むのに圏内では1〜2分かかります。そのあいだ、6段の一覧と
+// 経過時間だけでは「止まっていないことは分かるが、何が起きているのかは
+// 分からない」画面でした。出発地・収録・候補・決まった順を本物の座標で
+// 描き、収録の説明文を一言ずつ流します（js/sketch.js）。
+//
+// 圏外の試験では3秒で組み上がってしまい、本番の流れでは確かめられない
+// ので、段を手で進める頁（tests/e2e/pages/sketch.html）で見ます。
+// **描かれた画素を数えます。** 以前、札を画面に置く前に絵を載せて
+// いて、最初の1コマで自分から止まり、何も描かれないまま気づきません
+// でした。
+await check("待っているあいだの絵が、描かれている", async () => {
+  const pg = await browser.newPage({ viewport: { width: 390, height: 700 } });
+  try {
+    await pg.goto(`${BASE}/tests/e2e/pages/sketch.html`,
+                  { waitUntil: "domcontentloaded" });
+    await pg.waitForTimeout(600);
+    const at = async (step) => {
+      await pg.evaluate((s) => window.__go(s), step);
+      await pg.waitForTimeout(1200);
+      return pg.evaluate(() => {
+        const c = document.querySelector(".sketch canvas");
+        if (!c) return { painted: 0, caption: "" };
+        const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+        let painted = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i] > 0) painted += 1;
+        return { painted,
+                 caption: document.querySelector(".sketch-caption")?.textContent ?? "" };
+      });
+    };
+    const s0 = await at(0);
+    assert(s0.painted > 0, "何も描かれていません（絵が止まっています）");
+    const s2 = await at(2);
+    // 候補が入ると、星が明るくなり、一言が収録の説明文になります。
+    assert(s2.painted > s0.painted, "候補を渡しても絵が変わりません");
+    assert(/—/.test(s2.caption), `一言が出ていません: ${s2.caption}`);
+    const s4 = await at(4);
+    assert(s4.painted > 0, "決まった順が描かれていません");
+  } finally {
+    await pg.close();
   }
 });
 

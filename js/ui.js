@@ -18,27 +18,35 @@ import { estimatedTravel } from "./reliability.js";
 import { isTouring, longDriveNote, restSlots } from "./touring.js";
 import { itineraryText } from "./share.js";
 import { icsFilename, toIcs } from "./ical.js";
+import { mountSketch } from "./sketch.js";
+import { KIND_NOTE } from "./modes.js";
+import { icon } from "./icons.js";
 
+// 行の先頭の記号の「名前」です。形は js/icons.js が持っています。
+//
+// もとは絵文字（🚃 📍 🍽 …）でした。同じ旅程が iPhone と Android で
+// 別の顔になり、多色の絵だけが画面から浮き、17px でも大きさが
+// そろいませんでした。名前だけをここに置きます。
 const ICON = {
-  transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕",
-  luggage: "🧳",
+  transit: "transit", spot: "spot", meal: "meal", lodging: "lodging",
+  free: "free", luggage: "luggage",
   // 日をまたいで着いた朝の目印（夜行・長距離フェリー・深夜便）。
-  arrive: "🚉",
+  arrive: "arrive",
 };
 
-/** 行の先頭の絵。乗り物は、乗るものによって変えます。 */
+/** 行の先頭の記号の名前。乗り物は、乗るものによって変えます。 */
 function iconFor(item, itin) {
   if (item.kind === "transit") {
-    if (item.taxi) return "🚕";
-    if (item.walk) return "🚶";
+    if (item.taxi) return "taxi";
+    if (item.walk) return "walk";
     // 区間ごとに乗るものが違う旅（電車＋現地の車）では、区間の側が
     // 答えを持っています。持っているほうを先に見ます。
-    if (item.drive === true) return "🚗";
-    if (itin?.transport === "transit+car") return "🚃";
-    // 車の旅で電車の絵を出すと、乗り換えを探すことになります。
-    if (isTouring(itin)) return "🚗";
+    if (item.drive === true) return "car";
+    if (itin?.transport === "transit+car") return "transit";
+    // 車の旅で電車の記号を出すと、乗り換えを探すことになります。
+    if (isTouring(itin)) return "car";
   }
-  return ICON[item.kind] ?? "•";
+  return ICON[item.kind] ?? "dot";
 }
 
 /**
@@ -181,7 +189,7 @@ const SLOW_AFTER_SEC = 40;
 const fmtElapsed = (sec) =>
   `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 
-export function renderProgress(container, step, detail = "") {
+export function renderProgress(container, step, detail = "", extra = null) {
   // 作り直さず、書き換えます。
   //
   // 以前は毎回 textContent = "" で消して組み直していました。段が進む
@@ -206,17 +214,40 @@ export function renderProgress(container, step, detail = "") {
     );
     container.append(card);
     startClock(container, card);
+    // 待っているあいだに、旅が形になっていくのを見せます（js/sketch.js）。
+    // 出発地・読み込まれた収録・候補・決まった順を、本物の座標で描きます。
+    // 6段の一覧と経過時間だけでは、止まっていないことは分かっても
+    // 何が起きているのかは分かりませんでした。
+    //
+    // **札を画面に置いてから**載せます。絵は「札が画面から消えたら
+    // 止まる」作法で動くので、置く前に載せると最初の1コマで自分から
+    // 止まります（実際そうなって、何も描かれませんでした）。
+    if (extra?.trip) {
+      card.__sketch = mountSketch(card, { trip: extra.trip });
+    }
   }
 
   card.querySelector(".step-detail").textContent =
     detail || STEPS[Math.min(step, STEPS.length - 1)];
+  // 絵に、いまの段と材料を渡します。
+  if (card.__sketch) {
+    const patch = { step };
+    if (extra?.stars) patch.stars = extra.stars;
+    if (extra?.picks) patch.picks = extra.picks;
+    if (extra?.route) patch.route = extra.route;
+    card.__sketch.update(patch);
+  }
   const bar = card.querySelector(".md-progress");
   bar.setAttribute("aria-valuenow", String(step + 1));
   bar.querySelector("i").style.width =
     `${((step + 1) / STEPS.length) * 100}%`;
   card.querySelectorAll(".step-list li").forEach((li, i) => {
     li.className = i < step ? "done" : i === step ? "active" : "";
-    li.lastChild.textContent = `${i < step ? "✓ " : ""}${STEPS[i]}`;
+    li.lastChild.textContent = STEPS[i];
+    // 済んだ段の印。以前は色の付いた丸だけで、**色でしか区別が
+    // 付きませんでした**。丸の中にチェックを入れます。文字の「✓」では
+    // なく、ほかの記号と同じ線で描いたものです（js/icons.js）。
+    li.firstChild.replaceChildren(...(i < step ? [icon("check")] : []));
   });
 }
 
@@ -376,7 +407,7 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       el("p", { class: "score-summary" }, r.summary),
       el("ul", { class: "check-list" }, r.checks.map((c) => el("li",
         { class: c.ok ? "ok" : "warn" },
-        el("span", { class: "ck-ic", "aria-hidden": "true" }, c.ok ? "✓" : "⚠"),
+        icon(c.ok ? "check" : "warn", { class: "ck-ic" }),
         el("span", { class: "ck-label" }, c.label),
         el("span", { class: "ck-detail" }, c.detail)))),
       recheckRow(itin, handlers)));
@@ -424,7 +455,7 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       // 見比べても、どちらが自分に合うかは決められません。
       card.append(...[
         el("span", { class: "v-head" },
-          el("span", { class: "v-ic", "aria-hidden": "true" }, def.icon ?? "•"),
+          icon(def.icon ?? "dot", { class: "v-ic" }),
           el("b", { class: "v-name" }, def.label ?? v.key),
           v.key === itin.recommendKey
             ? el("span", { class: "v-badge" }, "おすすめ") : null),
@@ -503,13 +534,17 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       // 受け取られます。言いたいのは「まだ裏が取れていない」です。
       itin.sourceMix.action
         ? el("p", { class: "src-action" }, itin.sourceMix.action) : null,
-      el("ul", { class: "panel-list" },
-        [["🟢 収録データ", "収録の実データ、または経路検索・時刻表で取れた値です。"
+      el("ul", { class: "panel-list src-legend" },
+        [["level-verified", "収録データ",
+          "収録の実データ、または経路検索・時刻表で取れた値です。"
           + "行く日に変わっていないことまでは、お約束できません。"],
-         ["🟡 目安", "分類ごとの目安、または距離からの計算です。"],
-         ["🟠 AI調査", "AIが検索して得た情報で、公式では確認できていません。"
-                     + "訪問前に公式サイトでご確認ください。"]]
-          .map(([k, v]) => el("li", {}, `${k} … ${v}`))),
+         ["level-estimated", "目安", "分類ごとの目安、または距離からの計算です。"],
+         ["level-ai", "AI調査",
+          "AIが検索して得た情報で、公式では確認できていません。"
+          + "訪問前に公式サイトでご確認ください。"]]
+          // 凡例の印は、旅程の中に出るものと**同じ形**にします。
+          // 別の絵を並べると、照らし合わせられません。
+          .map(([ic, k, v]) => el("li", {}, icon(ic), el("b", {}, k), ` … ${v}`))),
       // 「確認済み」と「最新」は別です。いつ取ったものかを併記します。
       itin.freshness
         ? el("p", { class: `freshness lv-${itin.freshness.level}` },
@@ -721,8 +756,8 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
             ? `選んだ ${picked.size}件で組み直す` : "組み直す";
         });
         label.append(box2,
-          el("span", { class: "rp-ic", "aria-hidden": "true" },
-            { rain: "☂", sunset: "🌇", crowd: "👥" }[s.kind] ?? "•"),
+          icon({ rain: "rain", sunset: "sunset", crowd: "crowd" }[s.kind]
+            ?? "dot", { class: "rp-ic" }),
           el("span", { class: "rp-tx" }, s.text));
         li.append(label);
         list.append(li);
@@ -1109,7 +1144,7 @@ export function renderToday(container, itin, trip, handlers = {}) {
       box.append(el("a", {
         class: "today-nav md-state", href: nav,
         target: "_blank", rel: "noopener noreferrer",
-      }, el("span", { "aria-hidden": "true" }, "➤"),
+      }, icon("forward"),
          el("span", {}, `現在地から「${target.name ?? n.title}」へ案内`)));
     }
 
@@ -1156,7 +1191,7 @@ export function renderToday(container, itin, trip, handlers = {}) {
 /** 軸ごとの点を、星と数字で並べます。 */
 function axisList(axes) {
   return el("ul", { class: "axes" }, (axes ?? []).map((a) => el("li", {},
-    el("span", { class: "ax-ic", "aria-hidden": "true" }, a.icon),
+    icon(a.icon, { class: "ax-ic" }),
     el("span", { class: "ax-label" }, a.label),
     el("span", { class: "ax-stars", role: "img", "aria-label": `${a.stars} / 5` },
       el("span", {}, "★".repeat(a.stars)),
@@ -1228,7 +1263,7 @@ function srcChip(c, extra = "", source = "") {
   const text = source ? `${c.label}・${source}`
     : extra ? `${c.label}・${extra}` : c.label;
   return el("span", { class: `src src--${c.level}`, title },
-    el("span", { "aria-hidden": "true" }, c.icon),
+    icon(c.icon, { class: "src-ic" }),
     el("span", {}, text));
 }
 
@@ -1256,8 +1291,8 @@ function transitSteps(t) {
   box.append(el("summary", {}, head));
   box.append(el("ol", { class: "ts-list" },
     t.segments.map((seg, i) => el("li", { class: `ts ${seg.kind}` },
-      el("span", { class: "ts-ic", "aria-hidden": "true" },
-        { walk: "🚶", wait: "⏳", ride: "🚃" }[seg.kind] ?? "・"),
+      icon({ walk: "walk", wait: "wait", ride: "transit" }[seg.kind] ?? "dot",
+        { class: "ts-ic" }),
       el("span", { class: "ts-tx" }, lines[i])))));
   return box;
 }
@@ -1324,7 +1359,7 @@ function cardArt(spot, { tall = false } = {}) {
     box.append(el("em", { class: `tier ${spot.fame_tier}` },
       TIER_LABEL[spot.fame_tier]));
   }
-  box.append(el("span", { class: "art-ic", "aria-hidden": "true" }, art.icon));
+  box.append(icon(art.icon, { class: "art-ic" }));
 
   const img = el("img", { alt: "", loading: "lazy", decoding: "async",
                           class: tall ? "" : "card-photo" });
@@ -1428,13 +1463,19 @@ function dragSheet(sheet, scrim, close) {
     // 「ここをつかむ」場所と「ここを押す」場所が同じほうが迷いません。
     const bar = grip.querySelector("i");
     if (bar) btn.append(bar);
-    btn.append(el("span", { class: "arrow", "aria-hidden": "true" }, "▲"));
+    const arrow = el("span", { class: "arrow", "aria-hidden": "true" });
+    arrow.append(icon("chevron-up"));
+    btn.append(arrow);
     btn.addEventListener("click", () => {
       const next = state === "full" ? "peek" : "full";
       go(next);
       btn.setAttribute("aria-label", next === "full"
         ? "説明を半分に戻す" : "この場所の説明を全部見る");
-      btn.querySelector(".arrow").textContent = next === "full" ? "▼" : "▲";
+      // 山形の向きだけを差し替えます。**回転させません**——
+      // 「動きを減らす」設定のときに回るのは、この摘みだけではないので
+      // 個別に止めるより、はじめから回さないほうが確かです。
+      arrow.replaceChildren(icon(next === "full" ? "chevron-down"
+        : "chevron-up"));
     });
     grip.append(btn);
   }
@@ -1461,7 +1502,7 @@ function tuneRow(item, itin, handlers) {
       const b = el("button", {
         type: "button", class: "tune-move", "data-move": dir,
         "aria-label": `${item.title}を${label}`,
-      }, el("span", { "aria-hidden": "true" }, dir === "up" ? "↑" : "↓"));
+      }, icon(dir === "up" ? "up" : "down"));
       b.addEventListener("click", (e) => {
         e.stopPropagation();
         handlers.onSpotOrder({ id, dir });
@@ -1469,7 +1510,8 @@ function tuneRow(item, itin, handlers) {
       return b;
     };
     const grip = el("span", { class: "tune-grip", "aria-hidden": "true",
-                              title: "掴んで動かすと、回る順が変わります" }, "⠿");
+                              title: "掴んで動かすと、回る順が変わります" },
+                    icon("drag"));
     dragReorder(grip, handlers);
     row.append(grip, move("up", "1つ前に回す"), move("down", "1つ後に回す"));
   }
@@ -1635,8 +1677,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
   if (item.kind === "spot") body.append(info);
 
   const title = el("div", { class: "title" },
-    el("span", { class: "ic", "aria-hidden": "true" },
-       spotArt?.icon ?? iconFor(item, itin)),
+    icon(spotArt?.icon ?? iconFor(item, itin)),
     el("span", { class: "tx" }, item.title));
   if (item.place?.fame_tier) {
     title.append(el("em", { class: `tier ${item.place.fame_tier}` },
@@ -1670,6 +1711,43 @@ function renderItem(item, index, itin, handlers, sunNote) {
       line.append(" ", srcChip(c, "", src));
     }
     info.append(line);
+    // 乗り物ならではの断り書き（js/modes.js の KIND_NOTE）。
+    //
+    // 「4時間46分」とだけ出しても、空路の区間は現地で足りません。
+    // 空港には早く着く必要があり、搭乗券は別に取る必要があります。
+    // 船は欠航します。routes.js が路線名から見分けた種類ごとに、
+    // 旅程が現地で壊れないために要ることだけを書きます。
+    if (item.kind === "transit" && item.vehicle?.kinds?.length) {
+      for (const kind of item.vehicle.kinds) {
+        const note = KIND_NOTE[kind];
+        if (!note) continue;
+        info.append(el("p", { class: "sun vehicle" },
+          icon(kind),
+          el("span", {}, note)));
+      }
+      // 指定した乗り物で組めなかったとき。黙って陸の経路を出すと、
+      // 指定を無視したことに気づけません。
+      if (item.vehicle.preferMet === false) {
+        info.append(el("p", { class: "sun vehicle tight" },
+          icon("warn"),
+          el("span", {},
+            "指定した乗り物（飛行機・船）を使う便が見つからなかったので、"
+            + "ほかの乗り物で組んでいます。")));
+      }
+    }
+    // 終電の線（js/lasttrain.js）。
+    //
+    // 「18:40発」とだけ書いてあっても、あと何分粘れるのかが
+    // 分かりません。その駅の終電を並べて置きます。
+    // 予定が終電より後なら、赤で出します（**この旅程では帰れません**）。
+    if (item.lastTrain?.text) {
+      info.append(el("p", {
+        class: `sun lasttrain${item.lastTrain.level === "over" ? " tight"
+          : item.lastTrain.level === "tight" ? " near" : ""}`,
+      },
+        icon(item.lastTrain.level === "over" ? "warn" : "wait"),
+        el("span", {}, item.lastTrain.text)));
+    }
     // 長い運転には、休憩のことを添えます。「4時間の移動」と1行だけ
     // 書いておいて、休むことに触れないのは不親切です。
     if (item.kind === "transit" && isTouring(itin) && item.walk !== true) {
@@ -1677,7 +1755,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
         Math.round((new Date(item.end) - new Date(item.start)) / 60000));
       if (note) {
         info.append(el("p", { class: "sun rest" },
-          el("span", { "aria-hidden": "true" }, "☕"),
+          icon("free"),
           el("span", {}, note)));
       }
       // 休憩の枠。「2時間ごとに休憩を」と書くだけでは、旅程は
@@ -1687,7 +1765,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
       if (rest) {
         info.append(el("p",
           { class: `sun rest${rest.fits === false ? " tight" : ""}` },
-          el("span", { "aria-hidden": "true" }, "⏸"),
+          icon("rest"),
           el("span", {},
             `休憩の目安: ${rest.times.join("ごろ・")}ごろ`
             + `（1回15分・合計${rest.minutes}分）。${rest.note}`)));
@@ -1700,13 +1778,13 @@ function renderItem(item, index, itin, handlers, sunNote) {
     // 言いかたを分けます。
     if (item.scenic?.kind === "line") {
       info.append(el("p", { class: "sun scenic" },
-        el("span", { "aria-hidden": "true" }, "🌄"),
+        icon("scenic"),
         el("span", {},
           `${item.scenic.name}。${item.scenic.what}`)));
     } else if (item.scenic?.kind === "road") {
       for (const r of item.scenic.roads) {
         info.append(el("p", { class: "sun scenic" },
-          el("span", { "aria-hidden": "true" }, "🛣"),
+          icon("road"),
           el("span", {},
             `この辺り（約${r.km}km）に${r.name}があります。${r.what}`
             + (r.note ? ` ${r.note}` : "")
@@ -1725,6 +1803,82 @@ function renderItem(item, index, itin, handlers, sunNote) {
   if (item.alternatives?.length) {
     info.append(alternativeRoutes(item.alternatives));
   }
+  // 点ではないもの（道・広い場所）。
+  //
+  // 「山背古道 40分」と書かれても、どこから入ってどこへ抜けるのかが
+  // 決まっていません。**経路は組み替えていません**（道の形を持って
+  // いないので、推し量ると行けない旅程ができます）。分かることを
+  // 言い切り、分からないことは分からないと書きます。
+  if (item.shape?.kind === "trail") {
+    const sh = item.shape;
+    const stop = (st) => (st ? `最寄り: ${st.name}${st.km ? `・約${st.km}km` : ""}` : "最寄りは分かりません");
+    if (sh.entry && sh.exit) {
+      info.append(el("p", { class: "sun shape" },
+        icon("forward"),
+        el("span", {},
+          `これは道の名前です。収録には両端があります（約${sh.km}km）。`
+          + `入口: ${sh.entry.name}（${stop(sh.entryStop)}）／`
+          + `出口: ${sh.exit.name}（${stop(sh.exitStop)}）。`
+          + "歩き通すなら、帰りは入口ではなく出口の最寄りから乗ることに"
+          + "なります。この旅程の時刻は入口へ戻る前提で組んであるので、"
+          + "通り抜ける場合は次の移動を出口から確かめてください。")));
+    } else {
+      info.append(el("p", { class: "sun shape" },
+        icon("forward"),
+        el("span", {},
+          "これは道の名前です。収録にあるのは道の上の1点だけで、"
+          + "入口ではありません。どこから入ってどこへ抜けるのかは、"
+          + "こちらでは分かりません。"
+          + (sh.entryStop ? `この点の最寄りは ${sh.entryStop.name}`
+              + `（約${sh.entryStop.km}km）です。` : "")
+          + "通り抜けるなら、帰りは抜けた先の最寄りから乗ることになります。")));
+    }
+  } else if (item.shape?.kind === "wide") {
+    const sh = item.shape;
+    const parts = [
+      "これは広い場所の名前です。座標は代表の1点で、入口ではありません。",
+    ];
+    if (sh.inside?.length) {
+      parts.push("中の行き先として収録にあるのは: "
+        + sh.inside.map((x) => `${x.name}（約${x.km}km）`).join("、")
+        + "。どこへ行くかで最寄りもかかる時間も変わります。");
+    } else {
+      parts.push("中の行き先は収録にありません。どこへ行くかで最寄りも"
+        + "かかる時間も変わります。");
+    }
+    if (sh.stop) {
+      parts.push(`代表の点の最寄りは ${sh.stop.name}（約${sh.stop.km}km）です。`);
+    }
+    info.append(el("p", { class: "sun shape" },
+      icon("area"),
+      el("span", {}, parts.join(""))));
+  }
+
+  // 同行者のための一言（js/access.js）。
+  //
+  // 収録に「バリアフリーかどうか」はありません。持っているのは分類
+  // だけなので、**「行けません」とは言いません**。何がつらい分類
+  // なのかと、確かめ先を書きます。決めるのは本人です。
+  if (item.access?.why) {
+    info.append(el("p", { class: "sun access" },
+      icon("access"),
+      el("span", {}, item.access.why)));
+  }
+
+  // 同じ地点にある別の立ち寄り。
+  //
+  // 座標が同じなので、移動は0分です。ただし**同じものかどうかは
+  // 分かりません**（「九重山」と「久住山」は同じ座標の別名ですが、
+  // 「小樽美術館」と「小樽文学館」は同じ建物の別の施設です）。
+  // 決めずに、そう書きます。
+  if (item.sameSpot?.length) {
+    info.append(el("p", { class: "sun samespot" },
+      icon("samespot"),
+      el("span", {},
+        `${item.sameSpot.join("・")}と同じ地点です`
+        + "（移動は要りません。収録では別の名前で入っていますが、"
+        + "同じものかどうかはこちらでは分かりません）")));
+  }
   if (item.kind === "spot" && (item.reason || item.fit)) {
     info.append(el("p", { class: "reason" }, item.fit?.summary ?? item.reason));
     // なぜここが選ばれたのか。軸ごとに出すと、納得も反論もできます。
@@ -1738,7 +1892,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
         "この場所の性格"));
       inner.append(el("ul", { class: "quality" },
         qualityOf(item.place).map((q) => el("li", {},
-          el("span", { class: "q-ic", "aria-hidden": "true" }, q.icon),
+          icon(q.icon, { class: "q-ic" }),
           el("span", { class: "q-label" }, q.label),
           el("span", { class: "q-stars", role: "img", "aria-label": `${q.stars} / 5` },
             el("span", {}, "★".repeat(q.stars)),
@@ -1749,15 +1903,14 @@ function renderItem(item, index, itin, handlers, sunNote) {
   }
   if (sunNote) {
     info.append(el("p", { class: `sun ${sunNote.kind}` },
-      el("span", { "aria-hidden": "true" },
-        sunNote.kind === "dark" ? "🌙" : "🌇"),
+      icon(sunNote.kind === "dark" ? "moon" : "sunset"),
       " ", sunNote.text));
   }
   // その日の営業時間。閉館だけでなく最終入場も出します。
   // 「17:00まで開いている」と「16:30までに入れば見られる」は別のことです。
   if (item.hoursText) {
     const p = el("p", { class: "hours" },
-      el("span", { "aria-hidden": "true" }, "🕘"),
+      icon("wait"),
       el("span", {}, item.hoursText));
     if (item.place) p.append(srcChip(confidenceOf("hours", item.place)));
     if (item.hoursNote) p.title = item.hoursNote;
@@ -1771,9 +1924,9 @@ function renderItem(item, index, itin, handlers, sunNote) {
   // （backup.js。候補は旅程を組んだときと同じ集合から取っています）。
   if (item.backup) {
     // 印は、何が心配なのかで変えます。雨と休館は別のことです。
-    const mark = item.backup.why === "closed" ? "🔒" : "☔";
+    const mark = item.backup.why === "closed" ? "lock" : "rain";
     const p = el("p", { class: "backup" },
-      el("span", { "aria-hidden": "true" }, mark),
+      icon(mark),
       el("span", {}, item.backup.text));
     p.append(el("a", {
       href: mapsSearchUrl(item.backup.name,
@@ -1788,11 +1941,11 @@ function renderItem(item, index, itin, handlers, sunNote) {
     const r = reservationOf(item.place);
     if (r.required || r.likely) {
       const p = el("p", { class: `reserve${r.required ? " need" : ""}` },
-        el("span", { "aria-hidden": "true" }, r.required ? "⚠" : "ℹ"),
+        icon(r.required ? "warn" : "info"),
         el("span", {}, r.text));
       if (r.url) {
         p.append(el("a", { href: r.url, target: "_blank", rel: "noreferrer",
-                           class: "link" }, "予約ページ"));
+                           class: "link" }, "公式サイトで申し込む"));
       }
       info.append(p);
     }
@@ -1913,7 +2066,7 @@ export function openSheet(item, { onClose, describe }) {
   sheet.append(el("button", {
     class: "md-icon-btn md-state close", type: "button",
     "aria-label": "閉じる", onClick: () => close(),
-  }, el("span", { "aria-hidden": "true" }, "✕")));
+  }, icon("close")));
 
   // 写真ヘッダー。スクロールに合わせて遅れて動きます。
   const art = cardArt(spot, { tall: true });
@@ -1962,14 +2115,14 @@ export function openSheet(item, { onClose, describe }) {
     }, reserve.text);
     if (reserve.url) {
       p.append(" ", el("a", { href: reserve.url, target: "_blank",
-                              rel: "noreferrer" }, "予約ページ"));
+                              rel: "noreferrer" }, "公式サイトで申し込む"));
     }
     body.append(p);
   }
 
   body.append(el("ul", { class: "quality", style: "margin-top:16px" },
     qualityOf(spot).map((q) => el("li", {},
-      el("span", { class: "q-ic", "aria-hidden": "true" }, q.icon),
+      icon(q.icon, { class: "q-ic" }),
       el("span", { class: "q-label" }, q.label),
       el("span", { class: "q-stars", role: "img", "aria-label": `${q.stars} / 5` },
         el("span", {}, "★".repeat(q.stars)),

@@ -47,6 +47,13 @@ import { suggestReplan } from "./replan.js";
 import { attachBackups } from "./backup.js";
 import { attachMeals, dietNote } from "./meals.js";
 import { attachScenic } from "./scenic.js";
+import { coLocated } from "./dedupe.js";
+import { attachShapes } from "./shapes.js";
+import { attachAccess } from "./access.js";
+import { attachLastTrain } from "./lasttrain.js";
+import { searchYahooTransit } from "./yahoo-transit.js";
+import { yahooFlags } from "./modes.js";
+import { nearestStop } from "./stops.js";
 import { eventNotesFor } from "./events.js";
 import { attachLuggage, luggagePlanFor } from "./luggage.js";
 import { storyFor } from "./story.js";
@@ -115,11 +122,15 @@ export async function planTrip({ trip, kb, onProgress = () => {},
 
   // 車の旅なら、走って気持ちのいい場所を前に出します（js/touring.js）。
   const touring = isTouring(trip);
+  // 同行者がいるなら、石段と登り道を少し後ろへ（js/access.js）。
+  // **外しません。** 並びを変えるだけです。
+  const companions = trip.companions ?? [];
   let matches = vector
     ? searchSpots(kb, vector,
-                  { limit: 160, hiddenBias: trip.hiddenBias, touring })
+                  { limit: 160, hiddenBias: trip.hiddenBias, touring, companions })
     : searchSpotsByKeyword(kb, searchWords,
-                           { limit: 160, hiddenBias: trip.hiddenBias, touring });
+                           { limit: 160, hiddenBias: trip.hiddenBias, touring,
+                             companions });
 
   // 一致が無いときにエラーで止めない。「その希望には応えられないが、
   // 行ける範囲でこういう案はある」と示したほうが役に立ちます。
@@ -245,7 +256,8 @@ export async function planTrip({ trip, kb, onProgress = () => {},
       }
     }
     matches = searchSpotsByKeyword(kb, searchWords,
-      { limit: 200, hiddenBias: trip.hiddenBias, touring: isTouring(trip) });
+      { limit: 200, hiddenBias: trip.hiddenBias, touring: isTouring(trip),
+        companions: trip.companions ?? [] });
     if (!matches.length) matches = kb.spots.map((spot) => ({ spot, score: 0 }));
 
     // 名指しされた場所は、検索の点数ではなく「頼まれたから」上に来ます。
@@ -406,7 +418,9 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     return { ...c, spots: shown };
   });
 
-  onProgress(2);
+  // 絵に、候補を渡します（待ち画面で、絞られた星が明るくなります）。
+  // 描くのは本物の座標です。候補は多くても数百件なので、そのまま。
+  onProgress(2, "", { picks: candidatePool(candidates).slice(0, 400) });
   const planOpts = { maxRegions, days, mustSpotIds, avoidSpotIds,
                      groupById: scope.groupById ?? null,
                      // 車で来ている人に、駅前だけを並べないための合図です。
@@ -480,13 +494,15 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   }
 
   // 採用が決まってから、実際の経路を取りにいきます（ここだけが課金対象）。
-  onProgress(4, "採用した案の経路を確認しています");
+  // 絵には決まった順を渡します。線が落ち着き、番号が打たれます。
+  onProgress(4, "採用した案の経路を確認しています",
+             { route: (checked.result?.visits ?? []).map((v) => v.spot) });
   const routed = await verifyProposal(proposal, trip, candidates, kb,
                                       { useRoutes: true,
                                         nightTrain: intent.nightTrain });
   if (routed.result.visits.length) checked = routed;
 
-  onProgress(5);
+  onProgress(5, "", { route: (checked.result?.visits ?? []).map((v) => v.spot) });
   // 使い回せるように、読み取り結果を外へ返します
   const region = kb.regionsById.get(proposal.regionId);
   const reasons = new Map(proposal.picks.map((p) => [p.spotId, p.reason]));
@@ -659,6 +675,76 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   //
   //     時刻も費用も経路も変えません。**説明だけ**を足します。
   itin.scenicCount = attachScenic(itin, { transport: trip.transport });
+  // 8.55 点ではないもの（道・広い場所）を、点として案内しない。
+  //
+  //      「山背古道 40分」と書かれても、どこから入ってどこへ抜けるのか
+  //      が決まっていません。「舞洲 40分」も、島のどこへ行くのかが
+  //      決まっていません。
+  //
+  //      **経路は組み替えません。** 組み替えるには道の形が要り、
+  //      収録で両端が分かるのは144本中1本だけです（山背古道）。
+  //      持っていないものを推し量ると、行けない旅程ができます。
+  //      分かることを言い切り、分からないことは分からないと書きます。
+  // 8.45 同行者のための一言（js/access.js）。
+  //
+  //      収録に「バリアフリーかどうか」はありません。持っているのは
+  //      分類だけです。**「行けません」とは言いません。** 何がつらい
+  //      分類なのかと、確かめ先を書きます。
+  itin.accessCount = attachAccess(itin, trip.companions);
+
+  itin.shapeCount = await attachShapes(itin, {
+    spots: kb.spots,
+    nearestStop,
+  });
+
+  // 8.5 終電の線。
+  //
+  //     帰りの移動には「18:40発」としか書いてありませんでした。
+  //     当日に知りたいのは、その隣にある数です——その駅の終電は何時か。
+  //
+  //     これが無いと2つのことが起きます。夕暮れがきれいでも、何分まで
+  //     粘れるか分からないので1本前で帰ります。そして、立ち寄りを
+  //     足して帰りが終電より後になっても、**誰も何も言いません**。
+  //
+  //     Yahoo!路線情報には終電の検索（type=2）があります。あるものを
+  //     聞くだけです。聞けなければ黙って空けます。
+  //
+  //     経路を調べられなかった旅程（目安だけで組んだもの）には出ません。
+  //     どの駅から乗るのかが分からないので、終電も聞けません。
+  itin.lastTrainCount = await attachLastTrain(itin, async (from, to, when) => {
+    try {
+      return await searchYahooTransit(from, to, {
+        departAt: when, search: "last",
+        modes: yahooFlags(trip.transport ?? "any"),
+        signal: opts.signal,
+      });
+    } catch {
+      // 回数制限や通信の失敗。終電のために旅程を止めません。
+      return null;
+    }
+  });
+
+  // 8.6 同じ地点にある立ち寄りを、そう書く。
+  //
+  //     名前が違うので1つにはまとめませんでした（別のものかもしれない
+  //     からです）。ただ、座標が同じなら移動は0分です。
+  //
+  //       九重山 と 久住山          同じ座標の別名。どちらが正しいかは
+  //                                こちらでは決められません
+  //       小樽美術館 と 小樽文学館   同じ建物の別の施設。続けて回れます
+  //
+  //     **決めずに、そう書きます。** 読む人が判断できます。
+  for (const day of itin.days ?? []) {
+    const spots = (day.items ?? []).filter((i) => i.kind === "spot" && i.place);
+    for (const group of coLocated(spots.map((i) => i.place))) {
+      const names = group.map((p) => p.name);
+      for (const item of spots) {
+        if (!group.includes(item.place)) continue;
+        const others = names.filter((n) => n !== item.place.name);
+        item.sameSpot = others;
+      }
+    }
+  }
   // 9. その時期ならではのこと、荷物、旅の意味づけ。
   //    どれも数えれば決まるので、AIには書かせません
   //    （同じ旅程で毎回違う説明が出ると、説明として成立しません）。

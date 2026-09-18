@@ -6,8 +6,10 @@
 
 import { KB_INDEX_URL } from "./config.js";
 import { drivingAppeal } from "./touring.js";
+import { accessAppeal } from "./access.js";
 import { genresForCategory } from "./feasibility.js";
 import { SAMPLE_KB } from "./sample-data.js";
+import { betterOf, dedupeSpots, samePoint, sameThing } from "./dedupe.js";
 
 const FAME_SCORE = { major: 82, known: 55, hidden: 26 };
 
@@ -44,6 +46,44 @@ export function describeIfAddress(spot) {
     ? `${where}の${spot.category}`
     : (spot.category || "");
   return spot;
+}
+
+/**
+ * まとめるほうへ、持っている情報を移します。
+ *
+ * 手作業の収録は営業時間と料金を持ち、Wikidata は説明とリンクを
+ * 持っています。どちらかを捨てると、まとめたことで情報が減ります。
+ * 別名も残します（「鎌倉大仏」で探した人がたどり着けなくなると、
+ * 直したつもりで壊れます）。
+ */
+function absorbInto(keep, gone) {
+  // **どちらの名前を残すかは、来た順では決めません。**
+  //
+  // 県ごとに遅れて読むので、どちらが先に来るかはそのときの都合です。
+  // 先に来たほうを残すと、「観光神楽 高千穂神社」が残ることがあります
+  // （催しの名前が神社の前に付いたものです）。読む人にとって分かる
+  // ほうを残します（js/dedupe.js の betterOf）。
+  //
+  // 入れもの（keep）は索引に載っているので、**入れ替えずに名前だけ**
+  // を移します。入れ替えると spotsById が古いほうを指したままになります。
+  const names = new Set([keep.name, gone.name].filter(Boolean));
+  for (const n of keep.aka ?? []) names.add(n);
+  for (const n of gone.aka ?? []) names.add(n);
+  const best = betterOf(keep, gone);
+  keep.name = best.name;
+  names.delete(keep.name);
+  if (names.size) keep.aka = [...names];
+  for (const f of ["description", "wikipedia", "wikidata", "url", "tel",
+                   "open", "close", "fee", "dwell", "closedDays", "category"]) {
+    const has = keep[f] !== undefined && keep[f] !== null && keep[f] !== "";
+    const theirs = gone[f] !== undefined && gone[f] !== null && gone[f] !== "";
+    if (!has && theirs) keep[f] = gone[f];
+  }
+  if (Number.isFinite(gone.fame_score)
+      && gone.fame_score > (keep.fame_score ?? 0)) {
+    keep.fame_score = gone.fame_score;
+    keep.fame_tier = gone.fame_tier ?? keep.fame_tier;
+  }
 }
 
 function hydrate(spot, region) {
@@ -193,10 +233,16 @@ export async function loadKnowledgeBase(onProgress, signal, pre = null) {
   }
   onProgress?.(total, total, "完了");
 
-  const idx = index(regions, spots);
-  for (const spot of spots) hydrate(spot, idx.regionsById.get(spot.regionId));
+  // まとめてから索引を作ります。**索引を先に作ると、まとめたあとの
+  // 件数と合いません**（消したはずの id が spotsById に残ります）。
+  const idx0 = index(regions, spots);
+  for (const spot of spots) hydrate(spot, idx0.regionsById.get(spot.regionId));
+  const { spots: unique, merged } = dedupeSpots(spots);
+  const idx = index(regions, unique);
   return {
-    source: "remote", manifest, regions, spots, ...idx,
+    source: "remote", manifest, regions, spots: unique, ...idx,
+    // まとめた件数。画面の「収録◯件」を、実際に行ける数に合わせます。
+    merged,
     // 出典の表示が求められるデータを含みます（国土数値情報など）。
     // 画面から消さないでください。
     attribution: manifest.sources ?? [],
@@ -356,16 +402,72 @@ export function mergeIntoKb(kb, { regions = [], spots = [] } = {}) {
     kb.regions.push(r);
     kb.regionsById.set(r.id, r);
   }
+  kb.spotsByPoint ??= new Map();
   for (const s of spots) {
     if (kb.spotsById.has(s.id)) continue;
+    // **同じ場所が、別の名前で2件入っていました。**
+    //
+    //   高徳院（鎌倉大仏）  35.3167, 139.5358   手作業の収録
+    //   鎌倉大仏 高徳院     35.3167, 139.5358   別の出どころ
+    //
+    // 座標が1桁も違いません。それぞれ別のスポットとして扱っていたので、
+    // 旅程に両方入り、「高徳院（鎌倉大仏）40分 → 移動0分 →
+    // 鎌倉大仏 高徳院 40分」という並びができます。行った人は、同じ
+    // 大仏の前に80分立つことになります。
+    //
+    // まとめるのは、**座標が同じ かつ 名前が同じことを言っている**もの
+    // だけです（js/dedupe.js）。名前が違うもの（小樽美術館と小樽文学館）
+    // は残します。同じ建物の別の施設かもしれず、潰すと行けたはずの場所が
+    // 消えます。
+    const twin = findTwin(kb, s);
+    if (twin) {
+      absorbInto(twin, s);
+      kb.merged = (kb.merged ?? 0) + 1;
+      continue;
+    }
     kb.spots.push(s);
     kb.spotsById.set(s.id, s);
+    addPoint(kb, s);
     const list = kb.spotsByRegion.get(s.regionId);
     if (list) list.push(s); else kb.spotsByRegion.set(s.regionId, [s]);
     added++;
   }
   kb.__searchHaystack = undefined;   // areas.js が持つ照合用の文字列を作り直させる
   return added;
+}
+
+/** 地点の格子の鍵。約11m四方です。 */
+function pointCell(s) {
+  return `${Math.round(s.lat / 0.0001)},${Math.round(s.lng / 0.0001)}`;
+}
+
+function addPoint(kb, s) {
+  if (!Number.isFinite(s?.lat) || !Number.isFinite(s?.lng)) return;
+  const k = pointCell(s);
+  const list = kb.spotsByPoint.get(k);
+  if (list) list.push(s); else kb.spotsByPoint.set(k, [s]);
+}
+
+/**
+ * すでに入っている、同じ場所の同じもの。
+ *
+ * 県ごとに遅れて読むので、まとめる相手はあとから来ることも先に来ることも
+ * あります。読み込むたびに全件を見比べると重いので、地点の格子で
+ * 当たりを付けます。
+ */
+function findTwin(kb, s) {
+  if (!Number.isFinite(s?.lat) || !Number.isFinite(s?.lng)) return null;
+  // 格子の境目にまたがることがあるので、隣も見ます。
+  const cx = Math.round(s.lat / 0.0001);
+  const cy = Math.round(s.lng / 0.0001);
+  for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (const other of kb.spotsByPoint.get(`${cx + dx},${cy + dy}`) ?? []) {
+        if (samePoint(other, s) && sameThing(other.name, s.name)) return other;
+      }
+    }
+  }
+  return null;
 }
 
 // --- ベクトル検索 -----------------------------------------------------------
@@ -398,14 +500,16 @@ export function cosineToQuantized(query, q) {
  * 意味検索。hiddenBias が高いほど、知名度の低い場所を押し上げます。
  */
 export function searchSpots(kb, queryVector,
-                            { limit = 260, hiddenBias = 0, touring = false } = {}) {
+                            { limit = 260, hiddenBias = 0, touring = false,
+                              companions = [] } = {}) {
   const out = [];
   for (const spot of kb.spots) {
     if (!spot.v) continue;
     const sim = cosineToQuantized(queryVector, decodeVector(spot.v));
     const obscurity = 1 - Math.min(100, Math.max(0, spot.fame_score ?? 50)) / 100;
     out.push({ spot,
-      score: sim + hiddenBias * 0.12 * obscurity + touringBonus(spot, touring) });
+      score: sim + hiddenBias * 0.12 * obscurity + touringBonus(spot, touring)
+        + accessBonus(spot, companions) });
   }
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, limit);
@@ -425,6 +529,22 @@ function touringBonus(spot, touring) {
 }
 
 /**
+ * 同行者がいるときだけ足す重み。
+ *
+ * ベビーカー・車椅子・歩くのがゆっくりな人がいるなら、石段と登り道を
+ * 少し後ろへ。**消してはいけません**（行きたい人はいます。抱えて
+ * 上がる人も、一部だけ見る人もいます）。並びを変えるだけです。
+ *
+ * 幅は車のときと同じ 0.12 にしてあります。希望との一致（0〜1）を
+ * 覆すほどではありません。「城が見たい」と書いた人の旅程から、
+ * 城が消えてはいけません。
+ */
+function accessBonus(spot, companions) {
+  if (!companions?.length) return 0;
+  return (accessAppeal(spot, companions) - 0.5) * 0.12;
+}
+
+/**
  * ベクトルが無い知識ベース、または埋め込み失敗時の語句検索。
  *
  * どこに当たったかで重みを変えます。以前は当たった語の数だけを見ていたので、
@@ -437,7 +557,7 @@ const FIELD_WEIGHT = {
 };
 
 export function searchSpotsByKeyword(kb, keywords,
-  { limit = 260, hiddenBias = 0, touring = false } = {}) {
+  { limit = 260, hiddenBias = 0, touring = false, companions = [] } = {}) {
   const terms = (keywords ?? []).map((k) => String(k).trim()).filter(Boolean);
   if (!terms.length) {
     return kb.spots.slice(0, limit).map((spot) => ({ spot, score: 0.1 }));
@@ -465,7 +585,8 @@ export function searchSpotsByKeyword(kb, keywords,
 
     const obscurity = 1 - fame / 100;
     out.push({ spot,
-      score: score + hiddenBias * 0.12 * obscurity + touringBonus(spot, touring) });
+      score: score + hiddenBias * 0.12 * obscurity + touringBonus(spot, touring)
+        + accessBonus(spot, companions) });
   }
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, limit);

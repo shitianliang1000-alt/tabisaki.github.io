@@ -562,7 +562,7 @@ export async function callModel(prompt, opts = {}) {
     return callLocal(prompt, rest);
   }
   if (!hasApiKey()) {
-    throw new Error("AIのキーが未設定です（⚙ 設定 → 開発者向け から入力できます）");
+    throw new Error("AIのキーが未設定です（設定 →「開発者向け」から入力できます）");
   }
 
   let lastErr = null;

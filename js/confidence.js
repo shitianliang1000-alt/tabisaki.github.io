@@ -21,13 +21,13 @@
 // 出どころを言うだけにして、確かめるのは公式で、と添えます。
 
 export const LEVELS = {
-  verified:  { label: "収録データ", icon: "🟢", rank: 0,
+  verified:  { label: "収録データ", icon: "level-verified", rank: 0,
                tone: "収録している実データです。",
                action: "変更されることがあるので、直前に公式でもご確認ください。" },
-  estimated: { label: "目安",       icon: "🟡", rank: 1,
+  estimated: { label: "目安",       icon: "level-estimated", rank: 1,
                tone: "実際と異なる場合があります。",
                action: "時間に余裕を持ってお出かけください。" },
-  ai:        { label: "AI調査",     icon: "🟠", rank: 2,
+  ai:        { label: "AI調査",     icon: "level-ai", rank: 2,
                tone: "公式情報を確認できていません。",
                action: "訪問前に、公式サイトで営業時間をご確認ください。" },
 };
@@ -217,13 +217,59 @@ const OFTEN_RESERVED = {
 };
 
 /**
+ * 当日行っても入れない場所。
+ *
+ * 分類の目安（上の OFTEN_RESERVED）とは別に、**名指し**で持ちます。
+ * ジブリ美術館は日時指定の予約券だけで、当日券はありません。
+ * 旅程に入った時点で言わないと、行ってから知ることになります。
+ *
+ * 書くのは「何日前までに、どこで取るか」の型だけです。値段や在庫は
+ * 持っていません（日ごとに変わります）。公式サイトは、収録の url
+ * （Wikidata の公式サイト）から渡します。無ければ Wikipedia へ。
+ *
+ * ここに載せるのは、**予約制であることが広く知られている**ものだけです。
+ * 「混むから予約したほうがいい」程度の場所は載せません。載せると、
+ * 要らない場所で予約を探させることになります。
+ */
+const TIMED_TICKET = [
+  { re: /三鷹の森ジブリ美術館/,
+    how: "日時指定の予約券だけで、当日券はありません。毎月10日に翌月分が"
+      + "売り出されます。" },
+  { re: /ジブリパーク/,
+    how: "日時指定の予約券だけで、当日券はありません。エリアごとに券が"
+      + "分かれます。毎月10日に翌々月分が売り出されます。" },
+  { re: /チームラボ/,
+    how: "日時指定の券が要ります。人気の枠は数週間前に埋まります。" },
+  { re: /ユニバーサル・スタジオ・ジャパン|ユニバーサルスタジオ/,
+    how: "入場券は日付指定です。混雑日は入場制限があります。" },
+  { re: /東京ディズニー/,
+    how: "入場券は日付指定で、当日券が無い日があります。" },
+  { re: /ハリー・ポッター|ワーナー ブラザース スタジオツアー/,
+    how: "日時指定の予約券だけで、当日券はありません。" },
+  { re: /桂離宮|修学院離宮|仙洞御所/,
+    how: "参観は宮内庁への申込制です（当日受付もありますが、枠が限られます）。" },
+  { re: /白川郷.*ライトアップ/,
+    how: "冬のライトアップは完全予約制です。" },
+];
+
+/**
  * その場所に予約が要るか。
  *
  * @returns {{required:boolean, likely:boolean, text:string, url:string}}
  */
 export function reservationOf(spot) {
   const s = spot ?? {};
-  const url = /^https:\/\//.test(s.reservationUrl ?? "") ? s.reservationUrl : "";
+  // 公式サイト。収録の url（Wikidata の公式サイト）を使います。
+  // http のものは https に書き換えて渡します（平文で開かせません）。
+  const site = String(s.url ?? "").replace(/^http:/i, "https:");
+  const url = /^https:\/\//.test(s.reservationUrl ?? "") ? s.reservationUrl
+    : /^https:\/\//.test(site) ? site : "";
+  const named = TIMED_TICKET.find((t) => t.re.test(String(s.name ?? "")));
+  if (named) {
+    return { required: true, likely: true, url,
+      text: `事前の予約が必要です。${named.how}`
+        + (url ? "" : "公式サイトでお申し込みください。") };
+  }
   if (s.reservationRequired === true) {
     return { required: true, likely: true, url,
       text: "事前予約が必要です。訪問前に公式でお申し込みください。" };

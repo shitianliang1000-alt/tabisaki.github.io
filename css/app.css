@@ -191,7 +191,7 @@ p, li { text-wrap: pretty; }
   font-size: var(--hig-t-footnote);
 }
 .check-list li:first-child { border-top: none; }
-.check-list .ck-ic { text-align: center; }
+.check-list .ck-ic { flex: none; }
 .check-list li.ok .ck-ic { color: var(--md-sys-color-primary); }
 .check-list li.warn .ck-ic { color: var(--hig-orange, #c46a1b); }
 .check-list .ck-label { color: var(--hig-label); font-weight: 600; }
@@ -397,7 +397,18 @@ p, li { text-wrap: pretty; }
 
 /* 移動そのものの楽しみ（走る道・乗る路線）。
    休憩の一行（.rest）と同じ形で、移動の行に添えます。 */
-.sun.scenic { color: var(--hig-label-2); }
+.sun.scenic, .sun.samespot, .sun.shape, .sun.vehicle, .sun.access {
+  color: var(--hig-label-2);
+}
+.sun.vehicle.tight { color: var(--hig-red-deep); font-weight: 600; }
+/* 終電。ふつうは本文寄りの色で、余裕が少ないときだけ強くします。
+   色だけに頼っていないことは文のほうが担保しています（「30分しか
+   ありません」「この組み方では帰れません」と書いてあります）。 */
+.sun.lasttrain { color: var(--hig-label-2); }
+/* 余裕が30分以下。赤（帰れない）ではありませんが、本文と同じ色でも
+   ありません。「18分しかありません」と文にも書いてあります。 */
+.sun.lasttrain.near { color: var(--hig-orange); font-weight: 600; }
+.sun.lasttrain.tight { color: var(--hig-red-deep); font-weight: 600; }
 /* 休憩の枠が、帰りの余裕に収まらないとき。色だけに頼らず、
    文のほうにも「超えます」と書いてあります。 */
 .sun.rest.tight { color: var(--hig-red-deep); font-weight: 600; }
@@ -631,6 +642,7 @@ p, li { text-wrap: pretty; }
   font-variant-numeric: tabular-nums;
 }
 .recent-del {
+  display: grid; place-items: center;
   flex: none; width: 28px; height: 28px; padding: 0;
   border: 0; border-radius: 50%; background: none; cursor: pointer;
   color: var(--hig-label-2); font-size: var(--hig-t-subhead); line-height: 1;
@@ -769,6 +781,22 @@ p, li { text-wrap: pretty; }
   background: var(--hig-card);
   box-shadow: var(--hig-shadow-1);
 }
+/* 待っているあいだの絵（js/sketch.js）。札の上いっぱいに置きます。 */
+.sketch {
+  margin: -32px -28px 18px; padding: 0;
+  border-radius: var(--hig-r-xl) var(--hig-r-xl) 0 0;
+  background: var(--hig-fill);
+  overflow: hidden;
+}
+.sketch canvas { display: block; width: 100%; }
+/* 収録の説明文から取った一言。読み終わる前に変えません（5秒）。 */
+.sketch-caption {
+  margin: 0; padding: 10px 16px 12px; min-height: 2.6em;
+  font-size: var(--hig-t-footnote); line-height: 1.6;
+  color: var(--hig-label-2);
+  border-top: .5px solid var(--hig-separator);
+}
+.sketch-caption:empty { padding: 0; min-height: 0; border: 0; }
 .plan-card .step-text {
   margin: 0 0 4px; font-size: var(--hig-t-title2); font-weight: 700; letter-spacing: -.3px;
 }
@@ -784,13 +812,20 @@ p, li { text-wrap: pretty; }
   transition: color var(--md-sys-motion-medium) var(--md-sys-motion-standard);
 }
 .step-list .dot {
-  flex: none; width: 10px; height: 10px; border-radius: 50%;
+  flex: none; width: 14px; height: 14px; border-radius: 50%;
+  display: grid; place-items: center;
   background: var(--md-sys-color-outline-variant);
   transition: background-color var(--md-sys-motion-medium) var(--md-sys-motion-standard),
               box-shadow var(--md-sys-motion-medium) var(--md-sys-motion-standard);
 }
 .step-list li.done { color: var(--md-sys-color-on-surface); }
 .step-list li.done .dot { background: var(--md-sys-color-tertiary); }
+/* 済んだ段のチェック。丸より一回り小さく、線は太めに（11px では
+   1.6 の線は消えます）。 */
+.step-list li.done .dot .ic {
+  width: 11px; height: 11px; stroke-width: 3;
+  color: var(--md-sys-color-on-tertiary, #fff);
+}
 .step-list li.active { color: var(--md-sys-color-on-surface); font-weight: 500; }
 .step-list li.active .dot {
   background: var(--tabi-indigo);
@@ -1040,6 +1075,12 @@ p, li { text-wrap: pretty; }
   width: 5px; height: 5px; border-radius: 50%;
   background: var(--md-sys-color-outline);
 }
+/* 出どころの凡例。行頭には印そのものを置くので、丸は出しません
+   （丸と印が二重に並ぶと、どちらが印なのか分かりません）。 */
+.panel-list.src-legend li { padding-left: 0; }
+.panel-list.src-legend li::before { content: none; }
+.panel-list.src-legend .ic { margin-right: 6px; }
+.panel-list.src-legend b { font-weight: 600; }
 .fine {
   margin: 12px 0 0; font-size: var(--hig-t-caption1); line-height: 1.7;
   color: var(--md-sys-color-on-surface-variant);
@@ -1664,6 +1705,33 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .tl .backup .link {
   color: var(--md-sys-color-primary); text-decoration: none; font-weight: 500;
 }
+/* 事前予約。行ってから知るのがいちばん困ることです。
+   ------------------------------------------------------------------
+   この段落には**決まりが1つもありませんでした**。周りの注記が脚注の
+   大きさなのに、ここだけ本文の大きさで出ていて、旅程の中で一段だけ
+   文字が大きくなっていました（p に何も当てていなかったためです）。
+
+   ほかの注記（.backup）と同じ囲みにして、要る・要るかもしれないの
+   違いは色だけに頼らず、文（reservationOf の text）でも言い分けます。 */
+.tl .reserve {
+  /* flex にすると、記号だけが1行目に残って文が下へ落ちます
+     （文の span は max-content を欲しがるためです）。ふつうの行として
+     流します。 */
+  margin: 8px 0 0; padding: 8px 12px;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: color-mix(in srgb, var(--hig-orange) 10%, transparent);
+  font-size: var(--hig-t-footnote); line-height: 1.7;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.tl .reserve.need {
+  background: color-mix(in srgb, var(--hig-red-deep) 10%, transparent);
+  color: var(--hig-red-deep); font-weight: 600;
+}
+.tl .reserve .ic { margin-right: 7px; }
+.tl .reserve .link {
+  margin-left: 8px;
+  color: var(--md-sys-color-primary); text-decoration: none; font-weight: 500;
+}
 /* 長い運転に添える休憩のこと。日没の注記と同じ扱いの一行です。
    色は本文寄りにします（警告ではなく、気づいてほしい程度のこと）。 */
 .tl .sun.rest { color: var(--hig-label-2); display: flex; gap: 6px; }
@@ -1707,9 +1775,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   margin-top: 8px;
 }
 .spot-tune .tune-grip {
+  display: inline-flex; align-items: center;
   cursor: grab; touch-action: none;
   padding: 4px 6px; border-radius: var(--md-sys-shape-corner-small);
-  color: var(--hig-label-3); font-size: var(--hig-t-subhead); line-height: 1;
+  color: var(--hig-label-3); font-size: var(--hig-t-title3); line-height: 1;
   user-select: none;
 }
 .spot-tune .tune-grip:active { cursor: grabbing; color: var(--hig-label); }
@@ -1827,7 +1896,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .ts { display: flex; gap: 10px; padding: 7px 0; font-size: var(--hig-t-footnote); line-height: 1.7; }
 .ts + .ts { border-top: .5px solid var(--hig-separator); }
-.ts-ic { flex: none; width: 18px; text-align: center; }
+/* 記号は 1em なので、幅を px で決めません（決めると横に伸びて
+   縦横比が崩れます）。並びは gap でそろえます。 */
+.ts-ic { flex: none; font-size: var(--hig-t-callout); }
 .ts.ride .ts-tx { font-weight: 500; }
 .ts.wait .ts-tx { color: var(--md-sys-color-primary); }
 .ts.walk .ts-tx { color: var(--md-sys-color-on-surface-variant); }

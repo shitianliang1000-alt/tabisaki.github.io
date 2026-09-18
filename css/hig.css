@@ -458,6 +458,25 @@
    44pt になります。上書きされることもありません。
 
    ガイドライン（Minimum hit region）: 44×44pt。 */
+/* 記号（js/icons.js が作る単線SVG）。
+   ------------------------------------------------------------------
+   画面の記号はぜんぶ絵文字と既成の文字（🚃 📍 ⚙ ✦ ⤢ ◎ ✓）でした。
+   端末ごとに別の絵で、多色で、同じ 17px でも大きさと重心がそろいません。
+   ガイドライン（SF Symbols）の考えかたに合わせて、字と同じ線の太さで
+   描いた記号に置き換えます。
+
+   ここで決めるのは**大きさだけ**です。
+     ・1em。px で固定しません。字を大きくすれば記号も大きくなります
+       （Dynamic Type についてきます）。
+     ・flex: none。並んだときに潰れません。
+     ・vertical-align は字の下端より少し下げます。24×24 の枠いっぱい
+       まで描いていないぶん、そのままでは字より上に浮いて見えます。
+   色は currentColor なので、置いた場所の字の色になります。 */
+.ic {
+  width: 1em; height: 1em; flex: none;
+  vertical-align: -.125em;
+}
+
 .hig-hit-slop {
   position: relative;
 }
@@ -819,7 +838,10 @@
   font: inherit; font-size: var(--hig-t-caption2); line-height: 1; cursor: pointer;
 }
 .md-sheet .sheet-toggle:active { color: var(--hig-label); }
-.md-sheet .sheet-toggle .arrow { letter-spacing: 0; }
+/* 山形。字ではなく単線SVGなので、行の中で浮かないよう揃えます。 */
+.md-sheet .sheet-toggle .arrow {
+  display: inline-flex; align-items: center; letter-spacing: 0;
+}
 
 @keyframes hig-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes hig-sheet-in {

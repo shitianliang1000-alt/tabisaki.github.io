@@ -20,7 +20,9 @@
 // 殻（js/ の入っていないもの）を持っている端末は入れ直しません。
 // 収録の入れ物が変わりました（出典ごと → 県ごと。tools/reshard_kb.py）。
 // 版を上げないと、前の版で溜めた 4.8MB が端末に残り続けます。
-const VERSION = "tabisaki-v4";
+// v5: 画面の記号を絵文字から単線SVG（js/icons.js）に替えました。先に
+// 入れるものが1つ増えたので、また上げます。
+const VERSION = "tabisaki-v5";
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
 
@@ -54,6 +56,13 @@ const SHELL_FILES = [
   "./js/typescale.js",
   // 乗り物の表。これが無いと、時刻表への問い合わせが組み立てられません。
   "./js/modes.js",
+  // 同じ場所を2件として扱わないための表。収録を読むときに要ります。
+  "./js/dedupe.js",
+  // 画面の記号。これが無いと、行の先頭に何も出ない旅程になります。
+  "./js/icons.js",
+  "./js/shapes.js",
+  "./js/access.js",
+  "./js/sketch.js",
   // 当日に使うもの。**圏外で初めて開いたときに、画面が欠けないように。**
   //
   // 以前は「初回に読んだものが fetch で自然に入る」に任せていました。
