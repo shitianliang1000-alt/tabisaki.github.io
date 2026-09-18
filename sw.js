@@ -54,6 +54,19 @@ const SHELL_FILES = [
   "./js/typescale.js",
   // 乗り物の表。これが無いと、時刻表への問い合わせが組み立てられません。
   "./js/modes.js",
+  // 当日に使うもの。**圏外で初めて開いたときに、画面が欠けないように。**
+  //
+  // 以前は「初回に読んだものが fetch で自然に入る」に任せていました。
+  // ところが旅行中モードや持ち出しは、旅の当日に初めて開くものです。
+  // その日が山の中なら、そのとき初めて取りに行って、失敗します。
+  "./js/today.js",
+  "./js/ical.js",
+  "./js/share.js",
+  "./js/edit.js",
+  "./js/transfer.js",
+  "./js/history.js",
+  "./js/links.js",
+  "./js/map.js",
 ];
 
 self.addEventListener("install", (e) => {

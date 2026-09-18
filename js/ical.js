@@ -120,6 +120,47 @@ function locationOf(item) {
   return String(item.place?.name ?? item.title ?? "");
 }
 
+/** その予定の座標。地図を持っていない予定（自由時間など）は null。 */
+function pointOf(item) {
+  const p = item.kind === "transit" ? item.to : (item.place ?? item.to);
+  if (!Number.isFinite(p?.lat) || !Number.isFinite(p?.lng)) return null;
+  return { lat: p.lat, lng: p.lng };
+}
+
+/**
+ * 通知を何分前に出すか。
+ *
+ * **カレンダーに入れただけでは、鳴りません。** 予定が並ぶだけです。
+ * 旅の当日にアプリを開かない人（開かないのが普通です）には、
+ * 通知が唯一の届きかたです。
+ *
+ * 何分前かは、その予定で「間に合わなくなるまでの余裕」で決めます。
+ *
+ *   移動    10分前  乗り遅れると次の便まで待ちます。駅にいる必要が
+ *                   あるので、いちばん短く取ります。
+ *   荷物    15分前  朝いちの一手です。宿を出る前に思い出す必要があります。
+ *   食事    15分前  席を探す時間です。
+ *   立ち寄り 20分前  入場券・最終入場があります。
+ *   宿      60分前  チェックインの時刻に間に合うかどうかは、その日の
+ *                   終わりかたを決めます。
+ *
+ * 出発の前夜にも1つ置きます（旅の初日だけ）。荷造りは前の晩にします。
+ */
+const ALARM_MIN = {
+  transit: 10, luggage: 15, meal: 15, spot: 20, lodging: 60,
+};
+
+/** VALARM を1つ分。DISPLAY は、どのカレンダーでも通る種類です。 */
+function alarm(minutesBefore, text) {
+  return [
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${esc(text)}`,
+    `TRIGGER:-PT${minutesBefore}M`,
+    "END:VALARM",
+  ];
+}
+
 /**
  * 旅程を .ics の文字列にします。
  *
@@ -153,14 +194,68 @@ export function toIcs(itin, opts = {}) {
       ];
       const loc = locationOf(item);
       if (loc) lines.push(`LOCATION:${esc(loc)}`);
+      // 座標も入れます（RFC 5545 §3.8.1.6）。
+      //
+      // 場所の名前だけだと、カレンダーの「地図で開く」は名前で
+      // 検索します。「出雲大社」なら当たりますが、「稲佐の浜入口」の
+      // ような停留所名では別の場所が開きます。座標があれば、
+      // Apple カレンダーも Google カレンダーもそこを指します。
+      const at = pointOf(item);
+      if (at) lines.push(`GEO:${at.lat.toFixed(6)};${at.lng.toFixed(6)}`);
       const desc = descriptionOf(item);
       if (desc) lines.push(`DESCRIPTION:${esc(desc)}`);
+      // 通知。
+      //
+      // **これが無いと、カレンダーに入れても鳴りません。** 予定が
+      // 並ぶだけです。旅の当日にこのアプリを開かない人（開かないのが
+      // 普通です）には、通知が唯一の届きかたでした。
+      const before = ALARM_MIN[item.kind];
+      if (before) {
+        lines.push(...alarm(before, `${before}分後: ${summaryOf(item)}`));
+      }
       lines.push("END:VEVENT");
       events.push(...lines);
     }
   });
 
   if (!events.length) return "";
+
+  // 出発の前夜に、1つだけ。
+  //
+  // 旅の当日にいちばん困るのは「持ってくるのを忘れた」です。予定の
+  // 10分前に鳴らしても、そのときにはもう家を出ています。前の晩に
+  // 一度だけ、荷造りのための通知を置きます。
+  //
+  // 時刻を持たない予定（終日）にすると、カレンダーによっては
+  // 通知が出ません。前夜の20時に置きます。
+  const firstStart = (itin?.days ?? [])
+    .flatMap((d) => d?.items ?? [])
+    .map((i) => new Date(i.start))
+    .filter((d) => !Number.isNaN(d.getTime()))
+    .sort((a, b) => a - b)[0];
+  if (firstStart) {
+    const eve = new Date(firstStart);
+    eve.setDate(eve.getDate() - 1);
+    eve.setHours(20, 0, 0, 0);
+    // 出発が朝いちでないなら、前夜より当日の朝のほうが近いことも
+    // ありますが、荷造りは前の晩にするものなので前夜に置きます。
+    const evStart = stamp(eve);
+    const evEnd = stamp(new Date(eve.getTime() + 900000));
+    const what = [itin?.title, itin?.prefecture].filter(Boolean).join("・")
+      || "旅";
+    events.unshift(
+      "BEGIN:VEVENT",
+      `UID:${esc(`${seed}-eve`)}@tabisaki`,
+      `DTSTAMP:${dtstamp}`,
+      `DTSTART:${evStart}`,
+      `DTEND:${evEnd}`,
+      `SUMMARY:${esc(`明日から ${what}`)}`,
+      `DESCRIPTION:${esc("荷造りと、行き先の営業時間・運行状況の確認を。"
+        + `出発は ${firstStart.getHours()}時`
+        + `${pad(firstStart.getMinutes())}分です。`)}`,
+      ...alarm(0, `明日から ${what}`),
+      "END:VEVENT");
+  }
 
   const name = [itin?.title, itin?.prefecture].filter(Boolean).join(" · ")
     || "旅さきの旅程";

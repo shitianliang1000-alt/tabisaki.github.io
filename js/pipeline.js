@@ -614,6 +614,9 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   }
   itin.crowd = trip.avoidCrowds === false ? null : itineraryCrowd(itin);
   itin.cost = costBreakdown(itin, { people: trip.people ?? 1 });
+  // 何人ぶんの金額なのかを、旅程そのものに持たせます（画面と
+  // 書き出しが、それぞれ trip を見に行かなくて済むように）。
+  itin.people = trip.people ?? 1;
   itin.sun = sunNotes(itin);
   itin.critique = critique(itin);
   // 旅程の質は、プログラム側で数えて採点します。AIに自己採点させると、

@@ -41,12 +41,16 @@ import { VARIANTS, distinguishOf, recommendOf, summaryOf, tripsFor }
 import { $, el, openSheet, renderItinerary, renderProgress, renderToday,
          scrollBehavior, suggestionButton } from "./ui.js";
 import { catchUp } from "./today.js";
-import { addHistory, clearHistory, loadHistory, removeHistory, savedLabel,
-         thawItinerary } from "./history.js";
+import { addHistory, clearHistory, freezeItinerary, loadHistory, removeHistory,
+         replaceHistory, savedLabel, thawItinerary } from "./history.js";
 import { applyTypeScale, initTypeScale, saveTypeScale } from "./typescale.js";
+import { mergeTrips, readTripFile, toBackupFile, toTripFile, tripFilename }
+  from "./transfer.js";
 
 const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
                 endMode: "origin", mode: "plan",
+                // 人数。費用の概算に効きます（宿と入場は人数ぶん）。
+                people: 1,
                 discovering: false, aiSpots: 0,
                 // ペースは、利用者が「もっとゆっくり」等を押したときだけ
                 // 指定します。既定では希望文からの読み取りに任せます。
@@ -1105,6 +1109,20 @@ function wireChrome() {
     renderRecent();
   });
 
+  // つくった旅の控え。端末の保存は消えるものなので、外へ出す手を
+  // 画面から届くところに置きます。
+  $("#backup-export")?.addEventListener("click", exportBackup);
+  $("#backup-import")?.addEventListener("click", () => {
+    $("#backup-file")?.click();
+  });
+  $("#backup-file")?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    // 同じファイルを続けて選べるように、値を空に戻します
+    // （戻さないと、2度目の change が起きません）。
+    e.target.value = "";
+    await importTripFile(file);
+  });
+
   // 設定。ふだんは見えなくてよいものを、ここにまとめます。
   // 配色に切り替えは置きません。端末の設定（ダークモード）に合わせます。
   const settings = $("#settings-dialog");
@@ -1256,6 +1274,15 @@ function wireForm() {
   // 6つ並べると390pxで字が詰まり、字を大きくすると溢れます）。
   // 店は持っていないので、決まるのは「その土地の何を食べるか」
   // までです（meals.js）。
+  // 人数。費用の計算は people を受け取れるのに、聞く欄がどこにも
+  // ありませんでした（つねに1人ぶんの概算です）。
+  const people = $("#people-choice");
+  if (people) {
+    people.addEventListener("change", () => {
+      state.people = Math.max(1, Number(people.value) || 1);
+      setBudgetHelp();
+    });
+  }
   const food = $("#food-choice");
   if (food) {
     food.addEventListener("change", () => {
@@ -1426,6 +1453,7 @@ async function readTrip() {
     // 何で移動するか。車が使えるかどうかで、組める旅程が変わります。
     transport: state.transport ?? "any",
     // 食べたいものの向き。昼食・夕食にその土地の名物を当てます。
+    people: state.people ?? 1,
     foodGenre: state.foodGenre ?? "any",
     diet: [...document.querySelectorAll(
       '#diet-choice button[aria-pressed="true"]')].map((b) => b.dataset.diet),
@@ -1547,6 +1575,90 @@ function unpack(code) {
   return decodeURIComponent(escape(atob(b64)));
 }
 
+/**
+ * いま画面に出ている旅程を、ファイルにして渡します。
+ *
+ * 条件のリンクは**条件だけ**を運びます。受け取った人が開くと、その場で
+ * 組み直されるので時刻が変わり、同行者と同じ時刻で回れません。
+ * 凍結した旅程そのものを渡せば、その人の端末で同じ時刻の旅程が開きます。
+ *
+ * どこにも送りません。ブラウザの中でファイルを作って、端末に保存する
+ * だけです。
+ */
+function exportTrip(itin, trip) {
+  const doc = toTripFile({
+    id: null,
+    title: itin?.title ?? "旅",
+    savedAt: Date.now(),
+    state: formState(),
+    trip: freezeItinerary(trip ?? null),
+    itin: freezeItinerary(itin ?? null),
+  });
+  downloadJson(doc);
+  setBadge("旅程のファイルを保存しました");
+  setTimeout(() => setBadge(kbBadgeText()), 2600);
+}
+
+/** 履歴ぜんぶを、控えのファイルにします。 */
+function exportBackup() {
+  const list = loadHistory();
+  if (!list.length) {
+    setBadge("控えにする旅がまだありません");
+    setTimeout(() => setBadge(kbBadgeText()), 2600);
+    return;
+  }
+  const doc = toBackupFile(list);
+  downloadJson(doc);
+  setBadge(`${list.length}件を控えに書き出しました`);
+  setTimeout(() => setBadge(kbBadgeText()), 2600);
+}
+
+/** JSON を端末に保存します（.ics と同じやりかたです）。 */
+function downloadJson(doc) {
+  const blob = new Blob([JSON.stringify(doc, null, 1)],
+                        { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = tripFilename(doc);
+  document.body.append(a);
+  a.click();
+  a.remove();
+  // すぐに消すと、保存が始まる前に無効になることがあります。
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/**
+ * ファイルから読み込みます。
+ *
+ * **手元の履歴は消しません。** 混ぜるだけです。控えを読み込んだら
+ * 手元の旅程が消えた、はいちばん困ります。
+ */
+async function importTripFile(file) {
+  if (!file) return;
+  let text = "";
+  try {
+    text = await file.text();
+  } catch (e) {
+    setBadge(`ファイルを開けませんでした（${e?.message ?? e}）`);
+    setTimeout(() => setBadge(kbBadgeText()), 4000);
+    return;
+  }
+  const out = readTripFile(text);
+  if (!out.ok) {
+    // **黙って読み違えません。** 何が違うのかを言います。
+    setBadge(out.error);
+    setTimeout(() => setBadge(kbBadgeText()), 5000);
+    return;
+  }
+  const { list, added, replaced } = mergeTrips(loadHistory(), out.trips);
+  replaceHistory(list);
+  renderRecent();
+  setBadge(`${added}件を読み込みました`
+    + (replaced ? `（${replaced}件は上書き）` : ""));
+  setTimeout(() => setBadge(kbBadgeText()), 3600);
+}
+
 async function shareConditions() {
   const packed = pack(JSON.stringify(formState()));
   const url = `${location.origin}${location.pathname}?p=${packed}`;
@@ -1628,12 +1740,19 @@ function showRoutesUsage() {
 function setBudgetHelp() {
   const help = $("#budget-help");
   if (!help) return;
-  help.textContent = !state.budgetYen
+  // 人数を選んだら、合計がいくらになるのかを先に言います。
+  // 「ひとり3万円まで」で4人なら、旅の合計は12万円です。**そこを
+  // 黙っていると、合計を見たときに驚かせます。**
+  const n = state.people ?? 1;
+  const total = state.budgetYen && n > 1
+    ? `${n}人だと合計 約${(state.budgetYen * n).toLocaleString("ja-JP")}円です。`
+    : "";
+  help.textContent = total + (!state.budgetYen
     ? "決めなければ、費用は概算として出すだけです。"
     : state.budgetMode === "strict"
       ? "収まらないときは、入場料の高い場所から外して組み直します。"
         + "外した場所の名前は出します。"
-      : "超えたぶんを勝手に削りはしません。超えていたら、そう伝えます。";
+      : "超えたぶんを勝手に削りはしません。超えていたら、そう伝えます。");
 }
 
 function isNarrow() {
@@ -2267,6 +2386,7 @@ function show(itin, trip) {
       $("#placeholder").hidden = false;
     },
     onShare: () => shareConditions(trip),
+    onExport: () => exportTrip(itin, trip),
     onDay: (index) => state.map.showDay(index),
     onHover: (item, on) => state.map.highlight(item.spotId, on),
     onSuggest: applySuggestion,

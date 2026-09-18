@@ -25,7 +25,11 @@ const itin = {
       { id: "f1", kind: "free", title: "自由時間",
         start: d("2026-09-17T11:12"), end: d("2026-09-17T11:30") },
       { id: "s1", kind: "spot", title: "草津温泉 湯畑",
-        place: { name: "草津温泉 湯畑" }, costYen: 900,
+        // 収録のスポットは座標を持っています。.ics にも入れます
+        // （名前だけだと、カレンダーの「地図で開く」が別の場所を
+        // 開くことがあります）。
+        place: { name: "草津温泉 湯畑", lat: 36.6221, lng: 138.5966 },
+        costYen: 900,
         start: d("2026-09-17T12:16"), end: d("2026-09-17T13:44") },
       { id: "m1", kind: "meal", title: "昼食",
         start: d("2026-09-17T13:44"), end: d("2026-09-17T14:44") },
@@ -46,10 +50,48 @@ test("カレンダーの器ができる", () => {
 test("立ち寄り・食事・移動が予定になり、空き時間は入らない", () => {
   const ics = toIcs(itin, { now: NOW });
   const count = (ics.match(/BEGIN:VEVENT/g) ?? []).length;
-  assert.equal(count, 3, "予定の数が合いません");
+  // 3件＋前夜の1件。前夜は「明日から」の1つだけです。
+  assert.equal(count, 4, "予定の数が合いません");
   assert.match(ics, /SUMMARY:草津温泉 湯畑/);
   assert.match(ics, /SUMMARY:昼食/);
   assert.doesNotMatch(ics, /自由時間/);
+});
+
+// --- 当日まで届くか ---------------------------------------------------------
+//
+// カレンダーに入れただけでは、**鳴りません**。予定が並ぶだけです。
+// 旅の当日にこのアプリを開かない人（開かないのが普通です）には、
+// 通知が唯一の届きかたでした。
+
+test("予定に通知が付いている", () => {
+  const ics = toIcs(itin, { now: NOW });
+  const alarms = (ics.match(/BEGIN:VALARM/g) ?? []).length;
+  assert.ok(alarms >= 3, `通知が ${alarms} 件しかありません`);
+  // どのカレンダーでも通る種類であること。
+  assert.match(ics, /ACTION:DISPLAY/);
+  // 何分前かは、予定の種類で変わります。
+  // 移動は10分前（乗り遅れると次の便まで待ちます）。
+  assert.match(ics, /TRIGGER:-PT10M/);
+  // 立ち寄りは20分前（入場券・最終入場があります）。
+  assert.match(ics, /TRIGGER:-PT20M/);
+});
+
+test("出発の前夜に、荷造りの通知を1つ置く", () => {
+  const ics = toIcs(itin, { now: NOW });
+  assert.match(ics, /SUMMARY:明日から/);
+  assert.match(ics, /荷造り/);
+  // 前の日の20時です（終日にすると、通知が出ないカレンダーがあります）。
+  assert.match(ics, /DTSTART:20260916T200000/);
+  // 1つだけ。毎晩鳴らす必要はありません。
+  assert.equal((ics.match(/SUMMARY:明日から/g) ?? []).length, 1);
+});
+
+test("予定に座標が入っている", () => {
+  // 名前だけだと、カレンダーの「地図で開く」は名前で検索します。
+  // 「出雲大社」なら当たりますが、「稲佐の浜入口」のような停留所名では
+  // 別の場所が開きます。
+  const ics = toIcs(itin, { now: NOW });
+  assert.match(ics, /GEO:\d+\.\d+;\d+\.\d+/);
 });
 
 test("時刻は、その土地の時刻のまま書く", () => {

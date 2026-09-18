@@ -328,8 +328,12 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
         nights > 0
           ? stat(fmtDuration(sightseeingMinutes(itin)), "見学の合計")
           : stat(fmtDuration(tripMinutes(itin)), "所要"),
+        // 何人ぶんの金額なのかを書きます。人数を選べるようにしたので、
+        // 「¥34,000」とだけ出すと、ひとりぶんか合計か分かりません。
         itin.cost
-          ? stat(`¥${itin.cost.total.toLocaleString()}`, "概算費用")
+          ? stat(`¥${itin.cost.total.toLocaleString()}`,
+                 (itin.people ?? 1) > 1
+                   ? `概算費用（${itin.people}人ぶん）` : "概算費用")
           : stat(itin.usedRoutesApi ? "実経路" : "推定", "移動時間"),
         // 歩く量は、行けるかどうかを左右します。「約8,400円」と同じ
         // 高さに置かないと、当日になって気づくことになります。
@@ -996,6 +1000,18 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       ? el("button", { type: "button", class: "md-btn md-btn--outlined md-state",
                        onClick: handlers.onShare },
           el("span", {}, "条件のリンクを共有"))
+      : null,
+    // **いま画面に出ているとおりの旅程**を、ファイルで渡します。
+    //
+    // 条件のリンクは条件だけを運びます。受け取った人が開くと、その場で
+    // 組み直されるので時刻が変わり、同行者と同じ時刻で回れません。
+    // 文字のコピーは固定ですが、地図もリンクも失われ、読み込み直すことも
+    // できません。凍結した旅程そのものを渡せば、その人の端末で同じ時刻の
+    // 旅程が開きます。控えとしても使えます。
+    handlers.onExport
+      ? el("button", { type: "button", class: "md-btn md-btn--outlined md-state",
+                       onClick: handlers.onExport },
+          el("span", {}, "この旅程をファイルで渡す"))
       : null)].filter(Boolean));
 }
 
