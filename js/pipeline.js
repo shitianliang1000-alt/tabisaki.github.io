@@ -50,6 +50,9 @@ import { attachScenic } from "./scenic.js";
 import { coLocated } from "./dedupe.js";
 import { attachShapes } from "./shapes.js";
 import { attachAccess } from "./access.js";
+import { attachLastTrain } from "./lasttrain.js";
+import { searchYahooTransit } from "./yahoo-transit.js";
+import { yahooFlags } from "./modes.js";
 import { nearestStop } from "./stops.js";
 import { eventNotesFor } from "./events.js";
 import { attachLuggage, luggagePlanFor } from "./luggage.js";
@@ -692,6 +695,33 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   itin.shapeCount = await attachShapes(itin, {
     spots: kb.spots,
     nearestStop,
+  });
+
+  // 8.5 終電の線。
+  //
+  //     帰りの移動には「18:40発」としか書いてありませんでした。
+  //     当日に知りたいのは、その隣にある数です——その駅の終電は何時か。
+  //
+  //     これが無いと2つのことが起きます。夕暮れがきれいでも、何分まで
+  //     粘れるか分からないので1本前で帰ります。そして、立ち寄りを
+  //     足して帰りが終電より後になっても、**誰も何も言いません**。
+  //
+  //     Yahoo!路線情報には終電の検索（type=2）があります。あるものを
+  //     聞くだけです。聞けなければ黙って空けます。
+  //
+  //     経路を調べられなかった旅程（目安だけで組んだもの）には出ません。
+  //     どの駅から乗るのかが分からないので、終電も聞けません。
+  itin.lastTrainCount = await attachLastTrain(itin, async (from, to, when) => {
+    try {
+      return await searchYahooTransit(from, to, {
+        departAt: when, search: "last",
+        modes: yahooFlags(trip.transport ?? "any"),
+        signal: opts.signal,
+      });
+    } catch {
+      // 回数制限や通信の失敗。終電のために旅程を止めません。
+      return null;
+    }
   });
 
   // 8.6 同じ地点にある立ち寄りを、そう書く。

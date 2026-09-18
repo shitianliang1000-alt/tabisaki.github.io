@@ -295,7 +295,22 @@ async function yahooTransit(request) {
   u.searchParams.set("hh", p.hour);
   u.searchParams.set("m1", p.minute.slice(0, 1));
   u.searchParams.set("m2", p.minute.slice(1));
-  u.searchParams.set("type", "1");
+  // 何を調べるか。
+  //
+  //   depart（既定）… その時刻に出たら、次に乗れるのは何時か（type=1）
+  //   last          … **その日の終電**（type=2）
+  //
+  // type の番号は、Yahoo!路線情報の検索欄そのものから読みました
+  // （<input type="radio" name="type" value="2"><label>終電</label>）。
+  // 実際に小田原→東京を type=2 で引くと、見出しが「終電」になり、
+  // 22:58発・22:56発の候補が返ります。推測ではありません。
+  //
+  // 終電が要るのは、**帰れなくなる旅程を黙って出さない**ためです。
+  // 「18:40発の電車で帰ります」と書いてあっても、その駅の終電が
+  // 22:58だと分かってはじめて、立ち寄りを1つ増やせるかが決められます。
+  // 逆に、組んだ帰りが終電より後なら、その旅程では帰れません。
+  const search = body?.search === "last" ? "last" : "depart";
+  u.searchParams.set("type", search === "last" ? "2" : "1");
   u.searchParams.set("ticket", "ic");
   u.searchParams.set("expkind", "1");
   u.searchParams.set("userpass", "1");
@@ -391,6 +406,50 @@ async function yahooTransit(request) {
       reason: "Yahoo!路線情報から経路を取り出せませんでした" });
   }
 
+  // 終電を聞いたときは、選びかたが違います。
+  //
+  // ふつうは「いちばん早く着くもの」ですが、終電で知りたいのは
+  // **いちばん遅く出られるもの**です。小田原→東京では
+  // 22:58→00:39（各駅）と 22:56→23:29（新幹線）が返り、早く着くのは
+  // 新幹線ですが、最後まで粘れるのは 22:58 のほうです。
+  //
+  // 日付をまたぐ便があるので、午前4時より前の発車は「翌日」として
+  // 数えます（終電は1時ごろまで、始発は4時半ごろから。あいだに
+  // 発車はありません）。
+  if (search === "last") {
+    const late = (hm) => {
+      const m = clockMinutes(hm);
+      return m < 4 * 60 ? m + 1440 : m;
+    };
+    const best = routes.reduce((a, b) =>
+      (late(a.departure) >= late(b.departure) ? a : b));
+    return json({
+      routed: true, search: "last",
+      minutes: best.rideMinutes,
+      rideMinutes: best.rideMinutes,
+      waitMinutes: 0,
+      summary: best.summary,
+      kinds: routeKinds(best),
+      preferMet: true,
+      meta: {
+        url: u.toString(),
+        departure: best.departure,
+        arrival: best.arrival,
+        requestedDeparture: requested.toISOString(),
+        transfers: best.transfers,
+        fareYen: best.fareYen,
+        distanceKm: best.distanceKm,
+        legs: best.legs,
+        intermediateStops: best.intermediateStops,
+        alternatives: routes.filter((r) => r !== best).map((r) => ({
+          departure: r.departure, arrival: r.arrival, minutes: r.minutes,
+          rideMinutes: r.rideMinutes, transfers: r.transfers,
+          fareYen: r.fareYen, distanceKm: r.distanceKm, summary: r.summary,
+        })),
+      },
+    });
+  }
+
   // 採るのは「その時刻に出て、いちばん早く着く」もの。乗車時間ではなく
   // **待ち時間を含めた着時刻**で選びます。始発待ちの長い速達より、
   // すぐ乗れる各駅のほうが早く着くことがあります。
@@ -412,6 +471,7 @@ async function yahooTransit(request) {
 
   return json({
     routed: true,
+    search: "depart",
     minutes: best.minutes,
     rideMinutes: best.rideMinutes,
     waitMinutes: best.waitMinutes,

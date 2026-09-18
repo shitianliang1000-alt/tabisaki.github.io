@@ -117,12 +117,18 @@ export async function searchYahooTransit(from, to, opts = {}) {
   //
   // 渡さなければ、中継はこれまでどおり「全部使う・速い順」で答えます
   // （古い画面がつながっても壊れません）。
+  // 何を調べるか。既定は「その時刻に出たら次に乗れるのは何時か」。
+  // "last" を渡すと、その日の**終電**を聞きます（中継が type=2 を
+  // 立てます）。渡さなければ、これまでどおりです。
+  const search = opts.search === "last" ? "last" : undefined;
+
   const body = JSON.stringify({
     from: fromName,
     to: toName,
     departAt: departAt.toISOString(),
     modes: opts.modes ?? undefined,
     prefer: opts.prefer?.length ? opts.prefer : undefined,
+    search,
   });
   const url = endpointFor("yahoo:transit", {}, cfg);
 

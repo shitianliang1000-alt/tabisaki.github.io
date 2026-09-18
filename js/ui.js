@@ -1735,6 +1735,19 @@ function renderItem(item, index, itin, handlers, sunNote) {
             + "ほかの乗り物で組んでいます。")));
       }
     }
+    // 終電の線（js/lasttrain.js）。
+    //
+    // 「18:40発」とだけ書いてあっても、あと何分粘れるのかが
+    // 分かりません。その駅の終電を並べて置きます。
+    // 予定が終電より後なら、赤で出します（**この旅程では帰れません**）。
+    if (item.lastTrain?.text) {
+      info.append(el("p", {
+        class: `sun lasttrain${item.lastTrain.level === "over" ? " tight"
+          : item.lastTrain.level === "tight" ? " near" : ""}`,
+      },
+        icon(item.lastTrain.level === "over" ? "warn" : "wait"),
+        el("span", {}, item.lastTrain.text)));
+    }
     // 長い運転には、休憩のことを添えます。「4時間の移動」と1行だけ
     // 書いておいて、休むことに触れないのは不親切です。
     if (item.kind === "transit" && isTouring(itin) && item.walk !== true) {

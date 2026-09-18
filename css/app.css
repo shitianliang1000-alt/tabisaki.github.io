@@ -401,6 +401,14 @@ p, li { text-wrap: pretty; }
   color: var(--hig-label-2);
 }
 .sun.vehicle.tight { color: var(--hig-red-deep); font-weight: 600; }
+/* 終電。ふつうは本文寄りの色で、余裕が少ないときだけ強くします。
+   色だけに頼っていないことは文のほうが担保しています（「30分しか
+   ありません」「この組み方では帰れません」と書いてあります）。 */
+.sun.lasttrain { color: var(--hig-label-2); }
+/* 余裕が30分以下。赤（帰れない）ではありませんが、本文と同じ色でも
+   ありません。「18分しかありません」と文にも書いてあります。 */
+.sun.lasttrain.near { color: var(--hig-orange); font-weight: 600; }
+.sun.lasttrain.tight { color: var(--hig-red-deep); font-weight: 600; }
 /* 休憩の枠が、帰りの余裕に収まらないとき。色だけに頼らず、
    文のほうにも「超えます」と書いてあります。 */
 .sun.rest.tight { color: var(--hig-red-deep); font-weight: 600; }
