@@ -100,6 +100,25 @@ export function makeTrip(init = {}) {
       spotCap: Number.isFinite(init.must?.spotCap) ? init.must.spotCap : null,
       /** 食事の時間を必ず確保するか。 */
       meals: init.must?.meals ?? true,
+      /**
+       * 回る順を、こちらで決めたぶん。
+       *
+       * 並びは道順と混雑から決めています（crowd.js）。それでも
+       * 「先に海へ行きたい」は好みの問題なので、押された順を勝たせます。
+       * ここに無いスポットは、これまでどおり自動の並びのままです。
+       *
+       * **時刻は組み直します。** 並べ替えだけして時刻をそのままにすると、
+       * 開館前に着く旅程や、閉館後に着く旅程ができます。
+       */
+      orderedSpotIds: init.must?.orderedSpotIds ?? [],
+      /**
+       * 滞在時間を、こちらで決めたぶん（スポットID → 分）。
+       *
+       * 既定は分類ごとの目安です（美術館70分、神社35分）。ただ、
+       * 目安が合わないことはあります。「ここは2時間いたい」も
+       * 「ここは20分でいい」も、旅程の中身そのものです。
+       */
+      dwellById: init.must?.dwellById ?? {},
     },
     note: init.note ?? "",
     interests: init.interests ?? [],
@@ -127,8 +146,16 @@ export function makeTrip(init = {}) {
      * バスが1日3本の土地では、車があれば回れる場所が、なければ
      * 回れません。距離だけから推し量れないので、聞きます。
      */
-    transport: ["any", "transit", "car", "walk"].includes(init.transport)
-      ? init.transport : "any",
+    /*
+     * "transit+car" は、行きは電車で、現地だけ車という旅です。
+     *
+     * 遠出でいちばん多い形なのに、これまでは選べませんでした。
+     * 「車」を選ぶと出発地から目的地まで運転する旅程になり、
+     * 「電車・バス」を選ぶとバスが1日3本の土地を歩かされます。
+     * 新幹線で行って駅でレンタカーを借りる旅は、そのどちらでもありません。
+     */
+    transport: ["any", "transit", "car", "walk", "transit+car"]
+      .includes(init.transport) ? init.transport : "any",
     hiddenBias: init.hiddenBias ?? 0.5,
     /**
      * 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
@@ -157,6 +184,25 @@ export function makeTrip(init = {}) {
     avoidCrowds: init.avoidCrowds ?? true,
     /** 人数。費用の概算に効きます。 */
     people: init.people ?? 1,
+    /**
+     * 宿の取りかた。"auto" | "base"（1か所に連泊）| "tour"（泊まるたび移動）。
+     *
+     * 同じ3泊4日でも、この2つは別の旅です。連泊は荷物を置いておけて
+     * 毎晩同じ部屋に戻れますが、遠くへは行けません。周遊は広く回れますが、
+     * 毎朝荷物をまとめることになります。**好みの問題なので聞きます**
+     * （stays.js が割り振りに使います）。
+     */
+    stayStyle: ["auto", "base", "tour"].includes(init.stayStyle)
+      ? init.stayStyle : "auto",
+    /**
+     * 食べたいものの向き。"any" | "seafood" | "noodle" | "meat" | "rice" | "sweets"。
+     *
+     * 店は持っていないので、決まるのは**その土地の何を食べるか**までです
+     * （meals.js）。海鮮が苦手な人に海鮮丼を出しても、旅程として
+     * 役に立ちません。既定はおまかせ＝その土地の名物から選びます。
+     */
+    foodGenre: ["any", "seafood", "noodle", "meat", "rice", "sweets"]
+      .includes(init.foodGenre) ? init.foodGenre : "any",
   };
 }
 

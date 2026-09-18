@@ -320,6 +320,11 @@ export function buildItinerary(input) {
           // 読む人がどちらを信じてよいか分からなくなります。
           from: cur, to: v.spot,
           walk: onFoot, km: v.km ?? 0,
+          // 車で行く区間か。電車＋現地の車では、同じ旅程の中に
+          // 新幹線の区間と運転の区間が並びます。絵と言葉を区間ごとに
+          // 変えないと、新幹線に車の絵が付きます（pipeline.js の
+          // modeGroups が区間に書いています）。
+          drive: leg?.mode === "DRIVE" && !onFoot,
           routed: routed && fits,
           noTransit: leg?.noTransit === true && !onFoot,
           taxi: leg?.taxi === true && !onFoot,
@@ -497,6 +502,9 @@ export function buildItinerary(input) {
     // 何で回る旅か。画面と確かめかたが、これで変わります。車の旅に
     // 「時刻を引けませんでした」と出しても、引くべき時刻がありません。
     transport: trip.transport ?? "any",
+    // 宿の取りかた。連泊なら、どこに連泊するかも持ちます
+    // （画面で「◯◯に3連泊」と言えるようにするためです）。
+    stayStyle: trip.stayStyle ?? "auto",
     usedRoutesApi: Boolean(legs?.outbound?.routed || legs?.local?.routed),
   };
 }

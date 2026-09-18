@@ -1,6 +1,6 @@
 // 画面の描画。DOM 操作はここに閉じ込め、ロジックは他のモジュールに任せます。
 
-import { directionsFromHereUrl, linksForItem } from "./links.js";
+import { directionsFromHereUrl, linksForItem, mapsSearchUrl } from "./links.js";
 import { TIER_LABEL } from "./mix.js";
 import { profileOf } from "./feasibility.js";
 import { crowdLevel } from "./crowd.js";
@@ -17,9 +17,11 @@ import { photoFor } from "./photos.js";
 import { estimatedTravel } from "./reliability.js";
 import { isTouring, longDriveNote } from "./touring.js";
 import { itineraryText } from "./share.js";
+import { icsFilename, toIcs } from "./ical.js";
 
 const ICON = {
   transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕",
+  luggage: "🧳",
 };
 
 /** 行の先頭の絵。乗り物は、乗るものによって変えます。 */
@@ -27,6 +29,10 @@ function iconFor(item, itin) {
   if (item.kind === "transit") {
     if (item.taxi) return "🚕";
     if (item.walk) return "🚶";
+    // 区間ごとに乗るものが違う旅（電車＋現地の車）では、区間の側が
+    // 答えを持っています。持っているほうを先に見ます。
+    if (item.drive === true) return "🚗";
+    if (itin?.transport === "transit+car") return "🚃";
     // 車の旅で電車の絵を出すと、乗り換えを探すことになります。
     if (isTouring(itin)) return "🚗";
   }
@@ -239,10 +245,11 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     el("header", { class: "itin-head" },
       el("h2", {}, title),
       el("p", { class: "sub" }, sub),
-      itin.stays?.length > 1
-        ? el("p", { class: "stay-line" },
-            itin.stays.map((s) => `${s.name} ${s.days}日`).join(" → "))
-        : null),
+      // 宿をどう取る旅か。連泊なら、そう書きます。
+      //
+      // 「松江 2日 → 出雲 1日」だけでは、宿を動かすのかどうかが
+      // 分かりません。連泊はそこが要点なので、1行で言います。
+      stayLine(itin)),
   ].filter(Boolean));
 
   // 判断を、数字より先に置きます。
@@ -840,8 +847,47 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     setTimeout(() => { label.textContent = "旅程を送る / コピー"; }, 2600);
   });
 
+  // カレンダーに入れる。
+  //
+  // 旅程を作ったあと、旅行者が次にすることはこれです。当日に開くのは
+  // このアプリではなくカレンダーだからです。前日の夜に通知が出て、
+  // 朝に予定が並んでいる。そこまで届かないと、作った旅程は使われません。
+  //
+  // .ics は Google・Apple・Outlook がどれも読める形式です。書き出しは
+  // ブラウザの中だけで済むので、どこにも送りません。
+  const calBtn = el("button", {
+    type: "button", class: "md-btn md-btn--tonal md-state cal-ics",
+  }, el("span", {}, "カレンダーに入れる"));
+  calBtn.addEventListener("click", () => {
+    const label = calBtn.querySelector("span");
+    const text = toIcs(itin);
+    if (!text) { label.textContent = "予定がありません"; return; }
+    let url = null;
+    try {
+      url = URL.createObjectURL(new Blob([text], {
+        type: "text/calendar;charset=utf-8",
+      }));
+      const a = el("a", { href: url, download: icsFilename(itin) });
+      a.style.display = "none";
+      document.body.append(a);
+      a.click();
+      // すぐ外すと、端末によっては download の名前が読まれないまま
+      // 「download」という名前で保存されます。1拍おいてから外します。
+      setTimeout(() => a.remove(), 0);
+      label.textContent = "書き出しました";
+    } catch {
+      label.textContent = "書き出せませんでした";
+    } finally {
+      // 取り消しは、保存が始まるのを待ってから。すぐ消すと、端末に
+      // よっては中身の無いファイルが落ちます。
+      if (url) setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    }
+    setTimeout(() => { label.textContent = "カレンダーに入れる"; }, 2600);
+  });
+
   container.append(...[el("div", { class: "actions" },
     copyBtn,
+    calBtn,
     handlers.onSave
       ? el("button", { type: "button", class: "md-btn md-btn--tonal md-state keep",
                        onClick: (e) => {
@@ -1033,6 +1079,29 @@ function recheckRow(itin, handlers) {
   return row;
 }
 
+/**
+ * 拠点の1行。
+ *
+ * 連泊（宿を動かさない旅）では、どこに何泊するかが要点です。
+ * 泊まり歩く旅では、どの順に移るかが要点です。同じ「松江 2日 →
+ * 出雲 1日」でも、意味が違うので書き分けます。
+ */
+function stayLine(itin) {
+  const stays = itin.stays ?? [];
+  if (itin.stayStyle === "base" && itin.basedAt) {
+    const nights = Math.max(1, (itin.days?.length ?? 1) - 1);
+    const areas = stays.map((s) => s.name).join("・");
+    return el("p", { class: "stay-line" },
+      `${itin.basedAt}に${nights}泊`
+      + (areas && stays.length > 1 ? `（日中は ${areas}）` : ""));
+  }
+  if (stays.length > 1) {
+    return el("p", { class: "stay-line" },
+      stays.map((s) => `${s.name} ${s.days}日`).join(" → "));
+  }
+  return null;
+}
+
 function srcChip(c, extra = "", source = "") {
   const title = [c.text, c.checkedAt ? `（${c.checkedAt} 時点）` : ""]
     .filter(Boolean).join("");
@@ -1150,6 +1219,248 @@ function cardArt(spot, { tall = false } = {}) {
   return box;
 }
 
+/** 携帯の幅か。シートを半分で開くかどうかの判断に使います。 */
+function isNarrowScreen() {
+  return Boolean(globalThis.matchMedia?.("(max-width: 860px)")?.matches);
+}
+
+/**
+ * シートを、摘みで上下に動かせるようにします。
+ *
+ * 止まる場所は3つだけです。半分（peek）、全部（full）、閉じる。
+ * 指を離した位置に一番近いところへ寄せます。中途半端な高さで止めると、
+ * 次にどう動かせるのかが分からなくなります。
+ *
+ * 引いている途中は transition を切ります（指に付いてこないと、
+ * 引いているのか固まっているのか分かりません）。
+ */
+function dragSheet(sheet, scrim, close) {
+  const PEEK = 0.52;          // 画面のこれだけを下へ隠して開きます
+  const height = () => sheet.getBoundingClientRect().height || 1;
+  let y = Math.round(height() * PEEK);
+  let state = "peek";
+  let from = null;
+  let startY = 0;
+
+  const put = (px, smooth = true) => {
+    sheet.style.transition = smooth
+      ? "transform var(--hig-mid, .3s) var(--hig-ease, ease)" : "none";
+    sheet.style.transform = `translateY(${Math.max(0, px)}px)`;
+  };
+
+  // 入ってくる動きは、下から半分の位置まで。CSS の登場アニメーションは
+  // translateY を上書きするので、ここでは使いません。
+  sheet.classList.add("dragging-sheet");
+  sheet.dataset.state = "peek";
+  scrim.dataset.state = "peek";
+  put(height(), false);
+  requestAnimationFrame(() => put(y));
+
+  /** 3つのうちどれかへ寄せます。 */
+  const go = (next) => {
+    if (next === "closed") { put(height()); setTimeout(close, 220); return; }
+    state = next;
+    y = next === "full" ? 0 : Math.round(height() * PEEK);
+    sheet.dataset.state = state;
+    scrim.dataset.state = state;
+    put(y);
+  };
+
+  const settle = (px) => {
+    const h = height();
+    const peek = Math.round(h * PEEK);
+    // 半分より下へ引ききったら閉じます
+    if (px > peek + h * 0.18) { go("closed"); return; }
+    go(px < peek * 0.5 ? "full" : "peek");
+  };
+
+  const onDown = (e) => {
+    // 中身をスクロールしているときは、シートを動かしません
+    if (state === "full" && sheet.scrollTop > 0) return;
+    if (e.target.closest("a, button, summary, input")) return;
+    from = e.pointerId;
+    startY = e.clientY - y;
+    sheet.setPointerCapture?.(e.pointerId);
+  };
+  const onMove = (e) => {
+    if (from !== e.pointerId) return;
+    put(e.clientY - startY, false);
+    e.preventDefault();
+  };
+  const onUp = (e) => {
+    if (from !== e.pointerId) return;
+    from = null;
+    settle(e.clientY - startY);
+  };
+
+  sheet.addEventListener("pointerdown", onDown);
+  sheet.addEventListener("pointermove", onMove);
+  sheet.addEventListener("pointerup", onUp);
+  sheet.addEventListener("pointercancel", onUp);
+
+  // 摘みは、押しても（キーボードでも）開け閉めできるようにします。
+  // 引く操作しか用意しないと、指以外では半分のままになります。
+  const grip = sheet.querySelector(".md-sheet-handle");
+  if (grip) {
+    const btn = el("button", {
+      type: "button", class: "sheet-toggle",
+      "aria-label": "この場所の説明を全部見る",
+    });
+    // 摘みそのものを押せるようにします。摘みの横に別のボタンを足すより、
+    // 「ここをつかむ」場所と「ここを押す」場所が同じほうが迷いません。
+    const bar = grip.querySelector("i");
+    if (bar) btn.append(bar);
+    btn.append(el("span", { class: "arrow", "aria-hidden": "true" }, "▲"));
+    btn.addEventListener("click", () => {
+      const next = state === "full" ? "peek" : "full";
+      go(next);
+      btn.setAttribute("aria-label", next === "full"
+        ? "説明を半分に戻す" : "この場所の説明を全部見る");
+      btn.querySelector(".arrow").textContent = next === "full" ? "▼" : "▲";
+    });
+    grip.append(btn);
+  }
+}
+
+/** 滞在時間の刻み（分）。1分単位で選べても、選ぶ意味がありません。 */
+const DWELL_STEP = 15;
+const DWELL_MIN = 15;
+const DWELL_MAX = 300;
+
+/**
+ * 順番と滞在時間を、その場で動かす行。
+ *
+ * 掴んで動かす操作だけにはしません。指でも押せるよう上下のボタンを
+ * 置き、キーボードでも同じことができるようにします（掴む操作しか
+ * 用意しないと、指以外では並べ替えられません）。
+ */
+function tuneRow(item, itin, handlers) {
+  const id = item.spotId ?? item.place.id;
+  const row = el("div", { class: "spot-tune" });
+
+  if (handlers.onSpotOrder) {
+    const move = (dir, label) => {
+      const b = el("button", {
+        type: "button", class: "tune-move", "data-move": dir,
+        "aria-label": `${item.title}を${label}`,
+      }, el("span", { "aria-hidden": "true" }, dir === "up" ? "↑" : "↓"));
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        handlers.onSpotOrder({ id, dir });
+      });
+      return b;
+    };
+    const grip = el("span", { class: "tune-grip", "aria-hidden": "true",
+                              title: "掴んで動かすと、回る順が変わります" }, "⠿");
+    dragReorder(grip, handlers);
+    row.append(grip, move("up", "1つ前に回す"), move("down", "1つ後に回す"));
+  }
+
+  if (handlers.onSpotDwell) {
+    const minutes = Math.max(1,
+      Math.round((new Date(item.end) - new Date(item.start)) / 60000));
+    const out = el("output", { class: "tune-out" }, fmtDuration(minutes));
+    const bar = el("input", {
+      type: "range", class: "tune-bar",
+      min: String(DWELL_MIN), max: String(DWELL_MAX), step: String(DWELL_STEP),
+      value: String(clampDwell(minutes)),
+      "aria-label": `${item.title}にいる時間`,
+    });
+    // 引いている途中では組み直しません。離したときに1回だけです
+    // （引くたびに組み直すと、経路検索を何十回も叩きます）。
+    bar.addEventListener("input", (e) => {
+      e.stopPropagation();
+      out.textContent = fmtDuration(Number(bar.value));
+    });
+    bar.addEventListener("change", (e) => {
+      e.stopPropagation();
+      handlers.onSpotDwell({ id, name: item.title, minutes: Number(bar.value) });
+    });
+    bar.addEventListener("click", (e) => e.stopPropagation());
+    row.append(el("span", { class: "tune-cap" }, "いる時間"), bar, out);
+  }
+  return row;
+}
+
+/**
+ * 掴んで動かして、回る順を変える。
+ *
+ * 動かしているあいだは、その場で行を入れ替えて見せます。影だけを
+ * 動かして最後にまとめて並べ替えると、「どこに入るのか」が分からない
+ * まま指を離すことになります。
+ *
+ * 動かせるのは**同じ日のなか**だけです。日をまたぐ移動は、宿と
+ * 移動時間の話になるので、ここではできません（条件から組み直します）。
+ *
+ * 指を離したら、その並びを条件に書いて組み直します。ここで時刻を
+ * そのまま使うと、開館前に着く旅程ができます。
+ */
+function dragReorder(grip, handlers) {
+  let li = null;
+  let list = null;
+  let before = "";
+
+  const rows = () => [...list.querySelectorAll(":scope > li.tl.spot")];
+  const idsOf = () => rows().map((e) => e.dataset.spot).filter(Boolean);
+
+  // 動かしている途中の pointermove / pointerup は、**窓で受けます**。
+  //
+  // 掴んだ要素で受けていたときは、1回入れ替えたところで動かなく
+  // なりました。入れ替えは節を付け替える操作で、いったん文書から
+  // 外れるため、**ポインタの捕捉がそこで外れます**。指を離した
+  // ことにも気づけず、並べ替えたのに組み直されませんでした。
+  const onMove = (e) => {
+    if (!li) return;
+    e.preventDefault();
+    for (const other of rows()) {
+      if (other === li) continue;
+      const box = other.getBoundingClientRect();
+      const mid = box.top + box.height / 2;
+      const where = other.compareDocumentPosition(li);
+      // 相手の真ん中を越えたら、その前か後ろへ入れます
+      if (e.clientY < mid && (where & Node.DOCUMENT_POSITION_FOLLOWING)) {
+        list.insertBefore(li, other);
+        break;
+      }
+      if (e.clientY > mid && (where & Node.DOCUMENT_POSITION_PRECEDING)) {
+        list.insertBefore(li, other.nextSibling);
+        break;
+      }
+    }
+  };
+
+  const end = (e) => {
+    globalThis.removeEventListener("pointermove", onMove);
+    globalThis.removeEventListener("pointerup", end);
+    globalThis.removeEventListener("pointercancel", end);
+    if (!li) return;
+    li.classList.remove("dragging");
+    const ids = idsOf();
+    const changed = ids.join(",") !== before;
+    li = null;
+    e?.stopPropagation?.();
+    if (changed) handlers.onSpotOrder({ ids });
+  };
+
+  grip.addEventListener("pointerdown", (e) => {
+    li = grip.closest("li.tl");
+    list = li?.parentElement;
+    if (!list) { li = null; return; }
+    before = idsOf().join(",");
+    li.classList.add("dragging");
+    globalThis.addEventListener("pointermove", onMove, { passive: false });
+    globalThis.addEventListener("pointerup", end);
+    globalThis.addEventListener("pointercancel", end);
+    e.preventDefault();
+    e.stopPropagation();
+  });
+}
+
+function clampDwell(min) {
+  const v = Math.round(min / DWELL_STEP) * DWELL_STEP;
+  return Math.min(DWELL_MAX, Math.max(DWELL_MIN, v));
+}
+
 /**
  * 外した場所と、戻すためのボタン。
  *
@@ -1219,6 +1530,13 @@ function renderItem(item, index, itin, handlers, sunNote) {
       class: `crowd-chip lv-${levelClass(c.score)}`,
       title: c.reasons.join("・") || "混雑の見込み",
     }, c.label));
+  }
+  // 何を食べる土地か。題に添えると、旅程を眺めただけで分かります。
+  // 出すのは料理（または収録にある食事どころ）の名前だけです。
+  // 店名をこちらで作ることはしません（meals.js）。
+  if (item.kind === "meal" && (item.food?.spotName || item.food?.dish)) {
+    title.append(el("em", { class: "dish" },
+      item.food.spotName ?? item.food.dish));
   }
   info.append(title);
 
@@ -1296,6 +1614,25 @@ function renderItem(item, index, itin, handlers, sunNote) {
     info.append(p);
   }
 
+  // 駄目だったときの代わり。
+  //
+  // 雨も休館も、現地で分かります。そのとき代わりを探すことになるのが
+  // いちばん困るので、近くの1か所だけ先に決めておきます
+  // （backup.js。候補は旅程を組んだときと同じ集合から取っています）。
+  if (item.backup) {
+    // 印は、何が心配なのかで変えます。雨と休館は別のことです。
+    const mark = item.backup.why === "closed" ? "🔒" : "☔";
+    const p = el("p", { class: "backup" },
+      el("span", { "aria-hidden": "true" }, mark),
+      el("span", {}, item.backup.text));
+    p.append(el("a", {
+      href: mapsSearchUrl(item.backup.name,
+        { lat: item.backup.lat, lng: item.backup.lng }),
+      target: "_blank", rel: "noreferrer", class: "link",
+    }, "地図"));
+    info.append(p);
+  }
+
   // 事前予約。行ってから知るのがいちばん困ります。
   if (item.kind === "spot" && item.place) {
     const r = reservationOf(item.place);
@@ -1359,6 +1696,21 @@ function renderItem(item, index, itin, handlers, sunNote) {
       act("remove", "外す", "旅程から外す"),
     );
     info.append(row);
+  }
+
+  // 順番と、いる時間。
+  //
+  // 並びは道順と混雑から決めていますが、「先に海へ行きたい」は好みの
+  // 問題です。いる時間も、分類ごとの目安（美術館70分）が合わない
+  // ことがあります。どちらも旅程の中身そのものなので、その場で
+  // 動かせるようにします。
+  //
+  // **時刻は必ず組み直します。** 並べ替えただけで時刻をそのままに
+  // すると、開館前に着く旅程ができます。押されたら条件を書き換えて、
+  // 同じエンジンを通します（「別の候補」とまったく同じ道です）。
+  if (item.kind === "spot" && item.place
+      && (handlers.onSpotOrder || handlers.onSpotDwell)) {
+    info.append(tuneRow(item, itin, handlers));
   }
 
   if (item.kind === "spot" && handlers.onSpot) {
@@ -1487,6 +1839,15 @@ export function openSheet(item, { onClose, describe }) {
   bg.append(sheet);
   bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
   document.body.append(bg);
+
+  // 携帯では、半分の高さで開きます。
+  //
+  // 全画面で開くと、地図が隠れます。地図で場所を確かめたくて押したのに
+  // 場所が見えない、という順番になっていました。上半分を地図に残し、
+  // 摘みを上へ引けば全部、下へ引けば閉じる、という形にします。
+  // 広い画面では地図が横に出ているので、これまでどおり全部開きます。
+  const draggable = isNarrowScreen();
+  if (draggable) dragSheet(sheet, bg, close);
 
   // aria-modal="true" は、支援技術に「これは前面のものです」と伝えるだけで、
   // Tab の行き先までは変えません。実装しないと、Tab を押しつづけたときに

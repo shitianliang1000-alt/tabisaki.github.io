@@ -111,9 +111,15 @@ export function linksForItem(item, ctx = {}) {
   switch (item.kind) {
     case "meal": {
       const kind = item.title.includes("夕") ? "ディナー" : "ランチ";
+      // 何を食べる土地かが分かっているなら、その言葉で探します。
+      // 「レストラン」で開くより、「讃岐うどん」で開くほうが当たります
+      // （meals.js が決めています。店名はこちらで作りません）。
+      const what = String(item.food?.query ?? "").trim();
       out.push({
-        label: `${kind}のお店を地図で探す`,
-        url: restaurantsUrl(near, "レストラン"),
+        label: what ? `${what}のお店を地図で探す` : `${kind}のお店を地図で探す`,
+        url: what ? mapsSearchUrl(
+          [near.regionName, what].filter(Boolean).join(" "), near)
+          : restaurantsUrl(near, "レストラン"),
         primary: true,
       });
       break;

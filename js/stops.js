@@ -1,219 +1,125 @@
-// 停留所（駅・バス停）の位置から、経路APIが届かない区間の
-// 「なんとなくの目安」を組み立てるための下ごしらえ。
+// 停留所を引く窓口。
 //
-// なぜ要るか
-//   Routes API は、バスしかない区間や登山道では ZERO_RESULTS を返す
-//   （js/routes.js のコメント参照）。そのとき今までは出発地→目的地の
-//   直線距離だけで見積もっていたが、たとえば富士山五合目のように
-//   「バス停までは速い公共交通、そこから先は徒歩（登山道）」という
-//   区間を、ぜんぶ同じ速さで計算すると大きく外れる。
-//   停留所の実位置が分かれば、「最寄り停留所まで徒歩→停留所間は
-//   目安の速さ→最寄り停留所から先は徒歩」と分けて見積もれる。
+// 外から見える形は、これまでとまったく同じです（findStop、searchStops、
+// nearestStop、nearbyStops。どれも前から Promise を返していました）。
+// 変わったのは、**どこで計算するか**だけです。
 //
-// 出典・作成年について（tools/build_stops.py も参照）
-//   kb/stops-rail.json … 国土数値情報(鉄道) 2008年度版。全国の駅。
-//   kb/stops-bus.json  … 同(バス停留所) 2012年3月時点。登山まわりの
-//                         スポットの近くだけを抜き出したもの（全国では
-//                         25万件を超え、静的サイトに乗せる大きさではない）。
-//   どちらも「今の時刻表」ではなく「だいたいの位置」の目安でしかない。
+//   ・別のスレッドが使えるなら、そちらへ回します（js/stops-worker.js）
+//   ・使えないなら、この場で計算します（js/stops-data.js）
+//
+// なぜ回すのか
+// ------------
+// 停留所のデータは 2.6MB あります。読んで解くだけで、低スペックの
+// 携帯では 400ms ほど画面が止まります。しかも本体側の記憶に 2.6MB が
+// 載り続けます。返ってくるのは「最寄りの3件」のような小さな答えなので、
+// データを本体側に置いておく理由がありません。
+//
+// なぜ両方持つのか
+// ----------------
+// Worker が使えない場でも動かなければなりません。試験は Node で動き、
+// file:// で開くこともあります。**使えないときに止まる**より、
+// その場で計算するほうがよい、という判断です。
+//
+// 答えは同じでなければならないので、計算は1か所（stops-data.js）に
+// まとめてあります。ここは行き先を決めるだけです。
 
-import { haversineKm } from "./feasibility.js";
+import * as local from "./stops-data.js";
 
-const CELL_DEG = 0.05; // 約5.5km四方。半径5〜8km圏内の探索に足りる粗さ。
+/** 別のスレッドに回せるか。1回だけ試して、駄目ならこの場で計算します。 */
+let worker = null;
+let workerBroken = false;
+const waiting = new Map();
+let nextId = 1;
 
-function cellOf(lat, lng) {
-  return `${Math.round(lat / CELL_DEG)},${Math.round(lng / CELL_DEG)}`;
-}
-
-function buildGrid(stops) {
-  const grid = new Map();
-  for (const s of stops) {
-    const key = cellOf(s[0], s[1]);
-    const list = grid.get(key);
-    if (list) list.push(s); else grid.set(key, [s]);
-  }
-  return grid;
-}
-
-async function fetchStops(name) {
+function ensureWorker() {
+  if (worker || workerBroken) return worker;
+  // Worker が無い場（Node の試験、古い環境）では、この場で計算します。
+  if (typeof Worker !== "function") { workerBroken = true; return null; }
   try {
-    const url = new URL(`../kb/${name}`, import.meta.url).toString();
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data.stops) ? data.stops : [];
+    worker = new Worker(new URL("./stops-worker.js", import.meta.url),
+                        { type: "module" });
+    worker.addEventListener("message", (e) => {
+      const { id, ok, value, error } = e.data ?? {};
+      const pending = waiting.get(id);
+      if (!pending) return;
+      waiting.delete(id);
+      if (ok) pending.resolve(value); else pending.reject(new Error(error));
+    });
+    // 立ち上がらなかったとき（読み込み失敗、type:module 非対応）は、
+    // 以後この場で計算します。**待っている依頼は投げ直します。**
+    // ここで放っておくと、入力補完が永遠に返ってきません。
+    worker.addEventListener("error", () => {
+      workerBroken = true;
+      worker = null;
+      for (const [, p] of waiting) p.reject(new Error("worker failed"));
+      waiting.clear();
+    });
   } catch {
-    // 読めなくても、経路の計算そのものは止めない（直線距離の目安に戻る）。
-    return [];
+    workerBroken = true;
+    worker = null;
   }
+  return worker;
 }
-
-let loadPromise = null;
 
 /**
- * 読み込みは1回だけ。位置で引く索引と、名前で引く索引の両方を作ります。
+ * 別のスレッドに聞きます。駄目ならこの場で計算します。
  *
- * 名前の索引は、出発地・到着地の入力補完に使います。datalist に
- * 7万件を並べるとブラウザが固まるので、打たれた文字で絞ってから
- * 20件だけ差し込みます。
+ * @param {string} op 依頼の種類（stops-worker.js の OPS）
+ * @param {object} args
+ * @param {Function} fallback この場で計算する手
  */
-function load() {
-  loadPromise ??= Promise.all([
-    fetchStops("stops-rail.json"),
-    fetchStops("stops-bus.json"),
-  ]).then(([rail, bus]) => {
-    // 駅を先に置きます。同じ名前ならバス停より駅を採ります
-    // （「新宿駅」と打った人が新宿駅前のバス停に案内されないように）。
-    const all = [
-      ...rail.map((s) => ({ lat: s[0], lng: s[1], name: s[2], kind: "rail" })),
-      ...bus.map((s) => ({ lat: s[0], lng: s[1], name: s[2], kind: "bus" })),
-    ];
-    const byName = new Map();
-    for (const s of all) {
-      const key = normalizeName(s.name);
-      if (!byName.has(key)) byName.set(key, s);
-    }
-    return {
-      grid: buildGrid(all.map((s) => [s.lat, s.lng, s.name, s.kind])),
-      all, byName,
-    };
-  });
-  return loadPromise;
-}
-
-function loadGrid() {
-  return load().then((x) => x.grid);
-}
-
-/** 「新宿駅」「 新宿 」を同じ鍵にします。 */
-function normalizeName(name) {
-  return String(name ?? "").trim().replace(/[\s　]+/g, "").replace(/駅$/, "");
+function ask(op, args, fallback) {
+  const w = ensureWorker();
+  if (!w) return fallback();
+  return new Promise((resolve, reject) => {
+    const id = nextId++;
+    waiting.set(id, { resolve, reject });
+    w.postMessage({ id, op, args });
+  }).catch(() => fallback());
 }
 
 /**
  * 先に読み込んでおきます。
  *
- * 停留所のデータは2.7MBあり、最初の1回は数秒かかります。使う直前に
+ * 停留所のデータは2.6MBあり、最初の1回は数秒かかります。使う直前に
  * 取りにいくと、その数秒ぶん候補が出ません。触れた時点で始めます。
  */
 export function preloadStops() {
-  load().catch(() => { /* 読めなくても、直線距離の目安に戻るだけです */ });
+  ask("preload", {}, () => { local.preloadStops(); return true; })
+    .catch(() => { /* 読めなくても、直線距離の目安に戻るだけです */ });
 }
 
-/**
- * 名前の一致で停留所を1件引きます。駅を優先します。
- * @returns {{lat,lng,name,kind}|null}
- */
-export async function findStop(name) {
-  const q = normalizeName(name);
-  if (!q) return null;
-  const { byName } = await load();
-  return byName.get(q) ?? null;
+/** 名前の一致で停留所を1件引きます。駅を優先します。 */
+export function findStop(name) {
+  return ask("find", { name }, () => local.findStop(name));
 }
 
-/**
- * 入力補完の候補。打たれた文字で始まるものを先に返します。
- * @param {string} query
- * @param {number} limit
- */
-export async function searchStops(query, limit = 20) {
-  const q = normalizeName(query);
-  if (q.length < 1) return [];
-  const { all } = await load();
-  const starts = [];
-  const contains = [];
-  for (const s of all) {
-    const n = normalizeName(s.name);
-    if (n === q || n.startsWith(q)) starts.push(s);
-    else if (n.includes(q)) contains.push(s);
-    if (starts.length >= limit) break;
-  }
-  // 同じ名前の停留所は全国にいくつもあります（「本町」など）。
-  // 候補としては1つで足ります。
-  const seen = new Set();
-  const out = [];
-  for (const s of [...starts, ...contains]) {
-    const key = normalizeName(s.name);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(s);
-    if (out.length >= limit) break;
-  }
-  return out;
+/** 入力補完の候補。打たれた文字で始まるものを先に返します。 */
+export function searchStops(query, limit = 20) {
+  return ask("search", { query, limit }, () => local.searchStops(query, limit));
 }
 
-/**
- * 最寄りの停留所（駅・バス停）を返します。見つからなければ null。
- * @param {{lat:number,lng:number}} point
- * @param {number} maxKm この距離より遠ければ「無い」扱いにします
- */
+/** 最寄りの停留所（駅・バス停）を返します。見つからなければ null。 */
 export async function nearestStop(point, maxKm = 3) {
   return (await nearbyStops(point, maxKm, 1))[0] ?? null;
 }
 
-/**
- * 近い順に、停留所をいくつか返します。
- *
- * 最寄りの1件だけでは足りない場面があります。Yahoo!路線情報は
- * 同じ名前の停留所が全国にあると答えられないことがあり、また出発地と
- * 目的地の最寄りが**同じ停留所**になると、そもそも問い合わせられません
- * （「高尾山口駅から高尾山口駅まで」は経路になりません）。
- * 2番目・3番目の候補があれば、そのどちらかで実際の時刻が引けます。
- *
- * 同じ名前は1件にまとめます（同じ名前で聞き直しても答えは変わりません）。
- * 駅を先に、そのあと近い順です。バス停より駅のほうが、Yahoo!が名前を
- * 解決できる見込みが高いためです。
- *
- * @param {{lat:number,lng:number}} point
- * @param {number} maxKm
- * @param {number} limit
- * @returns {Promise<Array<{lat,lng,name,kind,km}>>}
- */
-export async function nearbyStops(point, maxKm = 3, limit = 3) {
-  const grid = await loadGrid();
-  const cx = Math.round(point.lat / CELL_DEG);
-  const cy = Math.round(point.lng / CELL_DEG);
-  // 見るマスの数は、探す半径から決めます。
-  //
-  // ここは ±1マス（約5.5km四方）で決め打ちでした。maxKm に 15 を
-  // 渡しても、7km先の停留所は**マスの外**なので見つかりません。
-  // 呼ぶ側は「15kmまで探した」つもりで、実際は5kmまでです。
-  // 地方では駅まで10kmが珍しくなく、そこが丸ごと「停留所なし」に
-  // なっていました。
-  const span = Math.max(1, Math.ceil(maxKm / (CELL_DEG * 111)));
-  const found = [];
-  for (let dx = -span; dx <= span; dx++) {
-    for (let dy = -span; dy <= span; dy++) {
-      const list = grid.get(`${cx + dx},${cy + dy}`);
-      if (!list) continue;
-      for (const s of list) {
-        const km = haversineKm(point, { lat: s[0], lng: s[1] });
-        if (km <= maxKm) {
-          found.push({ lat: s[0], lng: s[1], name: s[2], kind: s[3], km });
-        }
-      }
-    }
-  }
-  // 並べ方は「近い順」が基本です。ただし、ほぼ同じ距離（0.3km以内）に
-  // 駅とバス停があるなら駅を先にします。
-  found.sort((a, b) => {
-    if (Math.abs(a.km - b.km) > 0.3) return a.km - b.km;
-    const rank = (s) => (s.kind === "rail" ? 0 : 1);
-    return rank(a) - rank(b) || a.km - b.km;
-  });
-  const seen = new Set();
-  const out = [];
-  for (const s of found) {
-    const key = normalizeName(s.name);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(s);
-    if (out.length >= limit) break;
-  }
-  return out;
+/** 近い順に、停留所をいくつか返します。 */
+export function nearbyStops(point, maxKm = 3, limit = 3) {
+  // 座標だけを渡します。スポットの丸ごとを渡すと、受け渡しのたびに
+  // 説明文まで複製されます。
+  const at = { lat: point?.lat, lng: point?.lng };
+  return ask("near", { point: at, maxKm, limit },
+             () => local.nearbyStops(at, maxKm, limit));
 }
 
 /** テスト・診断用に、読み込み状態をリセットします。 */
 export function resetStopsCache() {
-  loadPromise = null;
+  local.resetStopsCache();
+  if (worker) {
+    worker.terminate();
+    worker = null;
+  }
+  workerBroken = false;
+  waiting.clear();
 }

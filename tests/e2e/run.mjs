@@ -9,6 +9,7 @@
  * 外してあります。動かしかたは tests/e2e/README.md を見てください。
  */
 
+import { readFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:8000";
@@ -221,6 +222,29 @@ await check("何をしてくれるサイトかが書いてある", async () => {
   assert(visible, "つくりかたが隠れています");
 });
 
+await check("停留所の読み解きを、別のスレッドに回している", async () => {
+  // 停留所のデータは2.6MB（駅0.3MB＋バス停2.3MB）あります。本体側で
+  // 読んで解くと、低スペックの携帯では400msほど画面が止まり、しかも
+  // 2.6MBが本体側の記憶に載り続けます。返すのは「最寄り3件」のような
+  // 小さな答えだけなので、本体側に置いておく理由がありません。
+  await page.click("#depart-place");
+  await page.fill("#depart-place", "松江");
+  await until(page, () =>
+    document.querySelectorAll("#place-list option").length > 0,
+             { timeout: 60_000 });
+
+  const workers = page.workers().map((w) => w.url().split("/").pop());
+  assert(workers.includes("stops-worker.js"),
+    `別のスレッドが動いていません: ${workers.join(",") || "なし"}`);
+
+  // 答えが返ってきていること（回した先で止まっていないこと）
+  const opts = await page.$$eval("#place-list option",
+    (els) => els.map((e) => e.value));
+  assert(opts.some((v) => v.includes("松江")),
+    `停留所の候補が出ていません: ${opts.slice(0, 5).join("・")}`);
+  await page.fill("#depart-place", "東京駅");
+});
+
 await check("開いただけでは、現在地を聞かない", async () => {
   // 何も操作していない相手にいきなり権限を求めると、断られて当然です。
   const granted = await page.evaluate(async () => {
@@ -296,6 +320,70 @@ await check("旅程の下の操作が、ほかと同じ部品でできている"
   if (await page.$(".panel.talk")) assert(input, "「言葉で直す」の入力欄が共通の部品ではありません");
   const send = await page.$(".actions .share-text");
   assert(send, "「旅程を送る / コピー」がありません");
+});
+
+await check("そのまま使える例を押すと、欄が埋まる", async () => {
+  // 自由入力の枠は、何を書いてよいか分からないと空のままです。
+  // 押すと入る一文があれば、書き換えるところから始められます。
+  const chip = await page.$("[data-example]");
+  assert(chip, "例の札がありません");
+  const want = await chip.getAttribute("data-example");
+  await chip.click();
+  const got = await page.$eval("#note", (e) => e.value);
+  assert(got === want, `欄が埋まっていません: ${got}`);
+});
+
+await check("カレンダーに入れられる（.ics）", async () => {
+  // 当日に開くのはこのアプリではなくカレンダーです。そこまで届かないと、
+  // 作った旅程は使われません。**実際に保存されるファイルを受け取って**
+  // 中身を見ます。ボタンがあることだけ確かめても、空のファイルが
+  // 落ちていないことは分かりません。
+  const btn = await page.$(".actions .cal-ics");
+  assert(btn, "カレンダーのボタンがありません");
+  const [download] = await Promise.all([
+    page.waitForEvent("download", { timeout: 20_000 }),
+    btn.click(),
+  ]);
+  const name = download.suggestedFilename();
+  // download 属性に日本語を渡すと、環境によっては名前ごと捨てられ、
+  // 拡張子まで失われます（拡張子の無い「download」で保存されました）。
+  assert(/\.ics$/.test(name), `拡張子がありません: ${name}`);
+  assert(/^[\x20-\x7E]+$/.test(name), `ファイル名に ASCII 以外: ${name}`);
+
+  const path = await download.path();
+  assert(path, "ファイルが保存されていません");
+  const text = await readFile(path, "utf8");
+  assert(text.startsWith("BEGIN:VCALENDAR"), "カレンダーの形になっていません");
+  assert(text.trimEnd().endsWith("END:VCALENDAR"), "閉じていません");
+  const events = (text.match(/BEGIN:VEVENT/g) ?? []).length;
+  assert(events > 0, "予定が1つもありません");
+  // 時刻はその土地のまま（UTC に直すと、時計が別の国の人にはずれます）。
+  assert(/DTSTART:\d{8}T\d{6}\r\n/.test(text), "開始時刻の形が妙です");
+  assert(!/DTSTART:[0-9T]+Z/.test(text), "DTSTART が UTC になっています");
+});
+
+await check("紙には、時刻と場所だけを出す", async () => {
+  // 旅の当日は電池を使いたくない場面があります。紙が1枚あれば、
+  // 何時にどこかは分かります。紙の上で押せないものは落とします。
+  await page.emulateMedia({ media: "print" });
+  const shown = await page.evaluate(() => {
+    const vis = (s) => {
+      const e = document.querySelector(s);
+      return e ? getComputedStyle(e).display !== "none" : null;
+    };
+    return {
+      map: vis(".map"), form: vis(".pane-form"), variants: vis(".variants"),
+      actions: vis(".actions"), talk: vis(".panel.talk"),
+      days: vis(".days"), head: vis(".itin-head"), checked: vis(".panel.checked"),
+    };
+  });
+  await page.emulateMedia({ media: null });
+  for (const k of ["map", "form", "variants", "actions", "talk"]) {
+    if (shown[k] === null) continue;
+    assert(shown[k] === false, `紙に ${k} が残っています`);
+  }
+  assert(shown.days !== false, "紙に旅程が出ていません");
+  assert(shown.head !== false, "紙に題が出ていません");
 });
 
 await check("旅程を文字にして渡せる", async () => {
@@ -521,6 +609,215 @@ await check("車を選ぶと、車の旅として組み直す", async () => {
   assert(got.icons.includes("🚗"), `車の絵がありません: ${got.icons}`);
   // 「道の楽しさ」が、選んだ理由の軸に出ること。
   assert(/道の楽しさ/.test(got.reasons), "道の楽しさの軸が出ていません");
+});
+
+await check("電車＋現地の車では、区間ごとに乗るものが変わる", async () => {
+  // 新幹線で行って駅でレンタカー。同じ旅程に、便で決まる区間と
+  // 道のりで決まる区間が並びます。どちらかに寄せると嘘になります。
+  await page.evaluate(() => { document.getElementById("tune").open = true; });
+  await page.click('#transport-choice [data-transport="transit+car"]');
+  await page.click("#make-plan");
+  await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
+  await until(page, () => document.querySelectorAll(".tl.transit").length > 1,
+             { timeout: 120_000 });
+
+  const got = await page.evaluate(() => ({
+    icons: [...document.querySelectorAll(".tl.transit .ic")]
+      .map((e) => e.textContent).join(""),
+    detail: document.querySelector(".check-list li .ck-detail")
+      ?.textContent ?? "",
+  }));
+  // 遠出は電車の絵、現地は車の絵。どちらも出ていること。
+  assert(got.icons.includes("🚃"), `電車の区間がありません: ${got.icons}`);
+  assert(got.icons.includes("🚗"), `運転の区間がありません: ${got.icons}`);
+  // 取れていない区間を、取れたように書かないこと
+  assert(!/0区間は確認済み/.test(got.detail), `妙な言い方です: ${got.detail}`);
+  // もとに戻します（このあとの確認は、おまかせのままで続けます）
+  await page.click('#transport-choice [data-transport="any"]');
+});
+
+// --- 泊まりの旅（宿・食事・荷物・代わりの案）-------------------------------
+// 1泊すると出てくるもの。日帰りの旅程には出ません。
+
+await check("連泊を選ぶと、宿を動かさない旅になる", async () => {
+  await page.evaluate(() => { document.getElementById("tune").open = true; });
+  await page.click('#transport-choice [data-transport="any"]');
+  await page.click('#stay-choice [data-stay="base"]');
+  // 1泊2日にします（日帰りでは宿の話が出ません）
+  await page.$eval("#depart-at", (e) => { e.value = "2026-10-10T09:00"; });
+  await page.$eval("#arrive-by", (e) => { e.value = "2026-10-11T19:00"; });
+  await page.$eval("#note", (e) => {
+    e.value = "松江と出雲をゆっくり。神社と海";
+    e.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.click("#make-plan");
+  await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
+  await until(page, () => document.querySelectorAll(".day").length > 1,
+             { timeout: 120_000 });
+
+  const line = await page.$eval(".stay-line", (e) => e.textContent)
+    .catch(() => "");
+  assert(/泊/.test(line), `どこに泊まる旅か書かれていません: ${line}`);
+});
+
+await check("食事が、その土地のものになっている", async () => {
+  // 「昼食 / ◯◯で」だけでは、旅程として何も言っていません。
+  const got = await page.evaluate(() => ({
+    details: [...document.querySelectorAll(".tl.meal .detail")]
+      .map((e) => e.textContent),
+    links: [...document.querySelectorAll(".tl.meal .item-links a")]
+      .map((e) => e.textContent),
+  }));
+  assert(got.details.length > 0, "食事の行がありません");
+  // 名物か、収録の食事どころか、少なくともどちらかに触れていること。
+  assert(got.details.some((t) => /名物|収録|お店/.test(t)),
+    `食事の説明が空です: ${got.details.join(" / ")}`);
+  assert(got.links.some((t) => /地図で探す/.test(t)),
+    `店を探す先がありません: ${got.links.join(" / ")}`);
+});
+
+await check("駄目だったときの代わりが書かれている", async () => {
+  // 現地で困るのは、雨や休館そのものより、その場で代わりを探すこと
+  // のほうです。無ければ出しません（近くに無いこともあります）。
+  await page.click(".day-tabs button:last-child").catch(() => {});
+  const backups = await page.$$eval(".backup", (els) =>
+    els.map((e) => e.textContent.replace(/\s+/g, " ")));
+  for (const t of backups) {
+    assert(/雨|閉ま/.test(t), `何のための代わりか書かれていません: ${t}`);
+    assert(/m|km/.test(t), `どのくらい近いのか書かれていません: ${t}`);
+  }
+});
+
+await check("荷物を預けるのが、朝いちの一手として入っている", async () => {
+  // 案を下の囲みに書いても、現地では旅程の行しか追いません。
+  const got = await page.evaluate(() => {
+    const step = document.querySelector(".tl.luggage");
+    return {
+      has: Boolean(step),
+      text: step?.textContent?.replace(/\s+/g, " ") ?? "",
+      panel: Boolean(document.querySelector(".panel.luggage")),
+    };
+  });
+  if (got.panel) {
+    assert(got.has, "荷物の案はあるのに、旅程の中に手数が入っていません");
+    assert(/預け/.test(got.text), `何をするのか書かれていません: ${got.text}`);
+  }
+});
+
+// --- 回る順と、いる時間 ----------------------------------------------------
+
+await check("回る順を、その場で入れ替えられる", async () => {
+  // 並べ替えたら**時刻も組み直す**こと。並びだけ変えて時刻を据え置くと、
+  // 開館前に着く旅程ができます。
+  await page.click(".day-tabs button:first-child").catch(() => {});
+  const before = await page.$$eval(".day:not([hidden]) .tl.spot",
+    (els) => els.map((e) => e.dataset.spot));
+  if (before.length < 2) return;   // 1か所の日では、入れ替えるものがありません
+
+  const moves = await page.$$(".day:not([hidden]) .tl.spot .tune-move[data-move='down']");
+  assert(moves.length > 0, "順番を動かすボタンがありません");
+  await moves[0].click();
+  await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
+  await until(page, () => {
+    const o = document.querySelector(".talk-out");
+    return Boolean(o && !o.hidden && o.textContent.includes("回る順"));
+  }, { timeout: 120_000 });
+
+  const after = await page.$$eval(".day:not([hidden]) .tl.spot",
+    (els) => els.map((e) => e.dataset.spot));
+  assert(after.join(",") !== before.join(","),
+    `順番が変わっていません: ${after.join(",")}`);
+
+  // 時刻が組み直されていること（並びだけ変わって時刻が同じなら嘘です）
+  const times = await page.$$eval(".day:not([hidden]) .tl.spot .time",
+    (els) => els.map((e) => e.textContent.trim()));
+  assert(times.length === after.length, "時刻の欄が足りません");
+  const sorted = [...times].sort();
+  assert(times.join(",") === sorted.join(","),
+    `時刻が前後しています: ${times.join(" / ")}`);
+});
+
+await check("掴んで動かしても、入れ替わる", async () => {
+  // ここは一度壊れていました。入れ替えは節を付け替える操作なので、
+  // 掴んだ要素で指の動きを受けていると **1回でポインタの捕捉が外れ**、
+  // 指を離したことに気づけません。並べ替えたのに組み直されませんでした。
+  const rows = await page.$$(".day:not([hidden]) .tl.spot");
+  if (rows.length < 2) return;
+  const before = await page.$$eval(".day:not([hidden]) .tl.spot",
+    (els) => els.map((e) => e.dataset.spot));
+
+  const grip = await page.$(".day:not([hidden]) .tl.spot .tune-grip");
+  assert(grip, "掴むところがありません");
+  await grip.scrollIntoViewIfNeeded();
+  const from = await grip.boundingBox();
+  const to = await rows[1].boundingBox();
+  await page.mouse.move(from.x + 5, from.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 5, to.y + to.height * 0.8, { steps: 10 });
+  await page.mouse.up();
+
+  await until(page, () => {
+    const o = document.querySelector(".talk-out");
+    return Boolean(o && !o.hidden && o.textContent.includes("回る順"));
+  }, { timeout: 120_000 });
+  const after = await page.$$eval(".day:not([hidden]) .tl.spot",
+    (els) => els.map((e) => e.dataset.spot));
+  assert(after.join(",") !== before.join(","),
+    `掴んで動かしても変わりません: ${after.join(",")}`);
+});
+
+await check("いる時間を、その場で伸ばせる", async () => {
+  const bar = await page.$(".day:not([hidden]) .tl.spot .tune-bar");
+  assert(bar, "いる時間のバーがありません");
+  const got = await page.evaluate(() => {
+    const b = document.querySelector(".day:not([hidden]) .tl.spot .tune-bar");
+    const o = b.closest(".spot-tune").querySelector(".tune-out");
+    return { min: b.min, max: b.max, step: b.step, out: o.textContent };
+  });
+  // 1分刻みで選べても、選ぶ意味がありません
+  assert(Number(got.step) >= 5, `刻みが細かすぎます: ${got.step}`);
+  assert(Number(got.min) >= 10, `短すぎる値が選べます: ${got.min}`);
+  // いま何分なのかが、数字でも出ていること
+  assert(/分|時間/.test(got.out), `いる時間が数字で出ていません: ${got.out}`);
+});
+
+// --- 携帯での地図と説明 ----------------------------------------------------
+
+await check("携帯では、説明が半分の高さで開く（地図が残る）", async () => {
+  // 全画面で開くと地図が隠れます。場所を確かめたくて押したのに
+  // 場所が見えない、という順番になっていました。
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.click(".day-tabs button:first-child").catch(() => {});
+  await page.click(".tl.spot .chev");
+  await until(page, () => Boolean(document.querySelector(".md-sheet")),
+             { timeout: 20_000 });
+  const got = await page.evaluate(() => {
+    const sh = document.querySelector(".md-sheet");
+    return {
+      state: sh.dataset.state,
+      topRatio: sh.getBoundingClientRect().top / innerHeight,
+      toggle: Boolean(sh.querySelector(".sheet-toggle")),
+      blurred: getComputedStyle(document.querySelector(".md-sheet-scrim"))
+        .backdropFilter,
+    };
+  });
+  assert(got.state === "peek", `半分で開いていません: ${got.state}`);
+  assert(got.topRatio > 0.35,
+    `画面を覆いすぎています（上端が ${Math.round(got.topRatio * 100)}%）`);
+  assert(got.toggle, "全部見るための摘みがありません");
+  // 曇らせると、後ろの地図が読めません
+  assert(!/blur/.test(got.blurred), `後ろが曇っています: ${got.blurred}`);
+
+  // 摘みを押したら、全部開くこと（指以外でも開けること）
+  await page.click(".sheet-toggle");
+  await until(page, () =>
+    document.querySelector(".md-sheet")?.dataset.state === "full",
+             { timeout: 10_000 });
+
+  await page.click(".md-sheet .close");
+  await until(page, () => !document.querySelector(".md-sheet"),
+             { timeout: 10_000 });
+  await page.setViewportSize({ width: 1280, height: 1000 });
 });
 
 await check("ページの例外が出ていない", () => {

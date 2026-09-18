@@ -15,12 +15,30 @@
    ===================================================================== */
 
 :root {
-  /* --- かたち --- */
+  /* --- かたち -------------------------------------------------------
+     Apple の説明では、かたちは3種類だけです
+     （WWDC25「Get to know the new design system」）。
+
+       固定（fixed）      … 決まった丸み。下の --hig-r-* がこれです
+       カプセル（capsule）… 丸み＝高さの半分。ボタン・チップ・札
+       同心（concentric） … 丸み＝**親の丸み − すきま**
+
+     同心は計算で出します。CSS からは親の値を読めないので、
+     calc() に親の変数を書きます（例: シートの中のカードは
+     calc(var(--hig-r-2xl) - 20px)）。入れ子の丸みを揃えないと、
+     角が二重に見えて、どこまでが1つの塊なのか分からなくなります。
+
+     親より内側に十分（すきま ≥ 親の丸み）入っているものは、
+     親の角から離れているので、好きな丸みでかまいません。 */
   --hig-r-xs: 6px;
   --hig-r-sm: 10px;
   --hig-r-md: 14px;
   --hig-r-lg: 18px;
   --hig-r-xl: 22px;
+  /* シートと窓の角。ガイドラインは「端末の角の丸みに合わせる」と
+     書いています（iPhone の角は 44〜55px 相当）。中の部品は、これより
+     小さい丸みで入れ子にします（同心）。 */
+  --hig-r-2xl: 28px;
   --hig-r-full: 999px;
 
   /* --- 影（Apple は控えめ。浮くものだけ） --- */
@@ -60,35 +78,188 @@
 }
 
 /* =====================================================================
-   字（Apple のタイプスケール）
+   字（Dynamic Type）
 
-   San Francisco は端末に入っているものを使います（Web フォントとして
-   配れないため）。和文は Hiragino Sans → Noto Sans JP の順。
-   Apple は行間を詰めますが、和文は漢字の字面が大きいので少し広げます。
+   Apple の表をそのまま持ってきています（Human Interface Guidelines /
+   Typography の「iOS, iPadOS Dynamic Type sizes」既定サイズ）。
+
+     Large Title  34 / 41   Regular（強調は Bold）
+     Title 1      28 / 34   Regular
+     Title 2      22 / 28   Regular
+     Title 3      20 / 25   Regular（強調は Semibold）
+     Headline     17 / 22   Semibold
+     Body         17 / 22   Regular
+     Callout      16 / 21   Regular
+     Subheadline  15 / 20   Regular
+     Footnote     13 / 18   Regular
+     Caption 1    12 / 16   Regular
+     Caption 2    11 / 13   Regular
+
+   ここに無い大きさは使いません。**14px は Apple のどの表にもない
+   大きさ**で、それを混ぜると「なんとなく小さい字」が増えていきます。
+   段が減るのではなく、段の意味が消えます。
+   （外れた大きさが混ざらないように、tests/type-scale.test.js が
+     css/ を読んで見張っています。）
+
+   細い太さは使いません（Ultralight / Thin / Light）。ガイドラインが
+   名指しで避けるように書いています。小さい字ではとくに読めません。
+
+   和文について
+   ------------
+   行間は表のとおりだと詰まります。漢字の字面が大きく、ひらがなと
+   混ざるためです。表の値を下限として、1.05〜1.2倍のあいだで広げて
+   います（Typography の「symbolic traits で leading を調整してよい」）。
+
+   画面の広さについて
+   ------------------
+   Apple の表は**プラットフォームごとに違います**（iOS は本文17pt、
+   macOS は13pt）。ここは携帯を主にしているので iOS の表を使い、
+   広い画面では1段下げます。ただし 13pt までは下げません。これは
+   Mac アプリの窓ではなく、ブラウザの中の文書で、Apple 自身の
+   web も本文は 17px 前後だからです（意図的な差として書き残します）。
    ===================================================================== */
 
-.md-display-large  { font-size: 44px; line-height: 1.12; font-weight: 700; letter-spacing: -.9px; }
-.md-display-medium { font-size: 38px; line-height: 1.15; font-weight: 700; letter-spacing: -.7px; }
-.md-display-small  { font-size: 34px; line-height: 1.18; font-weight: 700; letter-spacing: -.6px; }
+:root {
+  --hig-t-large-title: 34px;  --hig-l-large-title: 41px;
+  --hig-t-title1:      28px;  --hig-l-title1:      34px;
+  --hig-t-title2:      22px;  --hig-l-title2:      28px;
+  --hig-t-title3:      20px;  --hig-l-title3:      25px;
+  --hig-t-headline:    17px;  --hig-l-headline:    22px;
+  --hig-t-body:        17px;  --hig-l-body:        22px;
+  --hig-t-callout:     16px;  --hig-l-callout:     21px;
+  --hig-t-subhead:     15px;  --hig-l-subhead:     20px;
+  --hig-t-footnote:    13px;  --hig-l-footnote:    18px;
+  --hig-t-caption1:    12px;  --hig-l-caption1:    16px;
+  --hig-t-caption2:    11px;  --hig-l-caption2:    13px;
+}
 
-/* largeTitle / title1 / title2 */
-.md-headline-large  { font-size: 34px; line-height: 1.2;  font-weight: 700; letter-spacing: -.5px; }
-.md-headline-medium { font-size: 28px; line-height: 1.24; font-weight: 700; letter-spacing: -.4px; }
-.md-headline-small  { font-size: 22px; line-height: 1.3;  font-weight: 700; letter-spacing: -.3px; }
+/* 広い画面では1段下げます（上の「画面の広さについて」）。 */
+@media (min-width: 861px) {
+  :root {
+    --hig-t-large-title: 28px;  --hig-l-large-title: 34px;
+    --hig-t-title1:      22px;  --hig-l-title1:      28px;
+    --hig-t-title2:      20px;  --hig-l-title2:      25px;
+    --hig-t-title3:      17px;  --hig-l-title3:      22px;
+    --hig-t-headline:    15px;  --hig-l-headline:    20px;
+    --hig-t-body:        15px;  --hig-l-body:        20px;
+    --hig-t-callout:     15px;  --hig-l-callout:     20px;
+    --hig-t-subhead:     13px;  --hig-l-subhead:     18px;
+    --hig-t-footnote:    13px;  --hig-l-footnote:    18px;
+  }
+}
 
-/* title3 / headline / subheadline */
-.md-title-large  { font-size: 20px; line-height: 1.35; font-weight: 600; letter-spacing: -.2px; }
-.md-title-medium { font-size: 17px; line-height: 1.45; font-weight: 600; letter-spacing: -.1px; }
-.md-title-small  { font-size: 15px; line-height: 1.45; font-weight: 600; letter-spacing: -.05px; }
+/* 文字の段。名前は Apple の text style のままにします
+   （md3 の名前を残すと、どの段なのかが読めません）。 */
+.hig-large-title {
+  font-size: var(--hig-t-large-title); line-height: 1.2;
+  font-weight: 700; letter-spacing: -.6px;
+}
+.hig-title-1 {
+  font-size: var(--hig-t-title1); line-height: 1.24;
+  font-weight: 700; letter-spacing: -.4px;
+}
+.hig-title-2 {
+  font-size: var(--hig-t-title2); line-height: 1.3;
+  font-weight: 700; letter-spacing: -.3px;
+}
+.hig-title-3 {
+  font-size: var(--hig-t-title3); line-height: 1.35;
+  font-weight: 600; letter-spacing: -.2px;
+}
+.hig-headline {
+  font-size: var(--hig-t-headline); line-height: 1.45;
+  font-weight: 600; letter-spacing: -.1px;
+}
+.hig-body {
+  font-size: var(--hig-t-body); line-height: 1.7; font-weight: 400;
+  letter-spacing: -.1px;
+}
+.hig-callout {
+  font-size: var(--hig-t-callout); line-height: 1.6; font-weight: 400;
+}
+.hig-subhead {
+  font-size: var(--hig-t-subhead); line-height: 1.6; font-weight: 400;
+}
+.hig-footnote {
+  font-size: var(--hig-t-footnote); line-height: 1.6; font-weight: 400;
+}
+.hig-caption-1 { font-size: var(--hig-t-caption1); line-height: 1.5; }
+.hig-caption-2 { font-size: var(--hig-t-caption2); line-height: 1.45; }
 
-/* body / callout / footnote */
-.md-body-large  { font-size: 17px; line-height: 1.7; font-weight: 400; letter-spacing: -.1px; }
-.md-body-medium { font-size: 15px; line-height: 1.7; font-weight: 400; letter-spacing: -.05px; }
-.md-body-small  { font-size: 13px; line-height: 1.6; font-weight: 400; }
+/* =====================================================================
+   Liquid Glass（操作と案内の層）
 
-.md-label-large  { font-size: 15px; line-height: 1.4; font-weight: 600; letter-spacing: -.05px; }
-.md-label-medium { font-size: 13px; line-height: 1.4; font-weight: 600; }
-.md-label-small  { font-size: 11px; line-height: 1.4; font-weight: 600; letter-spacing: .06px; }
+   ガイドライン（Materials / Adopting Liquid Glass）から、この画面に
+   効くところだけを実装しています。
+
+     ・**浮いているものだけ**に使う。カードや旅程の行（内容の層）には
+       使いません。内容の層に使うと、何が操作で何が中身なのかが
+       分からなくなります。
+     ・にじみ（blur）と彩度（saturate）で、後ろの色を拾いながら
+       文字が読めるようにします。regular 相当です。
+     ・縁に細い光を1本入れます。ガラスの厚みがこれで出ます。
+     ・色は乗せません（主となるボタン1つだけ、下の .glass-accent）。
+
+   透けると困る人がいます
+   ----------------------
+   「透明度を下げる」「コントラストを上げる」を設定している人には、
+   にじみを外して不透明にします（ガイドラインが名指しで求めています）。
+   backdrop-filter が無いブラウザでも、色だけで成立するようにします。
+   ===================================================================== */
+
+.hig-glass {
+  background: var(--hig-glass-tint);
+  -webkit-backdrop-filter: var(--hig-glass-blur);
+  backdrop-filter: var(--hig-glass-blur);
+  box-shadow: inset 0 .5px 0 var(--hig-glass-hairline), var(--hig-glass-shadow);
+}
+/* 文字の多いもの（帯・シート）は濃いほうを使います。
+   ガイドライン: 文字が多い部品では regular（濃いほう）を使う。 */
+.hig-glass-thick { background: var(--hig-glass-tint-2); }
+
+/* にじみが使えない環境では、不透明に寄せます（読めるほうが大事）。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .hig-glass, .hig-glass-thick { background: var(--hig-material); }
+}
+
+/* 内容がガラスの下に流れていくとき、境目をぼかします
+   （ガイドラインの scroll edge effect。文字が帯の縁で重なって
+     読めなくなるのを防ぎます）。 */
+.hig-scroll-edge::before {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 100%;
+  height: 28px; pointer-events: none;
+  background: linear-gradient(to top,
+    var(--hig-glass-tint), transparent);
+}
+
+/* 設定に合わせた変わりかたは、Apple の説明どおりに分けます
+   （WWDC25「Meet Liquid Glass」）。
+
+     透明度を下げる … **もっと霜がかった状態**にして、後ろを隠します
+                      （にじみは残します。ガラスであることは変えません）
+     コントラストを上げる … ほぼ白／黒にして、**縁を1本引きます**
+     動きを減らす   … 伸び縮みの効果を止めます（下の media query）
+
+   どちらも「ガラスをやめる」ではありません。やめてしまうと、
+   操作の層と内容の層の区別まで失われます。 */
+@media (prefers-reduced-transparency: reduce) {
+  .hig-glass, .hig-glass-thick {
+    background: var(--hig-material);
+    -webkit-backdrop-filter: saturate(120%) blur(30px);
+    backdrop-filter: saturate(120%) blur(30px);
+  }
+  .hig-scroll-edge::before {
+    background: linear-gradient(to top, var(--hig-material), transparent);
+  }
+}
+@media (prefers-contrast: more) {
+  .hig-glass, .hig-glass-thick {
+    background: var(--hig-elevated);
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    box-shadow: inset 0 0 0 1px var(--hig-label), var(--hig-shadow-2);
+  }
+  .hig-scroll-edge::before { display: none; }
+}
 
 /* =====================================================================
    押した反応
@@ -114,11 +285,18 @@
 
 /* ------------------------------------------------------------ ボタン --- */
 
+/* ボタンのかたち。
+   ガイドライン（Buttons / Adopting Liquid Glass）:
+     ・丸いほうが目を留めやすい。単独で置くなら capsule
+     ・横に並べるなら capsule、縦に積むなら角丸の長方形
+     ・的は 44×44pt 以上（Accessibility の表）
+   角丸 10px の長方形でしたが、いまのガイドラインは「操作は丸く」
+   です。横に並ぶ使い方しかしていないので capsule にします。 */
 .md-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  min-height: 36px; padding: 8px 18px;
-  border: none; border-radius: var(--hig-r-sm);
-  font: inherit; font-size: 15px; font-weight: 600; letter-spacing: -.05px;
+  min-height: var(--hig-touch); padding: 10px 20px;
+  border: none; border-radius: var(--hig-r-full);
+  font: inherit; font-size: var(--hig-t-subhead); font-weight: 600; letter-spacing: -.05px;
   cursor: pointer; background: none; color: var(--tabi-indigo);
   white-space: nowrap;
 }
@@ -145,7 +323,7 @@
   width: 36px; height: 36px; padding: 0;
   border: none; border-radius: var(--hig-r-full);
   background: transparent; color: var(--tabi-indigo);
-  font-size: 17px; cursor: pointer;
+  font-size: var(--hig-t-body); cursor: pointer;
 }
 .md-icon-btn:hover { background: var(--hig-fill); opacity: 1; }
 
@@ -156,7 +334,7 @@
   width: 100%; min-height: 50px; padding: 13px 22px;
   border: none; border-radius: var(--hig-r-md);
   background: var(--tabi-indigo); color: #fff;
-  font: inherit; font-size: 17px; font-weight: 600; letter-spacing: -.2px;
+  font: inherit; font-size: var(--hig-t-body); font-weight: 600; letter-spacing: -.2px;
   cursor: pointer;
 }
 .md-fab-extended:disabled { cursor: default; }
@@ -186,13 +364,21 @@
   border: none; border-radius: var(--hig-r-full);
   background: transparent; color: var(--hig-label);
   box-shadow: inset 0 0 0 1px var(--hig-separator-opaque);
-  font: inherit; font-size: 14px; font-weight: 500; letter-spacing: -.05px;
+  font: inherit; font-size: var(--hig-t-subhead); font-weight: 500; letter-spacing: -.05px;
   cursor: pointer;
   transition: background-color var(--hig-fast) var(--hig-ease),
               box-shadow var(--hig-fast) var(--hig-ease),
               color var(--hig-fast) var(--hig-ease);
 }
 .md-chip:hover { background: var(--hig-fill); opacity: 1; }
+/* 指で触る画面では、的を 44×44pt にします
+   （Accessibility の「Minimum hit region」。iOS は 44pt）。
+   ポインタのある画面では、36px のままにします。並べたときに
+   間延びして、かえって読みにくくなるためです。 */
+@media (pointer: coarse) {
+  .md-chip { min-height: var(--hig-touch); padding: 10px 16px; }
+  .md-segmented > button { min-height: 40px; }
+}
 .md-chip[aria-pressed="true"], .md-chip.is-selected {
   background: var(--tabi-indigo); color: #fff;
   box-shadow: inset 0 0 0 1px var(--tabi-indigo);
@@ -203,7 +389,7 @@
 /* 選んだものの前に印を出します。色だけで分けると、
    色の見分けがつきにくい人には同じに見えます。 */
 .md-chip[aria-pressed="true"]::before,
-.md-chip.is-selected::before { content: "\2713"; font-size: 12px; }
+.md-chip.is-selected::before { content: "\2713"; font-size: var(--hig-t-caption1); }
 .md-chip--assist { background: transparent; }
 
 /* -------------------------------------------------------------- 入力欄 --- */
@@ -212,7 +398,7 @@
 
 .md-field > .md-field-label {
   display: block; margin: 0 0 6px 2px;
-  font-size: 13px; font-weight: 600; letter-spacing: -.02px;
+  font-size: var(--hig-t-footnote); font-weight: 600; letter-spacing: -.02px;
   color: var(--hig-label-2);
 }
 .md-field > .md-field-input,
@@ -223,7 +409,7 @@
   min-height: var(--hig-touch); padding: 11px 14px;
   border: none; border-radius: var(--hig-r-sm);
   background: var(--hig-fill); color: var(--hig-label);
-  font: inherit; font-size: 16px; letter-spacing: -.1px;
+  font: inherit; font-size: var(--hig-t-callout); letter-spacing: -.1px;
   -webkit-appearance: none; appearance: none;
   transition: box-shadow var(--hig-fast) var(--hig-ease);
 }
@@ -235,22 +421,27 @@
 }
 .md-field > .md-field-help {
   display: block; margin: 6px 2px 0;
-  font-size: 13px; color: var(--hig-label-2);
+  font-size: var(--hig-t-footnote); color: var(--hig-label-2);
 }
 
 /* ------------------------------------------------------ セグメント --- */
 /* iOS のセグメンテッドコントロール。灰色の溝に、白い錠剤が乗ります。 */
 
+/* 切り替え（segmented control）。
+   ガイドライン（Segmented controls）: 幅は揃える、文字と絵を混ぜない、
+   3〜5個まで。中のボタンの角は、外側と**同心**にします
+   （外側 10px − すきま 2px = 8px。Adopting Liquid Glass の
+     「concentric な角」）。 */
 .md-segmented {
   display: flex; gap: 2px; padding: 2px;
   border-radius: var(--hig-r-sm);
   background: var(--hig-fill-3);
 }
 .md-segmented > button {
-  flex: 1; min-height: 32px; padding: 6px 12px;
-  border: none; border-radius: 8px;
+  flex: 1; min-height: 36px; padding: 8px 12px;
+  border: none; border-radius: calc(var(--hig-r-sm) - 2px);
   background: transparent; color: var(--hig-label);
-  font: inherit; font-size: 14px; font-weight: 500; letter-spacing: -.05px;
+  font: inherit; font-size: var(--hig-t-subhead); font-weight: 500; letter-spacing: -.05px;
   cursor: pointer;
   transition: background var(--hig-fast) var(--hig-ease);
 }
@@ -361,20 +552,83 @@
   -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
   animation: hig-fade var(--hig-mid) var(--hig-ease);
 }
+/* シート。
+   ガイドライン（Adopting Liquid Glass / Windows and modals）から:
+     ・角を大きくする
+     ・半分の高さのときは画面の端から少し内側に置き、後ろの内容を
+       のぞかせる
+     ・全部開いたときは濃くして、いまの用事に集中させる
+   角の大きさは、端末の角の丸みに合わせる、という考え方です
+   （中の部品は、それより小さい丸みで入れ子にします）。 */
 .md-sheet {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 41;
   max-height: 88vh; overflow-y: auto;
   padding: 8px 20px calc(24px + env(safe-area-inset-bottom));
-  border-radius: var(--hig-r-md) var(--hig-r-md) 0 0;
+  border-radius: var(--hig-r-2xl) var(--hig-r-2xl) 0 0;
   background: var(--hig-elevated); color: var(--hig-label);
   box-shadow: var(--hig-shadow-3);
   animation: hig-sheet-in var(--hig-mid) var(--hig-ease);
 }
+/* 半分の高さのときは、端から内側に置きます（後ろがのぞきます）。 */
+.md-sheet.dragging-sheet[data-state="peek"] {
+  left: 8px; right: 8px;
+  border-radius: var(--hig-r-2xl);
+  background: var(--hig-glass-tint-2);
+  -webkit-backdrop-filter: var(--hig-glass-blur);
+  backdrop-filter: var(--hig-glass-blur);
+}
+/* 全部開いたら、下の端まで伸ばして濃くします。 */
+.md-sheet.dragging-sheet[data-state="full"] {
+  left: 0; right: 0;
+  border-radius: var(--hig-r-2xl) var(--hig-r-2xl) 0 0;
+  background: var(--hig-elevated);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .md-sheet.dragging-sheet[data-state="peek"] {
+    background: var(--hig-material);
+  }
+}
+@media (prefers-contrast: more) {
+  .md-sheet.dragging-sheet[data-state="peek"] {
+    background: var(--hig-elevated);
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    box-shadow: inset 0 0 0 1px var(--hig-label), var(--hig-shadow-3);
+  }
+}
 .md-sheet-handle { display: flex; justify-content: center; padding: 6px 0 10px; }
-.md-sheet-handle > i {
+/* 摘みの棒。ボタンの中に入れることがあるので、直下に限りません
+   （ui.js の dragSheet が、棒そのものを押せるボタンにします）。 */
+.md-sheet-handle i {
   display: block; width: 36px; height: 5px; border-radius: 3px;
   background: var(--hig-label-3);
 }
+/* 携帯では、半分の高さで開きます（ui.js の dragSheet）。
+   上半分に地図を残すためです。全画面で開くと、場所を確かめたくて
+   押したのに場所が見えない、という順番になります。 */
+.md-sheet.dragging-sheet {
+  /* 引き上げたときに全部が見えるよう、高さを取っておきます。
+     中身が短いときは中身ぶんです（空白を引っぱっても意味がありません）。 */
+  max-height: 92vh; max-height: 92dvh;
+  animation: none;                 /* translateY は JS が持ちます */
+  touch-action: none;              /* 指の動きを、シートの上下に使います */
+}
+.md-sheet.dragging-sheet[data-state="peek"] { overflow-y: hidden; }
+/* 半分のときは、地図が見えるように曇らせません。
+   押せば閉じます（地図を触るには、まず閉じてもらいます）。 */
+.md-sheet-scrim[data-state="peek"] {
+  background: transparent;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.md-sheet .sheet-toggle {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  min-width: 72px; min-height: 30px; padding: 2px 18px;
+  border: 0; background: none; color: var(--hig-label-3);
+  font: inherit; font-size: var(--hig-t-caption2); line-height: 1; cursor: pointer;
+}
+.md-sheet .sheet-toggle:active { color: var(--hig-label); }
+.md-sheet .sheet-toggle .arrow { letter-spacing: 0; }
+
 @keyframes hig-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes hig-sheet-in {
   from { transform: translateY(100%); } to { transform: translateY(0); }
@@ -392,7 +646,7 @@
 .md-list-item {
   display: flex; align-items: center; gap: 12px;
   min-height: var(--hig-touch); padding: 11px 16px;
-  font-size: 15px; letter-spacing: -.05px;
+  font-size: var(--hig-t-subhead); letter-spacing: -.05px;
 }
 .md-list-item .md-list-text { white-space: nowrap; flex: none; }
 .md-list-item + .md-list-item {
@@ -403,7 +657,7 @@
    「使わない設定です（収録データから…」で切ると、いちばん大事な
    「だから何ができるのか」が消えます。 */
 .md-list-item .md-list-support {
-  color: var(--hig-label-2); font-size: 14px; text-align: right;
+  color: var(--hig-label-2); font-size: var(--hig-t-subhead); text-align: right;
   flex: 1; min-width: 0; line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -421,7 +675,7 @@
   backdrop-filter: saturate(180%) blur(20px);
   color: var(--hig-label);
   box-shadow: var(--hig-shadow-2);
-  font-size: 15px; letter-spacing: -.05px;
+  font-size: var(--hig-t-subhead); letter-spacing: -.05px;
   animation: hig-snack-in var(--hig-mid) var(--hig-ease);
 }
 .md-snackbar button {

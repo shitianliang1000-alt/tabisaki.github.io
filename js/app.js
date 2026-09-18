@@ -13,7 +13,8 @@ import { callModel, canGround, describeSpot, diagnoseGeminiKey, hasApiKey }
   from "./ai.js";
 import { proxyStatus } from "./endpoints.js";
 import { discoverArea } from "./discover.js";
-import { loadKnowledgeBase, loadRegionIndex, mergeIntoKb } from "./kb.js";
+import { loadKnowledgeBase, loadRegionIndex, mergeIntoKb, stagedKb }
+  from "./kb.js";
 
 import { clearRouteCache, diagnoseMapsKey, diagnoseYahooTransit,
          resetRoutesBreaker, routesUsage }
@@ -85,21 +86,26 @@ async function boot() {
   wireChrome();
   updateWindowHelp();
 
-  // 収録は約4MBあります。**読み終わるまで待たせません。**
+  // 収録は 29,706件・4.8MB（gzip で約1MB）あります。
+  // **要るぶんだけ読みます。**
   //
-  // これまでは、全部読み終わるまでボタンを押せなくしていました。低速な
-  // 回線では、開いてから最初の操作までがそのぶん遅れます。条件を書いて
-  // いるあいだに後ろで取りにいき、押された時点でまだなら、そこで待ちます
-  // （たいていは書き終わるまでに済んでいます）。
+  // これまでは起動時に全部読んでいました。ところが「島根の旅程」に
+  // 使うのは島根のぶんだけで、残り46県は読んで、照合して、捨てて
+  // いました。行き先の絞り込みは、地名から**エリアの一覧**だけで
+  // 決まります（js/pipeline.js の scope）。エリアの一覧は
+  // regions.json（gzip で 66KB）にあり、スポットはそのあとで足ります。
   //
-  // 先に索引とエリア（約380KB）だけを取ります。残り（スポット）は
-  // そのあと、同じ流れの中で。
+  // ここで取るのは索引とエリアだけです。県ごとの段は、旅程を組む
+  // ときに、その希望に要るものだけを取ります（kb.js の ensureRegions。
+  // 地名が書かれていない希望では、絞る材料が無いので全部です）。
   const fab = $("#make-plan");
   fab.querySelector(".fab-tx").textContent = "旅程をつくる";
 
   state.kbPromise = (async () => {
     const pre = await loadRegionIndex();
-    return loadKnowledgeBase(undefined, undefined, pre);
+    // 段ごとに読める索引があるときだけ、遅れて読みます。
+    // 無いとき（同梱データ、古い索引）は、これまでどおりまとめて読みます。
+    return stagedKb(pre) ?? await loadKnowledgeBase(undefined, undefined, pre);
   })();
 
   try {
@@ -1142,6 +1148,15 @@ function wireForm() {
   segmented("#transport-choice", "transport", (v) => {
     state.transport = v ?? "any";
   });
+  // 宿の取りかた。連泊と周遊は、同じ日数でも別の旅です（stays.js）。
+  segmented("#stay-choice", "stay", (v) => {
+    state.stayStyle = v ?? "auto";
+  });
+  // 食べたいもの。店は持っていないので、決まるのは
+  // 「その土地の何を食べるか」までです（meals.js）。
+  segmented("#food-choice", "food", (v) => {
+    state.foodGenre = v ?? "any";
+  });
 
   for (const btn of document.querySelectorAll("#end-choice button")) {
     btn.addEventListener("click", () => {
@@ -1157,7 +1172,16 @@ function wireForm() {
     });
   }
   for (const btn of document.querySelectorAll("[data-example]")) {
-    btn.addEventListener("click", () => { $("#note").value = btn.dataset.example; });
+    btn.addEventListener("click", () => {
+      const note = $("#note");
+      note.value = btn.dataset.example;
+      // input を起こします。入れないと、欄は伸びず（書いた分だけ伸びる
+      // 仕掛けが input を見ています）、条件も保存されません。
+      note.dispatchEvent(new Event("input", { bubbles: true }));
+      note.focus();
+      // 書き換えてもらうための下書きなので、末尾にカーソルを置きます。
+      note.setSelectionRange(note.value.length, note.value.length);
+    });
   }
   for (const chip of document.querySelectorAll(".md-chip[data-genre]")) {
     chip.addEventListener("click", () => {
@@ -1278,6 +1302,10 @@ async function readTrip() {
     budgetMode: state.budgetMode ?? "guide",
     // 何で移動するか。車が使えるかどうかで、組める旅程が変わります。
     transport: state.transport ?? "any",
+    // 食べたいものの向き。昼食・夕食にその土地の名物を当てます。
+    foodGenre: state.foodGenre ?? "any",
+    // 宿の取りかた。連泊か、泊まるたびに移動か。
+    stayStyle: state.stayStyle ?? "auto",
     // 定番と穴場のまぜかた。画面では星の粒として出しています。
     hiddenBias: (Number($("#hidden-bias")?.value ?? 40)) / 100,
     // 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
@@ -1420,7 +1448,11 @@ async function shareConditions() {
 
 function kbBadgeText() {
   if (!state.kb) return "";
-  return `収録 ${state.kb.regions.length}エリア / ${state.kb.spots.length}スポット`
+  // 件数は索引の数を出します。読み込み済みの数を出すと、県ごとに
+  // 遅れて読むぶんだけ「収録が減った」ように見えます（実際の収録は
+  // 29,706件のままで、読んでいないだけです）。
+  const spots = state.kb.manifest?.counts?.spots ?? state.kb.spots.length;
+  return `収録 ${state.kb.regions.length}エリア / ${spots}スポット`
     + (state.aiSpots ? `（うちAI調べ ${state.aiSpots}件）` : "");
 }
 
@@ -1619,6 +1651,80 @@ function editSpot({ id, name, action }, trip, itin) {
 }
 
 /**
+ * 回る順を、押されたとおりに書き換えて組み直します。
+ *
+ * 並べ替えだけして時刻をそのまま使うことはしません。開館前に着く旅程や、
+ * 閉館後に着く旅程ができます。**条件を書き換えて、同じエンジンを通します**
+ * （「別の候補」とまったく同じ道です）。その順で入らなければ、これまで
+ * どおり入らないぶんが落ちて、落ちたことが画面に出ます。
+ *
+ * @param {{id?:string, dir?:string, ids?:string[]}} req
+ */
+function reorderSpots(req, trip, itin) {
+  // 旅程に出ている並び（全日ぶん）を、そのまま下敷きにします。
+  const perDay = (itin?.days ?? []).map((d) => (d.items ?? [])
+    .filter((i) => i.kind === "spot" && (i.spotId ?? i.place?.id))
+    .map((i) => i.spotId ?? i.place.id));
+
+  let moved = null;
+  if (Array.isArray(req.ids) && req.ids.length > 1) {
+    // 掴んで動かしたとき。その日の並びが、そのまま渡ってきます。
+    const set = new Set(req.ids);
+    const di = perDay.findIndex((day) => day.some((x) => set.has(x)));
+    if (di < 0) return;
+    // 渡ってきた並びのうち、その日にある場所だけを採ります
+    // （日をまたぐ移動は、宿と移動の話になるのでここではできません）。
+    const mine = req.ids.filter((x) => perDay[di].includes(x));
+    const rest = perDay[di].filter((x) => !mine.includes(x));
+    perDay[di] = [...mine, ...rest];
+    moved = "順番";
+  } else if (req.id && req.dir) {
+    const di = perDay.findIndex((day) => day.includes(req.id));
+    if (di < 0) return;
+    const day = perDay[di];
+    const at = day.indexOf(req.id);
+    const to = req.dir === "up" ? at - 1 : at + 1;
+    if (to < 0 || to >= day.length) return;   // 端では何も起きません
+    [day[at], day[to]] = [day[to], day[at]];
+    moved = req.dir === "up" ? "1つ前" : "1つ後";
+  }
+  if (!moved) return;
+
+  const next = {
+    ...trip,
+    must: { ...trip.must, orderedSpotIds: perDay.flat() },
+  };
+  syncFormTo(next);
+  state.trip = next;
+  state.editNote = "回る順を変えて、組み直しました"
+    + "（その順で入らない立ち寄りは落ちます）。";
+  run(next);
+}
+
+/**
+ * その場所にいる時間を書き換えて、組み直します。
+ *
+ * 既定は分類ごとの目安です（美術館70分、神社35分）。目安が合わない
+ * ことはあるので、動かせるようにします。伸ばしたぶんは後ろの予定に
+ * 効くので、**時刻は組み直します**。
+ */
+function tuneDwell({ id, name, minutes }, trip) {
+  if (!id || !Number.isFinite(minutes)) return;
+  const next = {
+    ...trip,
+    must: {
+      ...trip.must,
+      dwellById: { ...(trip.must?.dwellById ?? {}), [id]: minutes },
+    },
+  };
+  syncFormTo(next);
+  state.trip = next;
+  state.editNote = `「${name}」にいる時間を${minutes}分にして、`
+    + "組み直しました。";
+  run(next);
+}
+
+/**
  * 外した場所を、候補に戻します。
  *
  * 「必ず行く」にはしません。戻すのは「外した」を取り消すことであって、
@@ -1789,9 +1895,12 @@ async function buildPlans(trip, progress) {
   const variants = tripsFor(trip);
 
   // 1案目。ここで希望文の読み取りと検索用ベクトルが決まります。
+  // （収録のうち要るぶんも、ここで読まれます。pipeline.js の
+  //   loadNeededSpots。2案目以降は読み込み済みなので取りません。）
   const first = await planTrip({
     trip: variants[0].trip, kb: state.kb,
     ignoreAreas: state.clearArea,
+    mustRegionIds: pinnedRegionIds(),
     useRoutes: false, useWeather: false, onProgress,
   });
 
@@ -1803,6 +1912,7 @@ async function buildPlans(trip, progress) {
       rest.push({ key: v.key, trip: v.trip, itin: await planTrip({
         trip: v.trip, kb: state.kb,
         ignoreAreas: state.clearArea,
+        mustRegionIds: pinnedRegionIds(),
         useRoutes: false, useWeather: false,
         query: first.query, vector: first.vector,
       }) });
@@ -1824,6 +1934,22 @@ async function buildPlans(trip, progress) {
 }
 
 /**
+ * 「必ず行く」に指定された場所のエリア。
+ *
+ * 収録は県ごとに遅れて読みます（kb.js）。指定された場所が読んでいない
+ * 県にあると、**指定が黙って落ちます**。押した場所が消えるのは
+ * いちばん悪い結果なので、そのエリアだけは先に読ませます。
+ * 指定はこの画面で押されたものなので、エリアはこちらが知っています。
+ */
+function pinnedRegionIds() {
+  const out = new Set();
+  for (const spot of state.pinned?.values() ?? []) {
+    if (spot?.regionId) out.add(spot.regionId);
+  }
+  return out;
+}
+
+/**
  * 採用した案だけ、実際の経路と天気を取って仕上げます。
  * ここが唯一の課金対象です。
  */
@@ -1835,6 +1961,7 @@ async function finishPlan(key, onProgress) {
   const itin = await planTrip({
     trip: chosen.trip, kb: state.kb,
     ignoreAreas: state.clearArea,
+    mustRegionIds: pinnedRegionIds(),
     query: chosen.itin.query, vector: chosen.itin.vector,
     onProgress,
   });
@@ -2032,27 +2159,51 @@ function show(itin, trip) {
       run(next);
     },
     onSpotEdit: (req) => editSpot(req, trip, itin),
+    // 回る順と、いる時間。どちらも条件を書き換えて組み直します。
+    onSpotOrder: (req) => reorderSpots(req, trip, itin),
+    onSpotDwell: (req) => tuneDwell(req, trip),
     onRestore: (d) => restoreSpot(d, trip),
     // 「まだ目安があります」への答え。同じ条件で組み直します。
     // 引けなかった区間だけをもう一度聞く仕組みは持っていないので、
     // 素直に組み直します（時刻表に聞く回数と間隔は組むたびに
     // 数え直すので、混んでいて外した区間が入ることがあります）。
     onRecheck: () => run(trip),
-    onSpot: (item) => {
-      state.map.focus(item.place.lat, item.place.lng);
-      openSheet(item, { describe: (s) => describeSpot(s) });
-    },
+    onSpot: openSpotSheet,
   });
 
   rememberTrip(itin, trip);
 
-  const points = pointsFromItinerary(itin, trip);
+  // ピンを押したときも、旅程の行と同じシートを開きます（往復できます）。
+  const points = pointsFromItinerary(itin, trip, { onSpot: openSpotSheet });
   state.map.render(points);
   state.map.invalidate();
   // 背景の地図も、その旅先へ寄せます。左で条件を直しているあいだも
   // 「いまどこの話をしているか」が背後に残ります。
   const first = points.find((p) => p.kind === "spot") ?? points[0];
   if (first) moveBackgroundMap(first.lat, first.lng, 9);
+}
+
+/**
+ * 立ち寄り1件の説明を開きます。旅程の行からも、地図のピンからも。
+ *
+ * 携帯では、地図は旅程の上にあります。下のほうの立ち寄りを押すと、
+ * ピンは寄っているのに**画面の外**、という状態になっていました。
+ * 押されたら地図を画面に入れてから、シートを半分の高さで開きます
+ * （上半分に地図が残ります。ui.js の dragSheet）。
+ */
+function openSpotSheet(item) {
+  const id = item.spotId ?? item.place?.id;
+  if (item.place) {
+    state.map.focus(item.place.lat, item.place.lng);
+    state.map.highlight(id, true);
+  }
+  if (isNarrow()) {
+    $("#map")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  openSheet(item, {
+    describe: (sp) => describeSpot(sp),
+    onClose: () => state.map.highlight(id, false),
+  });
 }
 
 document.addEventListener("DOMContentLoaded", boot);

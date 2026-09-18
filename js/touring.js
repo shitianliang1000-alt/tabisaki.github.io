@@ -61,7 +61,9 @@ const NEUTRAL = 0.5;
 
 /** この旅は車か（バイクを含みます）。 */
 export function isTouring(trip) {
-  return trip?.transport === "car";
+  // 現地だけ車の旅（電車＋レンタカー）も、運転するのは同じです。
+  // 道の景色も、休憩の要りかたも、駐車場の話も変わりません。
+  return trip?.transport === "car" || trip?.transport === "transit+car";
 }
 
 /**

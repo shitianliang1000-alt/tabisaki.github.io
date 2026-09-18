@@ -114,7 +114,7 @@
        出たあとも、地図はこの位置に必ずあるためです。
        **pane の外に置きます。**携帯では条件と結果を別画面にするので、
        結果の中に置くと、条件の画面から設定へ入れなくなります。 -->
-  <button type="button" class="md-icon-btn md-state settings-fab" id="open-settings"
+  <button type="button" class="md-icon-btn md-state settings-fab hig-glass" id="open-settings"
           aria-label="設定" title="設定">
     <span aria-hidden="true">⚙</span>
   </button>
@@ -150,6 +150,24 @@
         <textarea id="note" rows="3"
           placeholder="例）温泉でゆっくりして、海も見たい"></textarea>
       </label>
+
+      <!-- そのまま使える例。
+           自由入力の枠は、何を書いてよいか分からないと空のままです。
+           下のカードは雰囲気（温泉・歴史・自然…）で、書きかたの見本には
+           なりません。**押すと欄が埋まる一文**を置きます。札は短く、
+           入るのは長い文です。書き換えてもらうための下書きです。 -->
+      <div class="chip-set note-examples" role="group" aria-label="そのまま使える例">
+        <button type="button" class="md-chip md-chip--assist md-state"
+                data-example="鎌倉を日帰りで、食べ歩きもしたい">鎌倉 日帰り</button>
+        <button type="button" class="md-chip md-chip--assist md-state"
+                data-example="箱根で温泉に入って、美術館もめぐりたい">箱根 温泉と美術館</button>
+        <button type="button" class="md-chip md-chip--assist md-state"
+                data-example="雨でも楽しめる京都をまわりたい">雨の日の京都</button>
+        <button type="button" class="md-chip md-chip--assist md-state"
+                data-example="海沿いの道をドライブして、景色のいいところに寄りたい">海沿いドライブ</button>
+        <button type="button" class="md-chip md-chip--assist md-state"
+                data-example="日光で滝と社寺をめぐりたい">日光 滝と社寺</button>
+      </div>
 
       <p class="or-line"><span>思いつかないときは、ここから</span></p>
       <div class="mood-grid" id="mood-rail" role="group"
@@ -345,12 +363,63 @@
           <button type="button" class="md-state" data-transport="car">
             <span>車</span>
           </button>
+          <button type="button" class="md-state" data-transport="transit+car">
+            <span>電車＋現地の車</span>
+          </button>
           <button type="button" class="md-state" data-transport="walk">
             <span>徒歩中心</span>
           </button>
         </div>
         <p class="md-field-help">車を選ぶと、バスの少ない土地でも
-          行き先を組めます。</p>
+          行き先を組めます。「電車＋現地の車」は、新幹線や特急で行って
+          駅でレンタカーを借りる旅です（遠出は便の時刻、現地は道のりで
+          組みます）。</p>
+      </div>
+
+      <div class="tune-group" id="stay-group">
+        <span class="tune-label" id="stay-label">宿の取りかた</span>
+        <div class="md-segmented" id="stay-choice"
+             role="group" aria-labelledby="stay-label">
+          <button type="button" class="md-state is-selected" data-stay="auto">
+            <span>おまかせ</span>
+          </button>
+          <button type="button" class="md-state" data-stay="base">
+            <span>連泊</span>
+          </button>
+          <button type="button" class="md-state" data-stay="tour">
+            <span>泊まり歩く</span>
+          </button>
+        </div>
+        <p class="md-field-help">連泊は荷物を置いておけますが、
+          遠くへは行きにくくなります。泊まり歩くと広く回れますが、
+          毎朝まとめ直すことになります。</p>
+      </div>
+
+      <div class="tune-group">
+        <span class="tune-label" id="food-label">食べたいもの</span>
+        <div class="md-segmented" id="food-choice"
+             role="group" aria-labelledby="food-label">
+          <button type="button" class="md-state is-selected" data-food="any">
+            <span>おまかせ</span>
+          </button>
+          <button type="button" class="md-state" data-food="seafood">
+            <span>海鮮</span>
+          </button>
+          <button type="button" class="md-state" data-food="noodle">
+            <span>麺</span>
+          </button>
+          <button type="button" class="md-state" data-food="meat">
+            <span>肉</span>
+          </button>
+          <button type="button" class="md-state" data-food="rice">
+            <span>ご飯</span>
+          </button>
+          <button type="button" class="md-state" data-food="sweets">
+            <span>甘いもの</span>
+          </button>
+        </div>
+        <p class="md-field-help">その土地の名物から、昼食と夕食に当てます。
+          店の予約や在庫は持っていないので、お店選びは地図に渡します。</p>
       </div>
 
       <div class="tune-group">
@@ -376,7 +445,7 @@
     <div class="tune-group" id="pinned" hidden></div>
     <div id="form-error" hidden></div>
 
-    <div class="make">
+    <div class="make hig-glass hig-glass-thick hig-scroll-edge">
       <button type="button" class="md-fab-extended md-state" id="make-plan">
         <span class="fab-ic" aria-hidden="true">✦</span>
         <span class="fab-tx">旅程をつくる</span>
@@ -397,7 +466,7 @@
          同じ画面に縦に並べていたころは、旅程が出てもまず条件が見えていて、
          結果まで自分でスクロールしないと読めませんでした。戻る道はここ。
          広い画面では左右に並ぶので、このボタンは出しません。 -->
-    <button type="button" class="md-btn md-btn--tonal md-state back-to-form"
+    <button type="button" class="md-btn md-btn--tonal md-state back-to-form hig-glass"
             id="back-to-form">
       <span aria-hidden="true">←</span><span>条件を変更する</span>
     </button>
@@ -439,7 +508,7 @@
 </main>
 
 <dialog id="settings-dialog" class="md-dialog">
-  <h2 class="md-headline-small">設定</h2>
+  <h2 class="hig-title-2">設定</h2>
 
   <!-- 使う人が知りたいこと。「Geminiとは」ではなく「AIは使えるのか」。 -->
   <ul class="md-list">
@@ -556,7 +625,7 @@
     </ul>
     <p id="routes-usage" class="routes-usage" hidden></p>
     <p id="key-result" class="key-result" hidden></p>
-    <p class="md-body-small dev-foot">
+    <p class="hig-footnote dev-foot">
       「確認」は1リクエストだけ送ります。公開するときは
       <code>PROXY_URL</code> に自分のバックエンドを設定して、キーを
       ブラウザに置かないようにしてください（<code>server/README.md</code>）。</p>
@@ -572,11 +641,11 @@
      「APIの使用を続けますか」と出しても、何を聞かれているのか
      伝わりません。同じ確認を、旅の言葉でします。 -->
 <dialog id="quota-dialog" class="md-dialog">
-  <h2 class="md-headline-small">この旅を、もう少し詳しく調べますか</h2>
-  <p class="md-body-medium" id="quota-detail" style="margin:0 0 12px"></p>
+  <h2 class="hig-title-2">この旅を、もう少し詳しく調べますか</h2>
+  <p class="hig-subhead" id="quota-detail" style="margin:0 0 12px"></p>
   <!-- 文面は app.js が入れます。AIをどこで動かしているかで、できることが
        変わるためです（Workers AI には検索がありません）。 -->
-  <p class="md-body-small" id="quota-note"
+  <p class="hig-footnote" id="quota-note"
      style="margin:0;padding:14px 16px;border-radius:var(--hig-r-sm);background:var(--hig-fill);color:var(--hig-label)"></p>
   <div class="md-dialog-actions">
     <button type="button" class="md-btn md-btn--text md-state" id="quota-stop">
