@@ -41,6 +41,34 @@ function iconFor(item, itin) {
   return ICON[item.kind] ?? "•";
 }
 
+/**
+ * 「動きを減らす」設定にしているか。
+ *
+ * CSS は prefers-reduced-motion に対応していますが、**JS が起こす
+ * 動きには効きません。** スクロールの behavior:"smooth"、地図の
+ * setView、シートの絵の視差——どれも設定に関わらず動いていました。
+ *
+ * 毎回読み直します。設定はページを開いたままでも変えられます。
+ */
+export function prefersReducedMotion() {
+  try {
+    return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")
+      ?.matches === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * スクロールの動きかた。
+ *
+ * 動きを減らす設定なら "auto"（ぱっと移る）にします。**行く先は
+ * 同じです。** 滑らかに動かないだけで、できることは減りません。
+ */
+export function scrollBehavior() {
+  return prefersReducedMotion() ? "auto" : "smooth";
+}
+
 export const $ = (sel) => document.querySelector(sel);
 export const $$ = (sel) => [...document.querySelectorAll(sel)];
 
@@ -1831,7 +1859,10 @@ export function openSheet(item, { onClose, describe }) {
   const art = cardArt(spot, { tall: true });
   sheet.append(art);
   sheet.addEventListener("scroll", () => {
-    art.style.backgroundPositionY = `${sheet.scrollTop * 0.35}px`;
+    // 視差（絵が本文よりゆっくり動く）は、動きを減らす設定では
+    // やめます。画面の中で2つの速さが動くのが、いちばん酔う形です。
+    art.style.backgroundPositionY = prefersReducedMotion()
+      ? "0px" : `${sheet.scrollTop * 0.35}px`;
   }, { passive: true });
 
   const body = el("div", { class: "sheet-body" });

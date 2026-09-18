@@ -130,7 +130,10 @@
     <section class="recent" id="recent" hidden aria-labelledby="recent-title">
       <div class="recent-head">
         <h2 id="recent-title">前につくった旅</h2>
-        <button type="button" class="linkish" id="recent-clear">すべて消す</button>
+        <!-- 取り消せない操作は、赤で示し、確認を挟みます
+             （ガイドライン: destructive action は色と確認の両方）。 -->
+        <button type="button" class="linkish linkish--danger"
+                id="recent-clear">すべて消す</button>
       </div>
       <ul class="recent-list" id="recent-list"></ul>
       <p class="recent-note">この端末の中だけに残ります。どこにも送りません。</p>
@@ -709,6 +712,27 @@
   <div class="md-dialog-actions">
     <button type="button" class="md-btn md-btn--text md-state" id="settings-close">
       <span>閉じる</span></button>
+  </div>
+</dialog>
+
+<!-- 取り消せない操作の確認。
+     ------------------------------------------------------------------
+     「すべて消す」は、押した瞬間に端末の履歴を全部消していました。
+     取り消せません（端末にしか無いものなので、どこからも戻せません）。
+     ガイドラインは、取り消せない操作には**赤で示すことと確認の
+     両方**を求めています。
+
+     window.confirm は使いません。文面を日本語で整えられず、
+     画面の作りからも浮きます（この画面にはすでに <dialog> の作法が
+     あります）。何件消えるのかを数えて出します。 -->
+<dialog id="confirm-dialog" class="md-dialog">
+  <h2 class="hig-title-2" id="confirm-title">確認</h2>
+  <p class="hig-subhead" id="confirm-detail" style="margin:0 0 4px"></p>
+  <div class="md-dialog-actions">
+    <button type="button" class="md-btn md-btn--text md-state" id="confirm-no">
+      <span>やめる</span></button>
+    <button type="button" class="md-btn md-btn--filled md-btn--danger md-state"
+            id="confirm-yes"><span>消す</span></button>
   </div>
 </dialog>
 

@@ -39,7 +39,7 @@ import { paceBreakdown, slackLevel } from "./score.js";
 import { VARIANTS, distinguishOf, recommendOf, summaryOf, tripsFor }
   from "./variants.js";
 import { $, el, openSheet, renderItinerary, renderProgress, renderToday,
-         suggestionButton } from "./ui.js";
+         scrollBehavior, suggestionButton } from "./ui.js";
 import { catchUp } from "./today.js";
 import { addHistory, clearHistory, loadHistory, removeHistory, savedLabel,
          thawItinerary } from "./history.js";
@@ -1028,12 +1028,79 @@ function renderDayWindow() {
   help.textContent = `1日あたり${len}・${mood}`;
 }
 
+/**
+ * 取り消せない操作の確認。
+ *
+ * window.confirm は使いません。文面を日本語で整えられず、この画面の
+ * 作りからも浮きます（すでに <dialog> の作法があります）。**何が
+ * どれだけ消えるのか**を数えて出せることのほうが大事です。
+ *
+ * 閉じかたは3通りあります（「やめる」・幕を押す・Esc）。どれでも
+ * 「やめた」として扱います。取り消せない操作なので、迷ったときは
+ * 何もしないほうが正しいからです。
+ *
+ * @param {{title:string, detail:string, yes:string}} opts
+ * @returns {Promise<boolean>} 実行してよいか
+ */
+function confirmDanger({ title, detail, yes }) {
+  const dlg = $("#confirm-dialog");
+  if (!dlg?.showModal) {
+    // <dialog> が使えない古い環境。黙って実行はしません。
+    return Promise.resolve(globalThis.confirm?.(`${title}\n${detail}`) === true);
+  }
+  $("#confirm-title").textContent = title;
+  $("#confirm-detail").textContent = detail;
+  const yesBtn = $("#confirm-yes");
+  yesBtn.querySelector("span").textContent = yes;
+
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      yesBtn.removeEventListener("click", onYes);
+      $("#confirm-no").removeEventListener("click", onNo);
+      dlg.removeEventListener("click", onScrim);
+      dlg.removeEventListener("close", onClose);
+      if (dlg.open) dlg.close();
+      resolve(value);
+    };
+    const onYes = () => finish(true);
+    const onNo = () => finish(false);
+    // 幕（ダイアログの外側）を押したときも、やめたことにします。
+    const onScrim = (e) => { if (e.target === dlg) finish(false); };
+    // Esc。ブラウザが勝手に閉じるので、ここで受け取ります。
+    const onClose = () => finish(false);
+    yesBtn.addEventListener("click", onYes);
+    $("#confirm-no").addEventListener("click", onNo);
+    dlg.addEventListener("click", onScrim);
+    dlg.addEventListener("close", onClose);
+    dlg.showModal();
+    // 指が最初に触れるのは「やめる」です。取り消せない操作の上に
+    // 指を置いた状態で開くのは、危ない作りです。
+    $("#confirm-no").focus();
+  });
+}
+
 // --- 画面の共通部品 ---------------------------------------------------------
 
 function wireChrome() {
   // 前につくった旅を、まとめて消す。
   // 端末に残るものなので、消す手段は必ず画面から届くところに置きます。
-  $("#recent-clear")?.addEventListener("click", () => {
+  //
+  // **押した瞬間に消していました。** 履歴は端末にしか無いので、
+  // 消したら戻せません（サーバーにも控えはありません）。取り消せない
+  // 操作には、色と確認の両方が要ります（ガイドライン: destructive）。
+  $("#recent-clear")?.addEventListener("click", async () => {
+    const n = loadHistory().length;
+    if (!n) return;
+    const ok = await confirmDanger({
+      title: "つくった旅を、すべて消しますか",
+      detail: `${n}件を消します。この端末にしか残っていないので、`
+        + "消すと戻せません。",
+      yes: "すべて消す",
+    });
+    if (!ok) return;
     clearHistory();
     renderRecent();
   });
@@ -1578,7 +1645,7 @@ function showView(view) {
   // 結果の画面に移ったら、そこで地図を用意します（携帯では、ここが
   // 地図の見え始めです）。2度目以降は startHomeMap 側で弾かれます。
   if (view === "result" && isNarrow()) startHomeMap();
-  globalThis.scrollTo?.({ top: 0, behavior: "smooth" });
+  globalThis.scrollTo?.({ top: 0, behavior: scrollBehavior() });
 }
 
 function showError(text, suggestions = [], kind = "plan") {
@@ -1612,7 +1679,7 @@ function showError(text, suggestions = [], kind = "plan") {
     box.append(el("div", { class: "relax-list", style: "margin-top:12px" },
       suggestions.map((s) => suggestionButton(s, applySuggestion))));
   }
-  box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  box.scrollIntoView({ block: "nearest", behavior: scrollBehavior() });
 }
 
 /**
@@ -2256,7 +2323,7 @@ function openSpotSheet(item) {
     state.map.highlight(id, true);
   }
   if (isNarrow()) {
-    $("#map")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    $("#map")?.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
   }
   openSheet(item, {
     describe: (sp) => describeSpot(sp),
