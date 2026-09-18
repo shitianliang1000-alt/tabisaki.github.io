@@ -1823,6 +1823,17 @@ function renderItem(item, index, itin, handlers, sunNote) {
       el("span", {}, parts.join(""))));
   }
 
+  // 同行者のための一言（js/access.js）。
+  //
+  // 収録に「バリアフリーかどうか」はありません。持っているのは分類
+  // だけなので、**「行けません」とは言いません**。何がつらい分類
+  // なのかと、確かめ先を書きます。決めるのは本人です。
+  if (item.access?.why) {
+    info.append(el("p", { class: "sun access" },
+      el("span", { "aria-hidden": "true" }, "♿"),
+      el("span", {}, item.access.why)));
+  }
+
   // 同じ地点にある別の立ち寄り。
   //
   // 座標が同じなので、移動は0分です。ただし**同じものかどうかは

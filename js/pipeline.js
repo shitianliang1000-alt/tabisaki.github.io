@@ -49,6 +49,7 @@ import { attachMeals, dietNote } from "./meals.js";
 import { attachScenic } from "./scenic.js";
 import { coLocated } from "./dedupe.js";
 import { attachShapes } from "./shapes.js";
+import { attachAccess } from "./access.js";
 import { nearestStop } from "./stops.js";
 import { eventNotesFor } from "./events.js";
 import { attachLuggage, luggagePlanFor } from "./luggage.js";
@@ -118,11 +119,15 @@ export async function planTrip({ trip, kb, onProgress = () => {},
 
   // 車の旅なら、走って気持ちのいい場所を前に出します（js/touring.js）。
   const touring = isTouring(trip);
+  // 同行者がいるなら、石段と登り道を少し後ろへ（js/access.js）。
+  // **外しません。** 並びを変えるだけです。
+  const companions = trip.companions ?? [];
   let matches = vector
     ? searchSpots(kb, vector,
-                  { limit: 160, hiddenBias: trip.hiddenBias, touring })
+                  { limit: 160, hiddenBias: trip.hiddenBias, touring, companions })
     : searchSpotsByKeyword(kb, searchWords,
-                           { limit: 160, hiddenBias: trip.hiddenBias, touring });
+                           { limit: 160, hiddenBias: trip.hiddenBias, touring,
+                             companions });
 
   // 一致が無いときにエラーで止めない。「その希望には応えられないが、
   // 行ける範囲でこういう案はある」と示したほうが役に立ちます。
@@ -248,7 +253,8 @@ export async function planTrip({ trip, kb, onProgress = () => {},
       }
     }
     matches = searchSpotsByKeyword(kb, searchWords,
-      { limit: 200, hiddenBias: trip.hiddenBias, touring: isTouring(trip) });
+      { limit: 200, hiddenBias: trip.hiddenBias, touring: isTouring(trip),
+        companions: trip.companions ?? [] });
     if (!matches.length) matches = kb.spots.map((spot) => ({ spot, score: 0 }));
 
     // 名指しされた場所は、検索の点数ではなく「頼まれたから」上に来ます。
@@ -676,6 +682,13 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   //      収録で両端が分かるのは144本中1本だけです（山背古道）。
   //      持っていないものを推し量ると、行けない旅程ができます。
   //      分かることを言い切り、分からないことは分からないと書きます。
+  // 8.45 同行者のための一言（js/access.js）。
+  //
+  //      収録に「バリアフリーかどうか」はありません。持っているのは
+  //      分類だけです。**「行けません」とは言いません。** 何がつらい
+  //      分類なのかと、確かめ先を書きます。
+  itin.accessCount = attachAccess(itin, trip.companions);
+
   itin.shapeCount = await attachShapes(itin, {
     spots: kb.spots,
     nearestStop,

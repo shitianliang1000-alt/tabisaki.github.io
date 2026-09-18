@@ -433,6 +433,33 @@
           道のりで組みます）。</p>
       </div>
 
+      <!-- 同行者。
+           ------------------------------------------------------------
+           旅程は「ふつうに歩ける大人ひとり」を前提に組まれていました。
+           同じ「城」でも、ベビーカーでは石段を上がれず、車椅子では
+           天守に入れないことがあります。それでも旅程には同じ
+           「松江城 80分」と書かれ、当日に現地で分かります。
+
+           収録に「バリアフリーかどうか」はありません。持っているのは
+           分類だけです。**外しはせず**、選ぶときに後ろへ回して、
+           何がつらいかと確かめ先を書きます。 -->
+      <div class="tune-group">
+        <span class="tune-label" id="companions-label">いっしょに行く人（任意・複数可）</span>
+        <div class="chip-set" id="companions-choice" role="group"
+             aria-labelledby="companions-label">
+          <button type="button" class="md-chip md-state" data-companion="stroller"
+                  aria-pressed="false"><span>ベビーカー</span></button>
+          <button type="button" class="md-chip md-state" data-companion="wheelchair"
+                  aria-pressed="false"><span>車椅子</span></button>
+          <button type="button" class="md-chip md-state" data-companion="senior"
+                  aria-pressed="false"><span>歩くのがゆっくり</span></button>
+        </div>
+        <p class="md-field-help">石段・砂利・坂の多い場所を、選ぶときに
+          後ろへ回します（<strong>外しはしません</strong>。行きたい人は
+          います）。段差や貸し出しの有無は持っていないので、旅程には
+          「何がつらいか」と確かめ先を書きます。</p>
+      </div>
+
       <!-- 予約済みの宿。
            ------------------------------------------------------------
            旅程を組む側（planner.js の pushLodging）は「指定された宿」を
