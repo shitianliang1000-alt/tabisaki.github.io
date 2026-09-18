@@ -956,27 +956,27 @@ function fillMoodRail() {
 // 「40%」と書かれても、それがどれくらいかは伝わりません。
 // 粒が増えるのが見えれば、動かしながら決められます。
 
-function renderStardust(value) {
-  // 10か所ぶんの点を、定番・知る人ぞ知る・穴場の3つの区画に置きます。
-  // **人が多いところに、点が多い。** つまみを動かすと点が区画から区画へ
-  // 移るので、何が変わるのかが目で分かります。
+function renderMix(value) {
+  // 10か所のうち何か所が定番で、何か所が穴場か。**帯の幅がその数**です。
   //
   // **実際に選ぶ関数から引きます。** ここで別の式を持つと、画面には
   // 「穴場10」と出ているのに定番のほうが多く返る、ということが起きます
   // （実際そうなっていて、スライダーの向きが逆に見えていました）。
   const t = mixTargets(10, value / 100);
 
-  // 毎回作り直すと、点に付いた出現アニメーションが動かすたびに頭から
-  // 始まり、掴んで動かしているあいだ点が消えたままになります。
-  // 足りないぶんだけ足し、多いぶんだけ外します。
-  for (const [id, n] of [["#mix-dots-major", t.major],
-                         ["#mix-dots-known", t.known],
-                         ["#mix-dots-hidden", t.hidden]]) {
-    const box = $(id);
-    if (!box) continue;
-    const have = box.children.length;
-    for (let i = have; i < n; i++) box.append(el("b", {}));
-    for (let i = have; i > n; i--) box.lastElementChild?.remove();
+  for (const [id, n] of [["#mix-seg-major", t.major],
+                         ["#mix-seg-known", t.known],
+                         ["#mix-seg-hidden", t.hidden]]) {
+    const seg = $(id);
+    if (!seg) continue;
+    seg.style.width = `${n * 10}%`;
+    // 字が入らない幅では、書いても読めません。名前 → 数 → 何も、の順に
+    // 落とします（数は下の文にも出ています）。
+    seg.classList.toggle("is-empty", n === 0);
+    seg.classList.toggle("is-narrow", n > 0 && n <= 1);
+    seg.classList.toggle("is-tight", n >= 2 && n <= 3);
+    const num = seg.querySelector("em");
+    if (num) num.textContent = String(n);
   }
 
   const set = (id, text) => { const e = $(id); if (e) e.textContent = text; };
@@ -1054,8 +1054,8 @@ function wireChrome() {
 
   const bias = $("#hidden-bias");
   if (bias) {
-    renderStardust(Number(bias.value));
-    bias.addEventListener("input", () => renderStardust(Number(bias.value)));
+    renderMix(Number(bias.value));
+    bias.addEventListener("input", () => renderMix(Number(bias.value)));
     bias.addEventListener("change", saveConditions);
   }
 
@@ -1354,7 +1354,7 @@ function applyFormState(v) {
   if (typeof v.crowd === "boolean") $("#avoid-crowds").checked = v.crowd;
   if (Number.isFinite(v.bias) && $("#hidden-bias")) {
     $("#hidden-bias").value = String(v.bias);
-    renderStardust(v.bias);
+    renderMix(v.bias);
   }
   // 以前の保存は「1日に動ける時間（長さ）」でした。朝9時から数えて
   // 同じ長さになる時間帯に読み替えます（保存を捨てずに済ませます）。
@@ -1586,7 +1586,7 @@ function adjustPlan(key) {
   const move = (delta) => {
     if (!bias) return;
     bias.value = String(Math.max(0, Math.min(100, Number(bias.value) + delta)));
-    renderStardust(Number(bias.value));
+    renderMix(Number(bias.value));
   };
   if (key === "slower") state.pace = "relaxed";
   if (key === "fuller") state.pace = "packed";
@@ -1768,7 +1768,7 @@ function syncFormTo(t) {
   if (t.paceChosen) state.pace = t.pace;
   if ($("#hidden-bias")) {
     $("#hidden-bias").value = String(Math.round(t.hiddenBias * 100));
-    renderStardust(Number($("#hidden-bias").value));
+    renderMix(Number($("#hidden-bias").value));
   }
   for (const chip of document.querySelectorAll(".md-chip[data-genre]")) {
     const on = t.interests.includes(chip.dataset.genre);

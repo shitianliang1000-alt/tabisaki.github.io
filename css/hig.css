@@ -303,7 +303,7 @@
 .md-btn:disabled { cursor: default; }
 
 .md-btn--filled {
-  background: var(--tabi-indigo); color: #fff;
+  background: var(--tabi-indigo); color: var(--hig-on-accent);
 }
 .md-btn--tonal {
   background: var(--hig-fill-2); color: var(--tabi-indigo);
@@ -333,7 +333,7 @@
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   width: 100%; min-height: 50px; padding: 13px 22px;
   border: none; border-radius: var(--hig-r-md);
-  background: var(--tabi-indigo); color: #fff;
+  background: var(--tabi-indigo); color: var(--hig-on-accent);
   font: inherit; font-size: var(--hig-t-body); font-weight: 600; letter-spacing: -.2px;
   cursor: pointer;
 }
@@ -380,7 +380,7 @@
   .md-segmented > button { min-height: 40px; }
 }
 .md-chip[aria-pressed="true"], .md-chip.is-selected {
-  background: var(--tabi-indigo); color: #fff;
+  background: var(--tabi-indigo); color: var(--hig-on-accent);
   box-shadow: inset 0 0 0 1px var(--tabi-indigo);
 }
 .md-chip[aria-pressed="true"]:hover, .md-chip.is-selected:hover {

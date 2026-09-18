@@ -370,71 +370,60 @@ p, li { text-wrap: pretty; }
 .note-field { margin-bottom: 10px; }
 
 /* --- 定番と穴場のまぜかた ------------------------------------------------ */
-/*
-   星の粒だけでは、どちらへ寄っているのかが分かりませんでした
-   （増えているのは分かるが、それが「定番」なのか「穴場」なのか）。
-   10か所行くとしたら何対何になるのか、数で先に言います。
-*/
-.mix {
-  display: flex; align-items: center;
-  margin-bottom: 10px;
-}
 /* 定番と穴場のまぜかた。
    ------------------------------------------------------------------
-   10か所ぶんの点を、3つの区画に置くだけの絵です。**人が多いところに、
-   点が多い。** つまみを動かすと点が区画から区画へ移ります。
+   10か所のうち何か所が定番で、何か所が穴場か。**帯の幅がその数**です。
 
-   以前は「割合の帯」と「意味のない点の散らばり」と「文」が並んでいて、
-   同じことを3通りで言っていました。しかも点は 1.5〜4px で位置もでたらめ
-   だったので、何を表しているのか読み取れないとのことでした。帯と散らばりを
-   やめて、点そのものを答えにしています。 */
-.mixplot { margin: 4px 0 0; }
-.mixplot-zones {
-  display: grid; grid-template-columns: repeat(3, 1fr);
-  gap: 4px; height: 58px;
-}
-.mixzone {
-  position: relative; overflow: hidden;
-  border-radius: var(--md-sys-shape-corner-medium);
-  display: grid; place-items: center;
-}
-/* 区画の地色は、その区画の点の色を薄めたものにします。地の色を
-   灰に混ぜていたころは、明るい配色でも暗い配色でも3つとも同じ灰色に
-   見えて、区切りの意味がありませんでした。 */
-.mixzone--major  { background: color-mix(in srgb, var(--tabi-indigo) 16%, transparent); }
-.mixzone--known  { background: color-mix(in srgb, var(--tabi-indigo) 9%, transparent); }
-.mixzone--hidden { background: color-mix(in srgb, var(--tabi-teal) 10%, transparent); }
+   いちど、点を3つの区画に並べる形にしました（人が多いところに点が
+   多い、という絵）。ただ区画が3つ並ぶと高さが 58px になり、上下に
+   名前と文が付くので、つまみの周りだけで4段になりました。
 
-/* 点の入れもの。中央にまとめ、折り返します。数が増えるほど密になります。 */
-.mixzone > i {
-  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
-  gap: 5px; width: 100%; padding: 6px; max-width: 106px;
-}
-.mixzone > i > b {
-  display: block; width: 12px; height: 12px; border-radius: 50%;
-  background: var(--tabi-indigo);
-  animation: star-in var(--md-sys-motion-medium)
-             var(--md-sys-motion-emphasized-decelerate) both;
-}
-.mixzone--known > i > b {
-  background: color-mix(in srgb, var(--tabi-indigo) 42%, var(--tabi-teal));
-}
-.mixzone--hidden > i > b { background: var(--tabi-teal); }
-@keyframes star-in {
-  from { opacity: 0; transform: scale(.2); }
-  to   { opacity: 1; transform: scale(1); }
-}
+   読めなかったのは帯の形ではなく、帯に**何も書いていなかった**こと
+   でした（色の3分割だけで、どの色がどれなのか分からない）。帯に戻し、
+   名前と数を中に書きます。狭い区間は数だけ、もっと狭ければ何も
+   書きません（潰れた字は読めません）。
 
-/* 区画の名前。どちらが「人が多い」側なのかを、軸として言います。 */
-.mixplot-axis {
-  display: grid; grid-template-columns: repeat(3, 1fr);
-  gap: 3px; margin-top: 6px;
-  font-size: var(--hig-t-caption2); line-height: 1.4; text-align: center;
-  color: var(--hig-label-2);
+   ただし「狭ければ落とす」だけだと、落ちた区間の色がまた読めなく
+   なります。そこで下の文の「定番」「知る人ぞ知る場所」「穴場」に、
+   同じ色の点を付けました。帯の中の字が落ちても、色と言葉の対応は
+   文のほうに必ず残ります。 */
+.mix { display: block; margin: 6px 0 2px; }
+.mix-bar {
+  display: flex; gap: 2px; overflow: hidden;
+  height: 40px;
+  border-radius: var(--hig-r-full);
+  background: var(--hig-fill);
 }
-.mixplot-axis b {
-  display: block; font-size: var(--hig-t-caption1); font-weight: 600;
-  color: var(--hig-label);
+.mix-seg {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 0; overflow: hidden;
+  font-style: normal; white-space: nowrap;
+  color: var(--hig-on-accent);
+  /* 幅が数です。動かしたぶんだけ、幅が伸び縮みします。 */
+  transition: width var(--md-sys-motion-medium) var(--md-sys-motion-emphasized);
+}
+/* 端はカプセルの丸みに合わせます（中の区間は角を持ちません）。 */
+.mix-seg:first-child { border-radius: var(--hig-r-full) 0 0 var(--hig-r-full); }
+.mix-seg:last-child  { border-radius: 0 var(--hig-r-full) var(--hig-r-full) 0; }
+.mix-seg--major  { background: var(--tabi-indigo); }
+.mix-seg--known  { background: var(--hig-blue-deep); }
+.mix-seg--hidden { background: var(--tabi-teal); }
+.mix-seg > b {
+  font-size: var(--hig-t-caption1); font-weight: 600; letter-spacing: 0;
+}
+.mix-seg > em {
+  font-style: normal; font-size: var(--hig-t-footnote); font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.mix-seg > em::after { content: "か所"; font-size: var(--hig-t-caption2); font-weight: 400; }
+/* 狭い区間。名前を落として数だけにします。 */
+.mix-seg.is-tight > b { display: none; }
+/* もっと狭い区間。何も書きません（文のほうに数が出ています）。 */
+.mix-seg.is-narrow > b, .mix-seg.is-narrow > em { display: none; }
+.mix-seg.is-empty { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mix-seg { transition: none; }
 }
 
 /* 「10か所のうち、定番が5か所、知る人ぞ知る場所が3か所、穴場が2か所
@@ -444,6 +433,23 @@ p, li { text-wrap: pretty; }
   color: var(--hig-label-2);
 }
 .mix-summary b { font-weight: 700; color: var(--hig-label); }
+/* 帯と文をつなぐ点。帯の中の字が落ちても、どの色がどれかは
+   ここで分かります（色だけに頼らないよう、言葉も必ず横にあります）。 */
+.mix-key::before {
+  content: ""; display: inline-block;
+  width: 8px; height: 8px; margin-right: 4px;
+  border-radius: var(--hig-r-full);
+  vertical-align: 1px;
+  background: currentColor;
+}
+.mix-key { color: var(--hig-label); font-weight: 600; }
+/* 「穴場が 2」で改行され、「か所」だけが次の行に落ちていました。
+   数と単位、名前と数は、ひと続きで読めないと意味が変わります。 */
+.mix-part { white-space: nowrap; }
+.mix-part > b { margin-left: 1px; }
+.mix-key--major::before  { background: var(--tabi-indigo); }
+.mix-key--known::before  { background: var(--hig-blue-deep); }
+.mix-key--hidden::before { background: var(--tabi-teal); }
 /* どんな旅になるかを先に1行で言い、数はその下に添えます。 */
 .mix-mood {
   display: block; margin-bottom: 2px;
@@ -657,7 +663,7 @@ p, li { text-wrap: pretty; }
   flex: none; width: 22px; height: 22px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   font: 700 12px/1 -apple-system, BlinkMacSystemFont, sans-serif;
-  color: #fff; background: var(--tabi-indigo);
+  color: var(--hig-on-accent); background: var(--tabi-indigo);
 }
 .home-steps li:last-child > i { background: var(--tabi-teal); }
 @media (max-width: 1100px) {
@@ -1678,6 +1684,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 /* ------------------------------------------- 調整・言葉で直す・見直し --- */
 
 .adjust-row, .relax-list { display: flex; flex-wrap: wrap; gap: 8px; }
+/* よくある直しかたのチップと、言葉で書く欄は同じ箱にあります。
+   あいだを空けないと、チップの列と入力欄がくっついて見えます。 */
+.panel.talk .adjust-row { margin-bottom: 14px; }
 .relax-btn {
   text-align: left; cursor: pointer; font: inherit;
   border: .5px solid var(--hig-separator);
@@ -2076,7 +2085,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   .day-tabs, .item-links, .chev, .panel.talk, .panel.adjust,
   .variants, .actions, .recheck, .spot-actions, .spot-tune, .dropped,
   .back-to-form, #progress, #placeholder, .recent,
-  .panel.story, .more, .mixplot, .stardust,
+  .panel.story, .more, .mix,
   /* 畳まれた「選んだ理由」は、紙では三角の付いた空行になるだけです。 */
   .tl details, .transit-steps { display: none !important; }
 

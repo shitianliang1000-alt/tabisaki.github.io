@@ -96,6 +96,32 @@ export function el(tag, attrs = {}, ...children) {
   return node;
 }
 
+/**
+ * 既にある要素に、子を足します。
+ *
+ * el() は「無いもの（null）は足さない」を守っていますが、素の
+ * node.append() は違います。DOM の append は Node でないものを
+ * **文字列にして**足すので、null を渡すと画面に「null」という
+ * 4文字が出ます。実際、外した場所が1つも無い旅程では、
+ * 「言葉で直す」の下に null と表示されていました
+ * （droppedList() は、戻すものが無ければ null を返します）。
+ *
+ * 呼ぶ側で .filter(Boolean) を書けば防げますが、130 か所ある
+ * append のどれか1つで書き忘れると、また画面に出ます。書き忘れ
+ * ようのない足しかたを1つ用意して、そちらを使います。
+ *
+ * @param {Node} node   足す先
+ * @param {...any} children 足すもの（null・undefined・false は飛ばします）
+ * @returns {Node} node（続けて書けるように、そのまま返します）
+ */
+export function put(node, ...children) {
+  for (const c of children.flat()) {
+    if (c === null || c === undefined || c === false) continue;
+    node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return node;
+}
+
 // --- 進行状況 ---------------------------------------------------------------
 
 export const STEPS = [
@@ -241,7 +267,7 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     container.append(box);
   }
 
-  container.append(...[
+  put(container,
     el("header", { class: "itin-head" },
       el("h2", {}, title),
       el("p", { class: "sub" }, sub),
@@ -249,8 +275,7 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       //
       // 「松江 2日 → 出雲 1日」だけでは、宿を動かすのかどうかが
       // 分かりません。連泊はそこが要点なので、1行で言います。
-      stayLine(itin)),
-  ].filter(Boolean));
+      stayLine(itin)));
 
   // 判断を、数字より先に置きます。
   //
@@ -278,7 +303,14 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
           : stat(itin.usedRoutesApi ? "実経路" : "推定", "移動時間"),
         // 歩く量は、行けるかどうかを左右します。「約8,400円」と同じ
         // 高さに置かないと、当日になって気づくことになります。
-        walkSteps(itin) ? stat(`約${walkSteps(itin).toLocaleString()}歩`, "歩く量")
+        //
+        // 名前は「歩く量」ではなく「移動での歩き」です。数えているのは
+        // **場所と場所のあいだ**を歩く区間だけで、着いた先の境内や
+        // 庭園を歩く量は入っていません（そこは誰も測っていないので、
+        // 足せば作り話になります）。「歩く量」と書くと1日の合計に
+        // 読めて、実際より少ない数を信じさせてしまいます。
+        walkSteps(itin)
+          ? stat(`約${walkSteps(itin).toLocaleString()}歩`, "移動での歩き")
           : null,
         // このアプリの値打ちは「AIが旅程を書けること」ではなく、
         // **実際に行けるかを確かめてあること**です。確かめた事実は
@@ -665,33 +697,28 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     detail.push(box);
   }
 
-  // 6. 旅程の調整。作り直しの入口を、旅程のすぐ上に置きます。
-  // 条件の画面まで戻らせると、そこで手が止まります。
-  if (handlers.onAdjust) {
-    const chips = [
-      { key: "slower", label: "もっとゆっくり",
-        note: "立ち寄りを減らし、1か所あたりの時間を延ばします" },
-      { key: "fuller", label: "もっと詰めこむ",
-        note: "1日に回る数を増やします" },
-      { key: "hidden", label: "もっと穴場に",
-        note: "知る人ぞ知る場所の割合を上げます" },
-      { key: "classic", label: "定番を中心に",
-        note: "誰でも知っている場所を厚くします" },
-    ];
-    adjustBox = (el("section", { class: "panel adjust" },
-      el("h3", {}, "この旅程を調整する"),
-      el("div", { class: "adjust-row" },
-        chips.map((c) => {
-          const b = el("button", { type: "button",
-                                   class: "md-chip md-chip--assist md-state",
-                                   title: c.note }, c.label);
-          b.addEventListener("click", () => handlers.onAdjust(c.key));
-          return b;
-        })),
-      el("p", { class: "fine" },
-        "押すと条件を書き換えて、旅程を組み直します。"
-        + "経路の問い合わせは、採用した案にだけ行われます。")));
-  }
+  // 6. 旅程を直す。作り直しの入口を、旅程のすぐ下に置きます。
+  //    条件の画面まで戻らせると、そこで手が止まります。
+  //
+  //    よくある直しかた（4つのチップ）と、言葉で書く欄を、**1つの箱**に
+  //    まとめました。以前は「この旅程を調整する」と「言葉で直す」が
+  //    別々の見出しで縦に並んでいて、しかも下に付く断り書きが
+  //    ほとんど同じことを言っていました（どちらも「条件を書き換えて
+  //    組み直すだけ」）。同じ仕事をする入口が2つに割れていると、
+  //    「どっちを使えばいいのか」を考えさせてしまいます。
+  //
+  //    直しかたは2通りでも、起きることは1つです。断り書きも1つに
+  //    します。
+  const adjustChips = handlers.onAdjust ? [
+    { key: "slower", label: "もっとゆっくり",
+      note: "立ち寄りを減らし、1か所あたりの時間を延ばします" },
+    { key: "fuller", label: "もっと詰めこむ",
+      note: "1日に回る数を増やします" },
+    { key: "hidden", label: "もっと穴場に",
+      note: "知る人ぞ知る場所の割合を上げます" },
+    { key: "classic", label: "定番を中心に",
+      note: "誰でも知っている場所を厚くします" },
+  ] : [];
 
   // 言葉で直す。AIは「条件の書き換え」に翻訳するだけで、
   // 旅程そのものは、これまでと同じエンジンが組み直します。
@@ -701,7 +728,10 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     // 素のブラウザ部品のままだと、ここだけ別のアプリのように見えます。
     const input = el("input", {
       type: "text", id: "edit-text", class: "md-field-input",
-      placeholder: "例）もっとゆっくり／もう1泊増やして／松山城は外して",
+      // 390px では、長い例は途中で切れます（「／もう1泊増やして／…」の
+      // あたりで見えなくなっていました）。よくある直しかたは上の
+      // チップに出ているので、ここは「文で書ける」ことだけ示します。
+      placeholder: "例）もう1泊増やして",
       autocomplete: "off", "aria-label": "どう直したいか",
     });
     const field = el("label", { class: "md-field" }, input);
@@ -733,16 +763,46 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); go(); }
     });
-    box.append(
-      el("h3", {}, "言葉で直す"),
+    put(box,
+      el("h3", {}, "旅程を直す"),
+      adjustChips.length
+        ? el("div", { class: "adjust-row" },
+            adjustChips.map((c) => {
+              const b = el("button", { type: "button",
+                                       class: "md-chip md-chip--assist md-state",
+                                       title: c.note }, c.label);
+              b.addEventListener("click", () => handlers.onAdjust(c.key));
+              return b;
+            }))
+        : null,
       el("div", { class: "talk-row" }, field, send),
       out,
       droppedList(itin, handlers),
       el("p", { class: "fine" },
-        "書かれたことは「条件の書き換え」に翻訳されるだけで、"
+        "押しても書いても、することは「条件の書き換え」です。"
         + "旅程はこれまでと同じ手順（営業時間と移動時間の照合）で"
-        + "組み直します。AIに旅程を作らせることはしません。"));
+        + "組み直します。AIに旅程を作らせることはしません。"
+        + "経路の問い合わせは、採用した案にだけ行われます。"));
     talkBox = box;
+  }
+
+  // 「言葉で直す」が出ない画面（onEdit が無い）でも、チップだけは
+  // 使えるようにしておきます。まとめたせいで入口ごと消える、という
+  // ことにならないように。
+  if (!talkBox && adjustChips.length) {
+    adjustBox = el("section", { class: "panel adjust" },
+      el("h3", {}, "この旅程を調整する"),
+      el("div", { class: "adjust-row" },
+        adjustChips.map((c) => {
+          const b = el("button", { type: "button",
+                                   class: "md-chip md-chip--assist md-state",
+                                   title: c.note }, c.label);
+          b.addEventListener("click", () => handlers.onAdjust(c.key));
+          return b;
+        })),
+      el("p", { class: "fine" },
+        "押すと条件を書き換えて、旅程を組み直します。"
+        + "経路の問い合わせは、採用した案にだけ行われます。"));
   }
 
   // --- 日ごと ---
@@ -808,7 +868,7 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
   // 知りたいのは「で、何時にどこへ行くのか」です。案を選び直すのは、
   // それを見たあとの話です。順番が逆でした。
   //
-  //   要約 → 流れ → 旅程 → 3案 → 言葉で直す → 調整 → 詳しく見る
+  //   要約 → 流れ → 旅程 → 3案 → 旅程を直す → 詳しく見る
   container.append(daysWrap);
   if (variantsBox) container.append(variantsBox);
   if (talkBox) container.append(talkBox);

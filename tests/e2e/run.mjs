@@ -152,18 +152,56 @@ await check("どちらへ寄っているかが、数で分かる", async () => {
     `${classic} + ${known} + ${hidden} が10になりません`);
   assert(hidden > classic, "穴場寄りにしたのに、定番のほうが多い表示です");
 
-  // 点の数が、文の数と合っていること。
+  // 帯の幅が、文の数と合っていること。
   // 絵と文が食い違うと、どちらを信じてよいか分かりません（以前は帯が
-  // 数字と逆を向いていました）。区画ごとに数えます。
-  const dots = await page.$$eval(
-    "#mix-dots-major, #mix-dots-known, #mix-dots-hidden",
-    (els) => els.map((e) => e.children.length));
-  assert(dots.join(",") === [classic, known, hidden].join(","),
-    `点が ${dots.join("/")}、文が ${classic}/${known}/${hidden} です`);
-  assert(dots.reduce((a, b) => a + b, 0) === 10, "点が10個ではありません");
+  // 数字と逆を向いていました）。幅をそのまま読みます。
+  // 帯は伸び縮みします。動いている途中の幅を測ると、動かす前の幅を
+  // 読んでしまいます（実際それで一度落ちました）。止まるまで待ちます。
+  const measure = () => page.evaluate(() => {
+    const w = (id) => {
+      const e = document.getElementById(id);
+      const r = e.getBoundingClientRect();
+      return { px: Math.round(r.width), text: e.textContent.replace(/\s+/g, "") };
+    };
+    return { major: w("mix-seg-major"), known: w("mix-seg-known"),
+             hidden: w("mix-seg-hidden") };
+  });
+  let bar = await measure();
+  for (let i = 0; i < 20; i += 1) {
+    await page.waitForTimeout(100);
+    const next = await measure();
+    if (next.major.px === bar.major.px && next.hidden.px === bar.hidden.px) {
+      bar = next;
+      break;
+    }
+    bar = next;
+  }
+  // 穴場側へ寄せたのだから、穴場の区間がいちばん広いこと
+  assert(bar.hidden.px > bar.major.px,
+    `穴場寄りにしたのに、定番の帯が広いままです（${bar.major.px} / ${bar.hidden.px}）`);
+  // 幅の比が、数の比と合っていること（10か所ぶんの帯なので 1か所 = 10%）
+  const total = bar.major.px + bar.known.px + bar.hidden.px;
+  const share = (px) => Math.round((px / total) * 10);
+  assert(share(bar.hidden.px) === hidden,
+    `穴場の帯が ${share(bar.hidden.px)}か所ぶんの幅、文は ${hidden}か所です`);
 
-  // 穴場側へ寄せたら、穴場の区画の点がいちばん多いこと。
-  assert(dots[2] > dots[0], "穴場寄りにしたのに、定番の区画の点が多いままです");
+  // 広い区間には、名前と数が書かれていること（色だけの帯では読めません）
+  const widest = [bar.major, bar.known, bar.hidden]
+    .sort((a, b) => b.px - a.px)[0];
+  assert(/\d/.test(widest.text),
+    `いちばん広い区間に数が出ていません: ${widest.text}`);
+
+  // 帯の字が落ちた区間でも、どの色がどれなのかは文で分かること。
+  // （色だけの帯に戻さないための見張りです）
+  const keys = await page.$$eval(".mix-summary .mix-key", (els) =>
+    els.map((e) => ({
+      text: e.textContent.trim(),
+      dot: getComputedStyle(e, "::before").backgroundColor,
+    })));
+  assert(keys.length === 3, `色見本が ${keys.length} 個しかありません`);
+  assert(keys.every((k) => k.text.length > 0), "点の横に言葉がありません");
+  assert(new Set(keys.map((k) => k.dot)).size === 3,
+    `3つの色が同じ色になっています: ${keys.map((k) => k.dot).join(" / ")}`);
 });
 
 await check("1日のうち、動く時間帯を選べる", async () => {
@@ -817,6 +855,37 @@ await check("携帯では、説明が半分の高さで開く（地図が残る�
   await page.click(".md-sheet .close");
   await until(page, () => !document.querySelector(".md-sheet"),
              { timeout: 10_000 });
+  await page.setViewportSize({ width: 1280, height: 1000 });
+});
+
+// 画面に「null」「undefined」が出ていないこと。
+//
+// DOM の append は、Node でないものを**文字列にして**足します。
+// 無いもの（null）をそのまま渡すと、画面に null という4文字が
+// 出ます。実際に「言葉で直す」の下に出ていました（外した場所が
+// 1つも無い旅程では、その一覧が null になります）。
+// 目で見つけるまで誰も気づかなかったので、ここで見張ります。
+await check("書けなかったところが、null のまま出ていない", async () => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const found = await page.evaluate(() => {
+    const out = [];
+    const walk = (n) => {
+      for (const c of n.childNodes) {
+        if (c.nodeType === 3) {
+          const t = c.textContent.trim();
+          if (t === "null" || t === "undefined" || t === "NaN"
+              || t === "[object Object]") {
+            out.push(`${c.parentElement?.tagName}.${c.parentElement?.className}: ${t}`);
+          }
+        } else if (c.nodeType === 1 && c.tagName !== "SCRIPT") {
+          walk(c);
+        }
+      }
+    };
+    walk(document.body);
+    return out;
+  });
+  assert(found.length === 0, `画面に出ています: ${found.join(" / ")}`);
   await page.setViewportSize({ width: 1280, height: 1000 });
 });
 
