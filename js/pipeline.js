@@ -613,7 +613,8 @@ export async function planTrip({ trip, kb, onProgress = () => {},
       + "近場を増やすには知識ベースの拡充が必要です。");
   }
   itin.crowd = trip.avoidCrowds === false ? null : itineraryCrowd(itin);
-  itin.cost = costBreakdown(itin, { people: trip.people ?? 1 });
+  itin.cost = costBreakdown(itin, { people: trip.people ?? 1,
+                                    transport: trip.transport ?? "any" });
   // 何人ぶんの金額なのかを、旅程そのものに持たせます（画面と
   // 書き出しが、それぞれ trip を見に行かなくて済むように）。
   itin.people = trip.people ?? 1;

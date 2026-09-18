@@ -398,6 +398,9 @@ p, li { text-wrap: pretty; }
 /* 移動そのものの楽しみ（走る道・乗る路線）。
    休憩の一行（.rest）と同じ形で、移動の行に添えます。 */
 .sun.scenic { color: var(--hig-label-2); }
+/* 休憩の枠が、帰りの余裕に収まらないとき。色だけに頼らず、
+   文のほうにも「超えます」と書いてあります。 */
+.sun.rest.tight { color: var(--hig-red-deep); font-weight: 600; }
 .sun.scenic > span:last-child { line-height: 1.7; }
 
 /* --- 定番と穴場のまぜかた ------------------------------------------------ */

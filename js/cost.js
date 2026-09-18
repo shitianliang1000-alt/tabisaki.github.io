@@ -42,6 +42,23 @@ export function fareFor(km, { mode = "TRANSIT" } = {}) {
 
 const yen = (n) => Math.max(0, Math.round(n));
 
+/** 借りる旅か（レンタカー代が要る旅か）。 */
+const RENTS = new Set(["transit+car", "air+car"]);
+
+/**
+ * その区間を運転するか。
+ *
+ * 区間の側が答えを持っているなら、そちらが先です（電車＋現地の車では、
+ * 同じ旅程の中に新幹線の区間と運転の区間が並びます。pipeline.js の
+ * modeGroups が区間に書いています）。
+ */
+function isDriving(item, transport) {
+  if (item.walk || item.taxi) return false;
+  if (item.drive === true) return true;
+  if (item.drive === false) return false;
+  return transport === "car";
+}
+
 /**
  * 旅程の費用を項目ごとに積み上げます。
  *
@@ -50,17 +67,33 @@ const yen = (n) => Math.max(0, Math.round(n));
  * @param {number} [opts.people] 人数（宿泊と入場に効きます）
  * @returns {{total:number, perPerson:number, rows:Array, estimated:boolean}}
  */
-export function costBreakdown(itin, { people = 1 } = {}) {
+export function costBreakdown(itin, { people = 1, transport = "any" } = {}) {
   let transit = 0;
   let meals = 0;
   let admission = 0;
   let lodging = 0;
   let anyFare = false;
+  // 運転する区間の距離。車の費用は、ここから出します。
+  let driveKm = 0;
+  let tollKm = 0;
+  let tollLegs = 0;
 
   for (const day of itin.days) {
     for (const item of day.items) {
       switch (item.kind) {
         case "transit": {
+          // 運転する区間は、**鉄道の運賃の式で数えません**。
+          //
+          // これまで車の旅でも fareFor(km, "TRANSIT") を通していました。
+          // 700kmを運転すると「¥14,040」と出ます。鉄道の運賃です。
+          // ガソリンも高速もレンタカーも、1円も数えていませんでした。
+          // 「予算内です」と言われても、車旅では使えません。
+          if (isDriving(item, transport)) {
+            const km = item.km ?? kmOf(item);
+            driveKm += km;
+            if (km >= TUNING.tollFromKm) { tollKm += km; tollLegs += 1; }
+            break;
+          }
           if (typeof item.fareYen === "number") { transit += item.fareYen; anyFare = true; }
           else transit += fareFor(item.km ?? kmOf(item),
             { mode: item.taxi ? "TAXI" : item.walk ? "WALK" : "TRANSIT" });
@@ -74,9 +107,35 @@ export function costBreakdown(itin, { people = 1 } = {}) {
     }
   }
 
+  // 車の費用は、**人数ではなく台数**で増えます。
+  //
+  // 4人で乗っても、ガソリン代は1台ぶんです。ここを人数倍すると、
+  // 家族旅行の概算が4倍になります。
+  const cars = Math.max(1, Math.ceil(people / TUNING.seatsPerCar));
+  const fuel = driveKm > 0
+    ? (driveKm / TUNING.kmPerL) * TUNING.fuelYenPerL * cars : 0;
+  const toll = tollKm > 0
+    ? (tollKm * TUNING.tollYenPerKm + tollLegs * TUNING.tollBaseYen) * cars : 0;
+  // レンタカーは、借りる旅のときだけです。自分の車で行く旅（"car"）に
+  // レンタカー代を足すと、行きもしない出費が乗ります。
+  const rentDays = RENTS.has(transport) ? Math.max(1, itin.days?.length ?? 1) : 0;
+  const rental = rentDays * TUNING.rentalYenPerDay * cars;
+
   const rows = [
     { key: "transit", label: "交通", yen: yen(transit * people),
       note: anyFare ? "一部は実際の運賃" : "距離からの概算" },
+    // 前提をそのまま書きます。幅のある数字なので、読む人が自分の車に
+    // 置き換えられるようにするためです。
+    { key: "fuel", label: "ガソリン", yen: yen(fuel),
+      note: `約${Math.round(driveKm)}km を ${TUNING.kmPerL}km/L・`
+        + `${TUNING.fuelYenPerL}円/L で計算`
+        + (cars > 1 ? `（${cars}台ぶん）` : "") },
+    { key: "toll", label: "高速道路", yen: yen(toll),
+      note: `${TUNING.tollFromKm}km を超える${tollLegs}区間を、`
+        + "普通車の対距離料金で計算（下道なら不要です）" },
+    { key: "rental", label: "レンタカー", yen: yen(rental),
+      note: `${rentDays}日 × ${TUNING.rentalYenPerDay.toLocaleString()}円`
+        + `（免責補償込みの目安${cars > 1 ? `・${cars}台` : ""}）` },
     { key: "meals", label: "食事", yen: yen(meals * people),
       note: `1食 ¥${TUNING.mealYen.toLocaleString()}で計算` },
     { key: "admission", label: "入場・拝観", yen: yen(admission * people),
@@ -86,8 +145,13 @@ export function costBreakdown(itin, { people = 1 } = {}) {
   ].filter((r) => r.yen > 0);
 
   const total = rows.reduce((a, r) => a + r.yen, 0);
+  // 数えていないものを、**数えたふりをしません**。
+  //
+  // 駐車場は、場所ごとに無料と有料が入り混じり、料金も持っていません。
+  // 作った数字を足すより、「入っていません」と言うほうが役に立ちます。
+  const missing = driveKm > 0 ? ["駐車場"] : [];
   return { total, perPerson: Math.round(total / Math.max(1, people)),
-           rows, estimated: true };
+           rows, estimated: true, cars, missing };
 }
 
 /** 距離が入っていない移動の、座標からの補完。 */

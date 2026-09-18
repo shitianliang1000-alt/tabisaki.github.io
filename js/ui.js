@@ -15,7 +15,7 @@ import { qualityOf, spotFit, tripFit } from "./fit.js";
 import { currentStep } from "./today.js";
 import { photoFor } from "./photos.js";
 import { estimatedTravel } from "./reliability.js";
-import { isTouring, longDriveNote } from "./touring.js";
+import { isTouring, longDriveNote, restSlots } from "./touring.js";
 import { itineraryText } from "./share.js";
 import { icsFilename, toIcs } from "./ical.js";
 
@@ -585,7 +585,19 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       el("p", { class: "fine" },
         "交通費は距離からの概算、宿泊費は分類ごとの目安です。"
         + "実際の運賃・宿泊費とは差が出ます。予算を決めるときは、"
-        + "少し多めに見ておいてください。")));
+        + "少し多めに見ておいてください。"
+        + ((itin.people ?? 1) > 1
+          ? `この合計は${itin.people}人ぶんです。`
+            + (itin.cost.cars > 1
+              ? `車は${itin.cost.cars}台で数えています。` : "")
+          : "")),
+      // 数えていないものを、**数えたふりをしません**。
+      // 「予算内です」と言われたのに現地で足りない、がいちばん困ります。
+      itin.cost.missing?.length
+        ? el("p", { class: "fine" },
+            `${itin.cost.missing.join("・")}は含んでいません`
+            + "（場所ごとに無料と有料が入り混じり、料金を持っていません）。")
+        : null));
   }
 
   // 希望に応えられたかどうか（応えられていれば何も出さない）
@@ -1667,6 +1679,18 @@ function renderItem(item, index, itin, handlers, sunNote) {
         info.append(el("p", { class: "sun rest" },
           el("span", { "aria-hidden": "true" }, "☕"),
           el("span", {}, note)));
+      }
+      // 休憩の枠。「2時間ごとに休憩を」と書くだけでは、旅程は
+      // その時間を数えていません。何時ごろ・何分見ておくかを出します。
+      // **どこで休むかは言いません**（店名も道の駅名も作りません）。
+      const rest = restSlots(item, itin.slack?.minutes ?? null);
+      if (rest) {
+        info.append(el("p",
+          { class: `sun rest${rest.fits === false ? " tight" : ""}` },
+          el("span", { "aria-hidden": "true" }, "⏸"),
+          el("span", {},
+            `休憩の目安: ${rest.times.join("ごろ・")}ごろ`
+            + `（1回15分・合計${rest.minutes}分）。${rest.note}`)));
       }
     }
     // 移動そのものの楽しみ（js/scenic.js）。
