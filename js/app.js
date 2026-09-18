@@ -1124,11 +1124,24 @@ function wantsDevPanel() {
 
 function wireForm() {
   // 予算と移動手段。押されたものを覚えるだけの、同じ形の切り替えです。
+  // 選ばれていることを、**読み上げにも出します。**
+  //
+  // これまで印は is-selected（見た目）だけでした。画面を見ない人には
+  // 「おまかせ・電車・バス・車…」が並んでいるだけで、どれがいま選ばれて
+  // いるのか分かりません。押した状態として aria-pressed を持たせます
+  // （単一選択なので、押すたびに他を false に戻します）。
   const segmented = (sel, key, onPick) => {
-    for (const btn of document.querySelectorAll(`${sel} button`)) {
+    const all = () => document.querySelectorAll(`${sel} button`);
+    for (const btn of all()) {
+      // 最初の状態も書いておきます（見た目と読み上げを合わせます）。
+      btn.setAttribute("aria-pressed",
+                       String(btn.classList.contains("is-selected")));
       btn.addEventListener("click", () => {
-        document.querySelectorAll(`${sel} button`)
-          .forEach((b) => b.classList.toggle("is-selected", b === btn));
+        for (const b of all()) {
+          const on = b === btn;
+          b.classList.toggle("is-selected", on);
+          b.setAttribute("aria-pressed", String(on));
+        }
         onPick(btn.dataset[key]);
       });
     }
@@ -1284,8 +1297,15 @@ async function resolvePlace(text) {
 }
 
 async function readTrip() {
-  const genres = [...document.querySelectorAll('.md-chip[aria-pressed="true"]')]
-    .map((c) => c.dataset.genre);
+  // **拾うのは興味のチップだけです。**
+  //
+  // ここは画面のチップを種類で選ばずに拾っていました。押されている
+  // チップは興味だけ、という前提です。移動手段のような単一選択を
+  // チップに変えた瞬間に、それが「興味」として混ざります
+  // （dataset.genre は undefined なので、黙って undefined が並びます）。
+  // data-genre を持つものに限ります。
+  const genres = [...document.querySelectorAll(
+    '.md-chip[data-genre][aria-pressed="true"]')].map((c) => c.dataset.genre);
   const other = state.endMode === "other";
   const end = other ? await resolvePlace($("#end-place").value) : null;
   return makeTrip({
@@ -1334,8 +1354,8 @@ function formState() {
     end: state.endMode,
     dep: $("#depart-at").value,
     arr: $("#arrive-by").value,
-    genres: [...document.querySelectorAll('.md-chip[aria-pressed="true"]')]
-      .map((c) => c.dataset.genre),
+    genres: [...document.querySelectorAll(
+      '.md-chip[data-genre][aria-pressed="true"]')].map((c) => c.dataset.genre),
     crowd: $("#avoid-crowds").checked,
     bias: Number($("#hidden-bias")?.value ?? 40),
     dayStart: $("#day-start")?.value ?? "09:00",

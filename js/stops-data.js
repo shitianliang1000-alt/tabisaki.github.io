@@ -292,14 +292,27 @@ export async function nearestStop(point, maxKm = 3) {
 export async function nearbyStops(point, maxKm = 3, limit = 3) {
   if (!Number.isFinite(point?.lat) || !Number.isFinite(point?.lng)) return [];
   const rail = await loadRail();
-  let out = scan([rail.grid, busGrid], point, maxKm, limit);
-  // 頼まれた数に足りないなら、その周りのバス停タイルも読みます。
-  // ここを節約すると、駅の無い土地で時刻が引けなくなります。
-  if (out.length < limit) {
-    await loadBusNear(point, maxKm);
-    out = scan([rail.grid, busGrid], point, maxKm, limit);
-  }
-  return out;
+  // **バス停のタイルは、いつでも読みます。**
+  //
+  // ここは「駅が頼まれた数だけ見つかったら、バス停は読まない」という
+  // 作りでした。タイルを取りに行く回数を惜しんだのですが、そのせいで
+  // **バスの時刻がまったく引けなくなっていました。**
+  //
+  //   出雲大社の半径5kmには、出雲大社前駅・浜山公園北口駅・遙堪駅が
+  //   あります。3件で埋まるので、バス停は1件も読まれません。すると
+  //   Yahoo!路線情報へ渡す名前は駅ばかりになり、日御碕や稲佐の浜へ
+  //   向かう一畑バスの便は、候補にすら入りませんでした。
+  //
+  // Yahoo!はバスの時刻をちゃんと返します（出雲大社前→日御碕は
+  // 「大社線で出雲大社BTへ、54分待って日御碕線」と、待ち時間まで）。
+  // 引けていなかったのは、**聞いていなかった**からです。
+  //
+  // 取りに行くのは1度四方のタイル1〜3枚（50〜300KB）で、いちど読めば
+  // そのまま残ります。旅程1本が触る範囲は狭いので、いつでも読んで
+  // 構いません（名前で引くときだけ全国ぶんを読みます。そちらは
+  // これまでどおり最後の手です）。
+  await loadBusNear(point, maxKm);
+  return scan([rail.grid, busGrid], point, maxKm, limit);
 }
 
 /** 格子（駅とバス停）から、近い順にいくつか拾います。 */
@@ -338,12 +351,38 @@ function scan(grids, point, maxKm, limit) {
   });
   const seen = new Set();
   const out = [];
-  for (const s of found) {
+  const take = (s) => {
     const key = normalizeName(s.name);
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return false;
     seen.add(key);
     out.push(s);
-    if (out.length >= limit) break;
+    return true;
+  };
+  // **駅だけで埋めません。**
+  //
+  // 近い順に3件取ると、街では3件とも駅になります。ところが
+  // 「バスでしか行けない場所」へ向かう区間では、渡すべき名前は
+  // バス停です。駅名だけを渡すと、Yahoo!は遠回りの鉄道経路を返すか、
+  // 何も返しません（そして画面には「目安」とだけ出ます）。
+  //
+  // そこで、枠が2つ以上あるときは**1つをバス停のために空けておきます**。
+  // 近い順は崩しません（先に近いものを詰め、最後の1枠だけ譲ります）。
+  // バス停が無い土地では、これまでどおり駅で埋まります。
+  const busReserve = limit >= 2 && found.some((s) => s.kind === "bus") ? 1 : 0;
+  for (const s of found) {
+    if (out.length >= limit - busReserve) break;
+    take(s);
+  }
+  if (busReserve) {
+    for (const s of found) {
+      if (out.length >= limit) break;
+      if (s.kind === "bus") take(s);
+    }
+    // バス停が全部同じ名前だった、などで埋まらなければ、近い順で足します。
+    for (const s of found) {
+      if (out.length >= limit) break;
+      take(s);
+    }
   }
   return out;
 }

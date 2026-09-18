@@ -503,6 +503,11 @@ p, li { text-wrap: pretty; }
   color: var(--hig-label-2);
 }
 .chip-set { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 1つだけ選ぶチップの列（移動手段など）。
+   見た目は興味のチップと同じで構いません。違うのは「押すと他が外れる」
+   ところだけで、それは JS が持ちます。行の下に説明文が続くので、
+   少しだけ間を空けます。 */
+.chip-choice { margin-bottom: 4px; }
 
 /* スイッチの行 */
 .switch-row {

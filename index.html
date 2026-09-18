@@ -368,30 +368,44 @@
           しません。超えていたら、そう伝えます。</p>
       </div>
 
+      <!-- おもな移動手段。
+           ------------------------------------------------------------
+           セグメンテッドコントロール（横に等幅で並ぶ切り替え）を
+           やめました。ガイドラインは 2〜5個・幅を揃える、としています。
+           ここは5個でも「電車＋現地の車」が長く、390px では字が詰まって
+           いました。空路と船を足すと8個で、もう収まりません。
+
+           数が増えるものは、折り返すチップにします（幅が揃わなくて
+           よく、何行になっても読めます）。 -->
       <div class="tune-group">
         <span class="tune-label" id="transport-label">おもな移動手段</span>
-        <div class="md-segmented" id="transport-choice"
+        <div class="chip-set chip-choice" id="transport-choice"
              role="group" aria-labelledby="transport-label">
-          <button type="button" class="md-state is-selected" data-transport="any">
-            <span>おまかせ</span>
-          </button>
-          <button type="button" class="md-state" data-transport="transit">
-            <span>電車・バス</span>
-          </button>
-          <button type="button" class="md-state" data-transport="car">
-            <span>車</span>
-          </button>
-          <button type="button" class="md-state" data-transport="transit+car">
-            <span>電車＋現地の車</span>
-          </button>
-          <button type="button" class="md-state" data-transport="walk">
-            <span>徒歩中心</span>
-          </button>
+          <button type="button" class="md-chip md-state is-selected"
+                  data-transport="any"><span>おまかせ</span></button>
+          <button type="button" class="md-chip md-state"
+                  data-transport="transit"><span>電車・バス</span></button>
+          <button type="button" class="md-chip md-state"
+                  data-transport="car"><span>車</span></button>
+          <button type="button" class="md-chip md-state"
+                  data-transport="transit+car"><span>電車＋現地の車</span></button>
+          <button type="button" class="md-chip md-state"
+                  data-transport="air"><span>飛行機</span></button>
+          <button type="button" class="md-chip md-state"
+                  data-transport="air+car"><span>飛行機＋現地の車</span></button>
+          <button type="button" class="md-chip md-state"
+                  data-transport="ferry"><span>フェリー・船</span></button>
+          <button type="button" class="md-chip md-state"
+                  data-transport="local"><span>普通列車のみ</span></button>
+          <button type="button" class="md-chip md-state"
+                  data-transport="walk"><span>徒歩中心</span></button>
         </div>
-        <p class="md-field-help">車を選ぶと、バスの少ない土地でも
-          行き先を組めます。「電車＋現地の車」は、新幹線や特急で行って
-          駅でレンタカーを借りる旅です（遠出は便の時刻、現地は道のりで
-          組みます）。</p>
+        <p class="md-field-help">選んだ乗り物で時刻表を引きます。飛行機を
+          選ぶと空路の便で、フェリーを選ぶと船の便で組みます（船が
+          見つからなければ、そう書きます）。「普通列車のみ」は青春18
+          きっぷ向けで、新幹線と有料特急を使いません。「電車＋現地の車」
+          は駅でレンタカーを借りる旅です（遠出は便の時刻、現地は
+          道のりで組みます）。</p>
       </div>
 
       <div class="tune-group" id="stay-group">

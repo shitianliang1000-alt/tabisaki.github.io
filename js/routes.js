@@ -42,6 +42,8 @@ import { estimateMinutes, haversineKm, isSlowTerrain, taxiMinutes }
   from "./feasibility.js";
 import { findStop, nearbyStops, nearestStop } from "./stops.js";
 import { summarizeTransitLeg, transitFieldMask } from "./transit.js";
+import { KIND_NOTE, asksTimetable, classifyLine, kindsOf, preferredKinds,
+  yahooFlags } from "./modes.js";
 import { resetYahooCooldown, resetYahooPace, searchYahooTransit, yahooCooldown }
   from "./yahoo-transit.js";
 
@@ -189,6 +191,12 @@ export function pickMode(points, transport = "any") {
   // 電車＋現地の車。区間ごとに分けて聞きます（pipeline.js の
   // modeGroups）。ここに1つだけ返すときは、遠出のほうを答えます。
   if (transport === "transit+car") return "TRANSIT";
+  // 空路・船・普通列車のみ。どれも「時刻表に聞く」移動なので、
+  // Googleに渡す手段としては TRANSIT です。**どの乗り物を使うかは
+  // Yahoo!に渡す旗（js/modes.js）で決まります。** ここで DRIVE に
+  // 落とすと、飛行機の区間を車の道のりとして計算してしまいます。
+  if (transport === "air" || transport === "ferry"
+      || transport === "local" || transport === "air+car") return "TRANSIT";
   let max = 0;
   for (let i = 0; i < points.length; i++) {
     for (let j = i + 1; j < points.length; j++) {
@@ -802,9 +810,17 @@ async function yahooLeg(a, b, opts) {
     let to = null;
     let yahoo = null;
     let spent = 0;
+    // **指定された乗り物を、問い合わせにそのまま乗せます。**
+    //
+    // ここを渡していなかったので、画面で何を選んでも Yahoo!への
+    // 問い合わせは同じ（全部の乗り物・速い順）でした。「電車で」を
+    // 選んでも空路が返り、「フェリーで」を選んでも陸の経路が返ります。
+    const ask = { ...opts,
+      modes: yahooFlags(opts.transport ?? "any"),
+      prefer: preferredKinds(opts.transport ?? "any") };
     for (const cand of pairs.slice(0, tries)) {
       spent++;
-      const r = await searchYahooTransit(cand.from, cand.to, opts);
+      const r = await searchYahooTransit(cand.from, cand.to, ask);
       if (r?.routed && r.minutes > 0) {
         from = cand.from;
         to = cand.to;
@@ -871,6 +887,19 @@ async function yahooLeg(a, b, opts) {
       stations: { from: from.name, to: to.name, walkMeasured: false },
       yahoo: yahoo.meta ?? null,
       alternatives: yahoo.meta?.alternatives ?? [],
+      // **何に乗る区間なのか。**
+      //
+      // これが無いと、飛行機の区間も船の区間も「電車」として旅程に
+      // 並びます。呼び名が違うだけなら我慢できますが、空港には
+      // 搭乗手続きの時間が要り、船は欠航します。旅程がそのまま
+      // 使えるかどうかが変わるので、種類として持ちます。
+      //
+      // 中継が数えたもの（yahoo.kinds）を先に使い、無ければ区間の
+      // 路線名から見分けます（古い中継につながったときのため）。
+      kinds: yahoo.kinds?.length ? yahoo.kinds
+        : kindsOf(yahoo.meta?.legs ?? [{ line: yahoo.summary }]),
+      // 指定した乗り物で組めたか。false なら、そう書きます。
+      preferMet: yahoo.preferMet !== false,
     };
   } catch (e) {
     usage.lastError = `Yahoo Transit: ${String(e?.message ?? e).slice(0, 200)}`;
@@ -1023,7 +1052,13 @@ export async function computeRoute(points, opts = {}) {
   // 日本国内では必ず「経路が見つかりません」が返り、それでも課金対象の
   // リクエストは消費されます。駅の位置から組み立てます。
   if (mode === "TRANSIT") {
-    const key = cacheKey(points, "TRANSIT-yahoo", opts.departAt)
+    // 控えの鍵に、**選ばれた乗り物**を入れます。
+    //
+    // 入れないと、「電車で」で組んだあと「フェリーで」に変えても、
+    // 同じ鍵に当たって前の答えが返ります。画面では選び直したのに
+    // 旅程が変わらない、という出かたになります。
+    const key = cacheKey(points, `TRANSIT-yahoo-${opts.transport ?? "any"}`,
+                         opts.departAt)
       + (Array.isArray(opts.departTimes)
         ? "|" + opts.departTimes
           .map((d) => (d instanceof Date ? Math.floor(d.getTime() / 600000) : "-"))

@@ -1356,6 +1356,16 @@ async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
       try {
         const part = await routeChain(g.points, {
           mode: g.mode, departAt: g.times[0], departTimes: g.times,
+          // **選ばれた乗り物を、そのまま下まで渡します。**
+          //
+          // ここで落ちていたので、時刻表への問い合わせは画面の選択と
+          // 無関係に「全部の乗り物・速い順」でした。「フェリーで」を
+          // 選んでも陸の経路が返り、「飛行機で」を選んでも
+          // 33時間の新幹線＋船が返っていました。
+          //
+          // 区間ごとに乗るものが変わる旅（電車＋現地の車）では、
+          // 車の区間は Yahoo!に聞かないので、渡しても使われません。
+          transport: g.mode === "DRIVE" ? "car" : trip.transport,
         });
         if (!part?.legs?.length) { failed = true; break; }
         // どの手段で調べた区間なのかを、区間そのものに書いておきます。
