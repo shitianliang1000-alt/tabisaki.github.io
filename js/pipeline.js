@@ -47,6 +47,7 @@ import { suggestReplan } from "./replan.js";
 import { attachBackups } from "./backup.js";
 import { attachMeals, dietNote } from "./meals.js";
 import { attachScenic } from "./scenic.js";
+import { coLocated } from "./dedupe.js";
 import { eventNotesFor } from "./events.js";
 import { attachLuggage, luggagePlanFor } from "./luggage.js";
 import { storyFor } from "./story.js";
@@ -659,6 +660,27 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   //
   //     時刻も費用も経路も変えません。**説明だけ**を足します。
   itin.scenicCount = attachScenic(itin, { transport: trip.transport });
+  // 8.6 同じ地点にある立ち寄りを、そう書く。
+  //
+  //     名前が違うので1つにはまとめませんでした（別のものかもしれない
+  //     からです）。ただ、座標が同じなら移動は0分です。
+  //
+  //       九重山 と 久住山          同じ座標の別名。どちらが正しいかは
+  //                                こちらでは決められません
+  //       小樽美術館 と 小樽文学館   同じ建物の別の施設。続けて回れます
+  //
+  //     **決めずに、そう書きます。** 読む人が判断できます。
+  for (const day of itin.days ?? []) {
+    const spots = (day.items ?? []).filter((i) => i.kind === "spot" && i.place);
+    for (const group of coLocated(spots.map((i) => i.place))) {
+      const names = group.map((p) => p.name);
+      for (const item of spots) {
+        if (!group.includes(item.place)) continue;
+        const others = names.filter((n) => n !== item.place.name);
+        item.sameSpot = others;
+      }
+    }
+  }
   // 9. その時期ならではのこと、荷物、旅の意味づけ。
   //    どれも数えれば決まるので、AIには書かせません
   //    （同じ旅程で毎回違う説明が出ると、説明として成立しません）。

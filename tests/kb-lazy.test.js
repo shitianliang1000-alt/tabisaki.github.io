@@ -123,15 +123,62 @@ test("読んだスポットは、まとめて読んだときと同じ形にな�
   }
 });
 
-test("全部読めば、まとめて読んだときと同じ件数になる", async () => {
+test("全部読めば、段の合計から「同じ場所」を引いた件数になる", async () => {
+  // 索引の件数（29,706）は**収録の件数**です。読み込むときに、
+  // 座標も名前も同じものを1つにまとめるので（js/dedupe.js）、
+  // 実際に行ける場所の数はそのぶん少なくなります。
+  //
+  //   高徳院（鎌倉大仏） と 鎌倉大仏 高徳院  → 1つ
+  //   高千穂神社 と 観光神楽 高千穂神社       → 1つ
+  //
+  // まとめた数を数えているので、足すと索引の件数に戻ります。
   const kb = await staged();
   const { got, restore } = countingFetch();
   try {
     await ensureAllSpots(kb);
-    assert.equal(kb.spots.length, kb.manifest.counts.spots);
+    assert.ok(kb.merged > 0, "1組もまとめていません");
+    assert.equal(kb.spots.length + kb.merged, kb.manifest.counts.spots);
     assert.equal(kb.spotsById.size, kb.spots.length);
     assert.equal(hasAllShards(kb), true);
     assert.equal(got.length, kb.manifest.shards.length);
+  } finally {
+    restore();
+  }
+});
+
+test("同じ場所が、2件のまま残らない", async () => {
+  // 使う人から挙がった例をそのまま固定します。
+  const kb = await staged();
+  const { restore } = countingFetch();
+  try {
+    await ensureAllSpots(kb);
+    const named = (n) => kb.spots.filter((s) => s.name.includes(n));
+    // 高徳院と鎌倉大仏は、同じ座標の同じお寺です。
+    assert.equal(named("高徳院").length, 1,
+      named("高徳院").map((s) => s.name).join(" / "));
+    // まとめた側の名前は、別名として残ります（「鎌倉大仏」で探した人が
+    // たどり着けなくなると、直したつもりで壊れます）。
+    assert.ok(named("高徳院")[0].aka?.some((a) => a.includes("鎌倉大仏")),
+      "別名が残っていません");
+    // 「観光神楽 高千穂神社」は、催しの名前が神社の前に付いたものです。
+    // 残すのは神社のほうです（催しは毎日あるとは限りません）。
+    const takachiho = kb.spots.filter((s) => s.name.includes("高千穂神社"));
+    assert.equal(takachiho.length, 1);
+    assert.equal(takachiho[0].name, "高千穂神社");
+  } finally {
+    restore();
+  }
+});
+
+test("同じ建物の別の施設は、まとめない", async () => {
+  // 小樽美術館と小樽文学館は同じ建物にありますが、別の施設です。
+  // 座標だけで潰すと、行けたはずの場所が消えます。
+  const kb = await staged();
+  const { restore } = countingFetch();
+  try {
+    await ensureAllSpots(kb);
+    assert.ok(kb.spots.some((s) => s.name.includes("小樽美術館")));
+    assert.ok(kb.spots.some((s) => s.name.includes("小樽文学館")));
   } finally {
     restore();
   }
