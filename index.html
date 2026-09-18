@@ -228,26 +228,34 @@
              読み上げは通りますが、名前を押してつまみに触れる・支援技術が
              「名前のある入力欄」として数える、といった当たり前が付きません。 -->
         <label class="tune-label" id="bias-label" for="hidden-bias">定番と穴場のまぜかた</label>
-        <!-- 10か所ぶんの点を、定番・知る人ぞ知る・穴場の3つの区画に置きます。
-             **人が多いところに、点が多い。** それだけの絵です。
+        <!-- 10か所のうち何か所が定番で、何か所が穴場か。**帯の幅がその数**です。
+             幅で見せる形に戻しました。
 
-             以前は「割合の帯」と「意味のない点の散らばり」と「文」の3つが
-             並んでいました。同じことを3通りで言ううえ、点は小さくて位置も
-             でたらめで、何を表しているのか読み取れないとのことでした。
-             帯と点をやめて、**点そのものを答え**にします。つまみを動かすと
-             点が区画から区画へ移るので、何が変わるのかが目で分かります。
+             いちど、点を3つの区画に並べる形にしました（人が多いところに
+             点が多い、という絵）。区画が3つ並ぶと高さが 58px になり、
+             上下に名前と文が付くので、つまみの周りだけで4段になります。
+             しかも「区画」という入れものが増えたぶん、**どこを動かすと
+             何が変わるのか**が遠くなりました。
 
-             数は実際に選ぶ関数（mixTargets）から引いています。 -->
-        <div class="mixplot" id="mix-view" aria-hidden="true">
-          <div class="mixplot-zones">
-            <div class="mixzone mixzone--major"><i id="mix-dots-major"></i></div>
-            <div class="mixzone mixzone--known"><i id="mix-dots-known"></i></div>
-            <div class="mixzone mixzone--hidden"><i id="mix-dots-hidden"></i></div>
-          </div>
-          <div class="mixplot-axis">
-            <span><b>定番</b>人が多い</span>
-            <span><b>知る人ぞ知る</b></span>
-            <span><b>穴場</b>人が少ない</span>
+             帯なら1段で済み、幅そのものが数です。読めなかったのは帯の形
+             ではなく、帯に**何も書いていなかった**ことでした（色の3分割
+             だけで、どの色がどれなのか分からない）。名前と数を帯の中に
+             書き、狭くなったら数だけ、もっと狭ければ何も書かない
+             ようにします。数は実際に選ぶ関数（mixTargets）から引きます。
+
+             字が落ちた区間の色は、下の文に付けた同じ色の点で分かります
+             （色だけで意味を運ばないよう、点の横には必ず言葉があります）。 -->
+        <div class="mix" id="mix-view" aria-hidden="true">
+          <div class="mix-bar">
+            <i class="mix-seg mix-seg--major" id="mix-seg-major">
+              <b>定番</b><em>5</em>
+            </i>
+            <i class="mix-seg mix-seg--known" id="mix-seg-known">
+              <b>知る人ぞ知る</b><em>3</em>
+            </i>
+            <i class="mix-seg mix-seg--hidden" id="mix-seg-hidden">
+              <b>穴場</b><em>2</em>
+            </i>
           </div>
         </div>
         <input type="range" class="md-slider" id="hidden-bias"
@@ -255,12 +263,22 @@
                aria-describedby="mix-summary">
         <!-- 読みかたと数を、1つの塊にします。以前は「定番を軸に、穴場を
              少し混ぜます」と「10か所のうち…」が別々の段落で並び、
-             同じことを2度読ませていました。 -->
+             同じことを2度読ませていました。
+
+             数そのものは帯の中にも出ているので、文のほうは短く畳みます
+             （「定番が5か所、…が3か所、…が2か所くらいになります」は
+             390px で3行になり、つまみの下が文だけで埋まっていました）。
+             ここに文を残すのは、帯が aria-hidden だからです。つまみの
+             説明（aria-describedby）はこの文が担います。 -->
         <p class="mix-summary" id="mix-summary">
           <span class="mix-mood" id="hidden-bias-help">定番より</span>
-          10か所のうち、定番が <b id="mix-classic-n">5</b>か所、
-          知る人ぞ知る場所が <b id="mix-known-n">3</b>か所、
-          穴場が <b id="mix-hidden-n">2</b>か所くらいになります</p>
+          10か所行くとして、<span class="mix-part"><span
+            class="mix-key mix-key--major">定番</span><b
+            id="mix-classic-n">5</b>か所</span>／<span class="mix-part"><span
+            class="mix-key mix-key--known">知る人ぞ知る場所</span><b
+            id="mix-known-n">3</b>か所</span>／<span class="mix-part"><span
+            class="mix-key mix-key--hidden">穴場</span><b
+            id="mix-hidden-n">2</b>か所</span>くらい</p>
       </div>
 
     </section>

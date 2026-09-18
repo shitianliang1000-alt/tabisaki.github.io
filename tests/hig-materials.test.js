@@ -100,6 +100,50 @@ test("色は、自分で決めたものにも明暗＋高コントラストの�
     /@media \(prefers-contrast: more\) and \(prefers-color-scheme: dark\)/);
 });
 
+test("反転する色の上に、白を直書きしていない", () => {
+  // --tabi-indigo / --tabi-teal / --hig-blue-deep は、暗い配色で
+  // **明るい色へ反転**します（暗い地の上で読ませるため）。その上に
+  // color: #fff を直書きすると、明るい配色では読めるのに、暗い配色
+  // では白が薄水色に溶けます。実測で 1.69〜2.21（必要なのは 4.5）。
+  //
+  // 「旅程をつくる」のボタンも、選んだチップも、まぜかたの帯も、
+  // そうなっていました。axe は見つけてくれません（絵・押せない
+  // ボタン・畳んだ中身は、色のきまりの対象外だからです）。
+  //
+  // 主色の上の字は --hig-on-accent を使います。明暗で中身が
+  // 入れ替わるので、主色が反転すれば字も一緒に反転します。
+  const FLIPPING = /var\(--(tabi-indigo|tabi-teal|hig-blue-deep)\)/;
+  const bad = [];
+  for (const f of fs.readdirSync(path.join(ROOT, "css"))) {
+    if (!f.endsWith(".css")) continue;
+    const text = css(f);
+    // 宣言の塊（{ … }）ごとに見ます。
+    for (const m of text.matchAll(/\{([^{}]*)\}/g)) {
+      const block = m[1];
+      if (!/background:[^;]*/.test(block)) continue;
+      const bg = block.match(/background(-color)?:[^;]*/)?.[0] ?? "";
+      if (!FLIPPING.test(bg)) continue;
+      if (/color:\s*(#fff\b|#ffffff\b|white\b)/i.test(block)) {
+        bad.push(`${f}: ${block.trim().replace(/\s+/g, " ").slice(0, 90)}`);
+      }
+    }
+  }
+  assert.deepEqual(bad, [],
+    `明暗で反転する色の上に白を直書きしています（--hig-on-accent を使ってください）:\n${bad.join("\n")}`);
+});
+
+test("主色の上の字は、明暗それぞれに用意されている", () => {
+  const tokens = css("hig-tokens.css");
+  const dark = tokens.slice(tokens.indexOf("@media (prefers-color-scheme: dark)"));
+  assert.match(tokens, /--hig-on-accent:\s*#FFFFFF/i,
+    "明るい配色の --hig-on-accent がありません");
+  assert.match(dark, /--hig-on-accent:\s*#[0-9A-F]{6}/i,
+    "暗い配色の --hig-on-accent がありません");
+  const darkValue = dark.match(/--hig-on-accent:\s*(#[0-9A-F]{6})/i)[1];
+  assert.notEqual(darkValue.toUpperCase(), "#FFFFFF",
+    "暗い配色でも白のままです（主色が明るいので読めません）");
+});
+
 test("縁のぼかしは、浮いているものがあるところだけ", () => {
   // WWDC25「Get to know the new design system」:
   // scroll edge effect は飾りではない。浮いている操作が無いところには
