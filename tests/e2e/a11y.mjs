@@ -104,6 +104,79 @@ async function audit(name, { dark = false, plan = false, width = 1280 } = {}) {
   await ctx.close();
 }
 
+/**
+ * axe が見ないところの、字と地の明るさの差を測ります。
+ *
+ * axe の色のきまりは、**見えていて、操作できて、読み上げにも出る**
+ * ものだけを見ます。次の3つは、そのどれでもないので飛ばされます。
+ *
+ *   ・aria-hidden を付けたもの（まぜかたの帯。数は下の文に書いてあり、
+ *     帯は絵なので読み上げには出しません）
+ *   ・disabled のボタン（読み込み中の「旅程をつくる」）
+ *   ・畳んだ <details> の中（こだわりのチップ）
+ *
+ * ところが、そこにこそ**主色の上に置いた白い字**が集まっていました。
+ * 暗い配色では主色が明るい水色へ反転するので、白のままだと 1.7〜2.2
+ * しかありません（必要なのは 4.5）。axe は黙ったままでした。
+ * 飛ばされる場所は、自分で測ります。
+ */
+async function contrast(name, dark) {
+  const ctx = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    colorScheme: dark ? "dark" : "light",
+    serviceWorkers: "block",
+  });
+  const page = await ctx.newPage();
+  await page.goto(`${BASE}/index.html`, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1200);
+  // 畳んであるものを開き、チップを1つ選んで、選ばれた状態も測ります。
+  await page.click("#tune > summary").catch(() => {});
+  await page.click('[data-genre="onsen"]').catch(() => {});
+  await page.waitForTimeout(300);
+
+  const bad = await page.evaluate(() => {
+    const lum = (c) => {
+      const [r, g, b] = c.match(/\d+/g).slice(0, 3).map(Number).map((v) => {
+        v /= 255;
+        return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a, b) => {
+      const [x, y] = [lum(a), lum(b)];
+      return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+    };
+    const spots = [
+      ["まぜかたの帯（定番）", "#mix-seg-major"],
+      ["まぜかたの帯（知る人ぞ知る）", "#mix-seg-known"],
+      ["まぜかたの帯（穴場）", "#mix-seg-hidden"],
+      ["旅程をつくる", ".md-fab-extended"],
+      ["塗りつぶしのボタン", ".md-btn--filled"],
+      ["選んだチップ", '.md-chip[aria-pressed="true"]'],
+      ["手順の番号", ".home-steps li > i"],
+    ];
+    const out = [];
+    for (const [label, sel] of spots) {
+      const e = document.querySelector(sel);
+      if (!e) continue;
+      const st = getComputedStyle(e);
+      if (st.backgroundColor.startsWith("rgba(0, 0, 0, 0")) continue;
+      const r = ratio(st.color, st.backgroundColor);
+      if (r < 4.5) out.push(`${label}（${sel}）: ${r.toFixed(2)}（${st.color} / ${st.backgroundColor}）`);
+    }
+    return out;
+  });
+  await ctx.close();
+
+  if (!bad.length) {
+    console.log(`  ok   ${name}`);
+  } else {
+    failures++;
+    console.log(`  NG   ${name}`);
+    for (const line of bad) console.log(`       4.5 に足りません: ${line}`);
+  }
+}
+
 console.log(`旅さき — 読み上げ・色・構造のテスト（${BASE}）\n`);
 
 // 条件の画面と旅程の画面を、明暗それぞれと、携帯の幅で。
@@ -114,6 +187,10 @@ await audit("条件の画面（携帯の幅）", { width: 390 });
 await audit("旅程の画面（明るい配色）", { plan: true });
 await audit("旅程の画面（暗い配色）", { dark: true, plan: true });
 await audit("旅程の画面（携帯の幅）", { width: 390, plan: true });
+
+// axe が飛ばすところ（絵・押せないボタン・畳んだ中身）を、自分で測ります。
+await contrast("主色の上の字（明るい配色）", false);
+await contrast("主色の上の字（暗い配色）", true);
 
 await browser.close();
 console.log(failures ? `\n${failures} 画面に直すところがあります`
