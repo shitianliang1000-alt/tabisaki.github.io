@@ -18,6 +18,8 @@ import { estimatedTravel } from "./reliability.js";
 import { isTouring, longDriveNote, restSlots } from "./touring.js";
 import { itineraryText } from "./share.js";
 import { icsFilename, toIcs } from "./ical.js";
+import { mountSketch } from "./sketch.js";
+import { KIND_NOTE } from "./modes.js";
 
 const ICON = {
   transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕",
@@ -181,7 +183,7 @@ const SLOW_AFTER_SEC = 40;
 const fmtElapsed = (sec) =>
   `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 
-export function renderProgress(container, step, detail = "") {
+export function renderProgress(container, step, detail = "", extra = null) {
   // 作り直さず、書き換えます。
   //
   // 以前は毎回 textContent = "" で消して組み直していました。段が進む
@@ -206,10 +208,29 @@ export function renderProgress(container, step, detail = "") {
     );
     container.append(card);
     startClock(container, card);
+    // 待っているあいだに、旅が形になっていくのを見せます（js/sketch.js）。
+    // 出発地・読み込まれた収録・候補・決まった順を、本物の座標で描きます。
+    // 6段の一覧と経過時間だけでは、止まっていないことは分かっても
+    // 何が起きているのかは分かりませんでした。
+    //
+    // **札を画面に置いてから**載せます。絵は「札が画面から消えたら
+    // 止まる」作法で動くので、置く前に載せると最初の1コマで自分から
+    // 止まります（実際そうなって、何も描かれませんでした）。
+    if (extra?.trip) {
+      card.__sketch = mountSketch(card, { trip: extra.trip });
+    }
   }
 
   card.querySelector(".step-detail").textContent =
     detail || STEPS[Math.min(step, STEPS.length - 1)];
+  // 絵に、いまの段と材料を渡します。
+  if (card.__sketch) {
+    const patch = { step };
+    if (extra?.stars) patch.stars = extra.stars;
+    if (extra?.picks) patch.picks = extra.picks;
+    if (extra?.route) patch.route = extra.route;
+    card.__sketch.update(patch);
+  }
   const bar = card.querySelector(".md-progress");
   bar.setAttribute("aria-valuenow", String(step + 1));
   bar.querySelector("i").style.width =
@@ -1670,6 +1691,32 @@ function renderItem(item, index, itin, handlers, sunNote) {
       line.append(" ", srcChip(c, "", src));
     }
     info.append(line);
+    // 乗り物ならではの断り書き（js/modes.js の KIND_NOTE）。
+    //
+    // 「4時間46分」とだけ出しても、空路の区間は現地で足りません。
+    // 空港には早く着く必要があり、搭乗券は別に取る必要があります。
+    // 船は欠航します。routes.js が路線名から見分けた種類ごとに、
+    // 旅程が現地で壊れないために要ることだけを書きます。
+    if (item.kind === "transit" && item.vehicle?.kinds?.length) {
+      const icons = { air: "✈", ferry: "⛴", shinkansen: "🚄", coach: "🚌",
+                      bus: "🚌" };
+      for (const kind of item.vehicle.kinds) {
+        const note = KIND_NOTE[kind];
+        if (!note) continue;
+        info.append(el("p", { class: "sun vehicle" },
+          el("span", { "aria-hidden": "true" }, icons[kind] ?? "•"),
+          el("span", {}, note)));
+      }
+      // 指定した乗り物で組めなかったとき。黙って陸の経路を出すと、
+      // 指定を無視したことに気づけません。
+      if (item.vehicle.preferMet === false) {
+        info.append(el("p", { class: "sun vehicle tight" },
+          el("span", { "aria-hidden": "true" }, "！"),
+          el("span", {},
+            "指定した乗り物（飛行機・船）を使う便が見つからなかったので、"
+            + "ほかの乗り物で組んでいます。")));
+      }
+    }
     // 長い運転には、休憩のことを添えます。「4時間の移動」と1行だけ
     // 書いておいて、休むことに触れないのは不親切です。
     if (item.kind === "transit" && isTouring(itin) && item.walk !== true) {
@@ -1857,7 +1904,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
         el("span", {}, r.text));
       if (r.url) {
         p.append(el("a", { href: r.url, target: "_blank", rel: "noreferrer",
-                           class: "link" }, "予約ページ"));
+                           class: "link" }, "公式サイトで申し込む"));
       }
       info.append(p);
     }
@@ -2027,7 +2074,7 @@ export function openSheet(item, { onClose, describe }) {
     }, reserve.text);
     if (reserve.url) {
       p.append(" ", el("a", { href: reserve.url, target: "_blank",
-                              rel: "noreferrer" }, "予約ページ"));
+                              rel: "noreferrer" }, "公式サイトで申し込む"));
     }
     body.append(p);
   }

@@ -82,6 +82,46 @@ export function directionsFromHereUrl(to, mode = "transit") {
   return url.toString();
 }
 
+/**
+ * 公式サイト。https のものだけを通します。
+ *
+ * http のままだと、開いた先で通信の中身が読まれます。Wikidata には
+ * 古い http の登録が残っていることがあるので、https に書き換えて
+ * 通します（多くのサイトは https に転送します。転送しないサイトは
+ * 開けませんが、平文で開かせるよりはましです）。
+ */
+export function officialUrl(place) {
+  const raw = String(place?.url ?? "").trim();
+  if (!raw) return "";
+  if (/^https:\/\//i.test(raw)) return raw;
+  if (/^http:\/\//i.test(raw)) return raw.replace(/^http:/i, "https:");
+  return "";
+}
+
+/**
+ * 電話番号。Wikidata の形（+81-982-72-2413）を、日本の形に直します。
+ *
+ *   表示   0982-72-2413      （国内からかける形）
+ *   リンク tel:+81982722413  （携帯がそのままかけられる形）
+ *
+ * 出どころの形はデータに残し、直すのは画面に出すときだけです。
+ *
+ * @returns {{display:string, href:string}|null}
+ */
+export function phoneOf(place) {
+  const raw = String(place?.tel ?? "").trim();
+  if (!raw) return null;
+  const digits = raw.replace(/[^\d+]/g, "");
+  if (!/^\+?\d{6,}$/.test(digits)) return null;
+  let display = raw;
+  if (/^\+81/.test(digits)) {
+    // 国番号を落として、頭に 0 を足します。区切りは元のまま使います。
+    display = raw.replace(/^\+81[-\s]?/, "0");
+  }
+  const href = `tel:${digits.startsWith("+") ? digits : digits}`;
+  return { display, href };
+}
+
 /** 日本語 Wikipedia の記事。 */
 export function wikipediaUrl(title) {
   const enc = encodeURIComponent(String(title ?? "").replace(/ /g, "_"));
@@ -135,6 +175,19 @@ export function linksForItem(item, ctx = {}) {
     case "spot": {
       if (ctx.place) {
         out.push({ label: "地図で開く", url: mapsPlaceUrl(ctx.place), primary: true });
+        // 公式サイトと電話。
+        //
+        // 収録の半分は Wikidata から来ていて、そこには公式サイト（P856）と
+        // 電話番号（P1329）があります。tools/enrich_wikidata.py が段に
+        // 書き戻したものをそのまま出します（作り話ではなく、あるものを
+        // 取りに行っただけです）。
+        //
+        // 圏外で地図アプリが重いとき、電話は命綱です。予約が要るかどうかも
+        // 公式でしか確かめられません。
+        const site = officialUrl(ctx.place);
+        if (site) out.push({ label: "公式サイト", url: site });
+        const tel = phoneOf(ctx.place);
+        if (tel) out.push({ label: `電話 ${tel.display}`, url: tel.href });
         if (ctx.wikipedia) {
           out.push({ label: "Wikipedia", url: wikipediaUrl(ctx.wikipedia) });
         }

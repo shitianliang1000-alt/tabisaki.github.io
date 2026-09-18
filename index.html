@@ -433,6 +433,24 @@
           道のりで組みます）。</p>
       </div>
 
+      <!-- 予約済みの宿。
+           ------------------------------------------------------------
+           旅程を組む側（planner.js の pushLodging）は「指定された宿」を
+           受け取れるのに、**入力する欄がありませんでした。** すでに
+           取ったホテルがあっても、旅程は別の場所に宿を置きます。
+           予約番号は要りません。住所か最寄り駅で足ります。 -->
+      <div class="tune-group" id="lodging-group">
+        <label class="md-field">
+          <span class="md-field-label">予約済みの宿（あれば）</span>
+          <input list="place-list" id="lodging-place"
+                 placeholder="駅名か地名（例: 松江しんじ湖温泉駅）"
+                 autocomplete="off">
+        </label>
+        <p class="md-field-help">宿が決まっているなら、そこを毎晩の
+          終点にして組みます。泊まり歩く旅（毎晩別の宿）は、
+          ここでは指定できません。</p>
+      </div>
+
       <div class="tune-group" id="stay-group">
         <span class="tune-label" id="stay-label">宿の取りかた</span>
         <div class="md-segmented" id="stay-choice"

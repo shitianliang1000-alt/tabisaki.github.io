@@ -1101,6 +1101,50 @@ await check("指で押した跡が、残らない", async () => {
   }
 });
 
+// 待っているあいだの絵が、本当に描かれること。
+//
+// 旅程を組むのに圏内では1〜2分かかります。そのあいだ、6段の一覧と
+// 経過時間だけでは「止まっていないことは分かるが、何が起きているのかは
+// 分からない」画面でした。出発地・収録・候補・決まった順を本物の座標で
+// 描き、収録の説明文を一言ずつ流します（js/sketch.js）。
+//
+// 圏外の試験では3秒で組み上がってしまい、本番の流れでは確かめられない
+// ので、段を手で進める頁（tests/e2e/pages/sketch.html）で見ます。
+// **描かれた画素を数えます。** 以前、札を画面に置く前に絵を載せて
+// いて、最初の1コマで自分から止まり、何も描かれないまま気づきません
+// でした。
+await check("待っているあいだの絵が、描かれている", async () => {
+  const pg = await browser.newPage({ viewport: { width: 390, height: 700 } });
+  try {
+    await pg.goto(`${BASE}/tests/e2e/pages/sketch.html`,
+                  { waitUntil: "domcontentloaded" });
+    await pg.waitForTimeout(600);
+    const at = async (step) => {
+      await pg.evaluate((s) => window.__go(s), step);
+      await pg.waitForTimeout(1200);
+      return pg.evaluate(() => {
+        const c = document.querySelector(".sketch canvas");
+        if (!c) return { painted: 0, caption: "" };
+        const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+        let painted = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i] > 0) painted += 1;
+        return { painted,
+                 caption: document.querySelector(".sketch-caption")?.textContent ?? "" };
+      });
+    };
+    const s0 = await at(0);
+    assert(s0.painted > 0, "何も描かれていません（絵が止まっています）");
+    const s2 = await at(2);
+    // 候補が入ると、星が明るくなり、一言が収録の説明文になります。
+    assert(s2.painted > s0.painted, "候補を渡しても絵が変わりません");
+    assert(/—/.test(s2.caption), `一言が出ていません: ${s2.caption}`);
+    const s4 = await at(4);
+    assert(s4.painted > 0, "決まった順が描かれていません");
+  } finally {
+    await pg.close();
+  }
+});
+
 await check("ページの例外が出ていない", () => {
   assert(pageErrors.length === 0, pageErrors.join(" / "));
 });

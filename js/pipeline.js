@@ -409,7 +409,9 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     return { ...c, spots: shown };
   });
 
-  onProgress(2);
+  // 絵に、候補を渡します（待ち画面で、絞られた星が明るくなります）。
+  // 描くのは本物の座標です。候補は多くても数百件なので、そのまま。
+  onProgress(2, "", { picks: candidatePool(candidates).slice(0, 400) });
   const planOpts = { maxRegions, days, mustSpotIds, avoidSpotIds,
                      groupById: scope.groupById ?? null,
                      // 車で来ている人に、駅前だけを並べないための合図です。
@@ -483,13 +485,15 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   }
 
   // 採用が決まってから、実際の経路を取りにいきます（ここだけが課金対象）。
-  onProgress(4, "採用した案の経路を確認しています");
+  // 絵には決まった順を渡します。線が落ち着き、番号が打たれます。
+  onProgress(4, "採用した案の経路を確認しています",
+             { route: (checked.result?.visits ?? []).map((v) => v.spot) });
   const routed = await verifyProposal(proposal, trip, candidates, kb,
                                       { useRoutes: true,
                                         nightTrain: intent.nightTrain });
   if (routed.result.visits.length) checked = routed;
 
-  onProgress(5);
+  onProgress(5, "", { route: (checked.result?.visits ?? []).map((v) => v.spot) });
   // 使い回せるように、読み取り結果を外へ返します
   const region = kb.regionsById.get(proposal.regionId);
   const reasons = new Map(proposal.picks.map((p) => [p.spotId, p.reason]));
