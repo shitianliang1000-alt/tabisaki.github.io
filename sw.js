@@ -90,6 +90,8 @@ const SHELL_FILES = [
   "./js/meals.js",
   "./js/mix.js",
   "./js/modes.js",
+  "./js/nextleg.js",
+  "./js/normals.js",
   "./js/notify.js",
   "./js/photos.js",
   "./js/pipeline.js",

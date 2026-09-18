@@ -227,6 +227,30 @@ test("天気が取れなくても、旅程はそのまま出る", async () => {
   assert.deepEqual(itin.replan.days, []);
 });
 
+test("予報の出ない先の旅には、その時期の平年が付く", async () => {
+  // 予報は16日先までです。宿の都合で1か月先に組む旅には、いまの画面は
+  // 天気の話をいっさいしませんでした。**予報ではなく**、過去の観測の
+  // 平均を添えます（js/normals.js）。取りにいく先は注入します。
+  const normals = async () => ({ ok: true,
+    text: "11月20日ごろの平年は、最高 15℃・最低 6℃ です。"
+      + "これは予報ではなく、過去の観測の平均です。",
+    value: { years: 10, samples: 70, tmaxMean: 15, tminMean: 6,
+             tmaxLo: 12, tmaxHi: 18, rainDays: 24, rainRate: 34 } });
+  const itin = await planTrip({ trip: trip(), kb, normals,
+                                forecast: () => Promise.resolve({ ok: false }) });
+  assert.ok(itin.replan.normals, "平年が付いていません");
+  assert.match(itin.replan.normals.text, /予報ではなく/);
+  assert.equal(itin.replan.normals.tmaxMean, 15);
+});
+
+test("平年が取れなくても、旅程はそのまま出る", async () => {
+  const itin = await planTrip({ trip: trip(), kb,
+    forecast: () => Promise.resolve({ ok: false }),
+    normals: () => Promise.reject(new Error("つながりません")) });
+  assert.ok(itin.days.length > 0, "平年の失敗で旅程が消えています");
+  assert.equal(itin.replan.normals, undefined);
+});
+
 test("天気を使わない指定ができる（軽量モード用）", async () => {
   let called = 0;
   const spy = () => { called++; return Promise.resolve({ ok: false }); };

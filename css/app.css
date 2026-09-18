@@ -402,6 +402,10 @@ p, li { text-wrap: pretty; }
 }
 .sun.vehicle.tight { color: var(--hig-red-deep); font-weight: 600; }
 .sun.ticket { color: var(--hig-label-2); }
+/* いまの時刻で引き直した結果。行の時刻は動いていないので、
+   予定そのものと読み違えないよう、本文寄りの色にします。 */
+.sun.requeried { color: var(--hig-label-2); }
+.sun.requeried.tight { color: var(--hig-red-deep); font-weight: 600; }
 /* 終電。ふつうは本文寄りの色で、余裕が少ないときだけ強くします。
    色だけに頼っていないことは文のほうが担保しています（「30分しか
    ありません」「この組み方では帰れません」と書いてあります）。 */
@@ -1026,6 +1030,20 @@ p, li { text-wrap: pretty; }
   font-size: var(--hig-t-footnote); line-height: 1.7;
 }
 .today-hint .ic { align-self: center; color: var(--md-sys-color-primary); }
+/* 次の便を引き直した結果。**旅程の時刻は動いていません**ので、
+   予定そのものと見分けが付くよう、囲みに入れます。 */
+.today-requery {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 14px 0 0; padding: 10px 12px;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-highest,
+                  var(--md-sys-color-surface-container-high));
+  font-size: var(--hig-t-footnote); line-height: 1.7;
+}
+.today-requery .ic { align-self: center; }
+.today-requery > span { flex: 1 1 10em; min-width: 0; }
+.today-requery.lv-push { color: var(--hig-red-deep); font-weight: 600; }
+.today-requery.lv-early { color: var(--md-sys-color-primary); }
 /* できないことを書く行。小さく、でも必ず出します。 */
 .today-note {
   margin: 10px 0 0; font-size: var(--hig-t-caption1); line-height: 1.7;
@@ -2049,6 +2067,18 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   accent-color: var(--md-sys-color-primary);
 }
 .rp-ic { flex: none; font-size: var(--hig-t-subhead); }
+/* その時期の「ふつう」（平年値）。**予報ではありません**ので、
+   予報の一覧（.weather-days）と見分けが付くよう、囲みに入れます。 */
+.normals {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 12px 0 0; padding: 10px 12px;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-high);
+  font-size: var(--hig-t-footnote); line-height: 1.75;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.normals .ic { align-self: center; }
+.normals > span { flex: 1 1 10em; min-width: 0; }
 .rp-tx { font-size: var(--hig-t-footnote); line-height: 1.75; }
 .rp-actions { margin-top: 14px; }
 .weather-days li { font-size: var(--hig-t-footnote); }

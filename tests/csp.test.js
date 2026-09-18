@@ -41,6 +41,29 @@ for (const file of ["index.html", "admin/index.html"]) {
   });
 }
 
+// 天気の入口。
+//
+// 予報（api.open-meteo.com）と過去の観測（archive-api.open-meteo.com）は
+// **別のホスト**です。片方しか書いていないと、もう片方はブラウザが
+// 黙って止めます。アプリから見えるのは「取得できませんでした」だけで、
+// 相手には1件も届きません。js/ が実際に呼んでいる先と突き合わせます。
+test("天気を聞く先が、ぜんぶ通してある", async () => {
+  const sources = await connectSrc("index.html");
+  const js = ["js/weather.js", "js/normals.js"];
+  const hosts = new Set();
+  for (const f of js) {
+    const src = await readFile(new URL(f, root), "utf8");
+    for (const m of src.matchAll(/https:\/\/[a-z0-9.-]+/g)) {
+      hosts.add(new URL(m[0]).origin);
+    }
+  }
+  assert.ok(hosts.size >= 2, `呼び先が ${hosts.size} 件しか拾えませんでした`);
+  for (const h of hosts) {
+    assert.ok(sources.includes(h),
+      `connect-src に ${h} がありません（${sources.join(" ")}）`);
+  }
+});
+
 test("connect-src の途中で、指示が切れていない", async () => {
   const sources = await connectSrc("index.html");
   for (const s of sources) {
