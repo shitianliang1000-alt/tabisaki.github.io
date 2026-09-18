@@ -46,6 +46,7 @@ import { forecastFor, summarizeDay } from "./weather.js";
 import { suggestReplan } from "./replan.js";
 import { attachBackups } from "./backup.js";
 import { attachMeals, dietNote } from "./meals.js";
+import { attachScenic } from "./scenic.js";
 import { eventNotesFor } from "./events.js";
 import { attachLuggage, luggagePlanFor } from "./luggage.js";
 import { storyFor } from "./story.js";
@@ -646,6 +647,14 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // その店が条件に合うかは確かめられません。
   const dn = dietNote(trip.diet);
   if (dn) itin.warnings = [...(itin.warnings ?? []), dn];
+  // 8.5 移動そのものを、旅の一部にする。
+  //
+  //     車で来ている人は、走ること自体を目的にしています。電車でも
+  //     同じで、五能線の日本海沿いは乗ることが目的になります。
+  //     これまで移動は「あいだの時間」でしかありませんでした。
+  //
+  //     時刻も費用も経路も変えません。**説明だけ**を足します。
+  itin.scenicCount = attachScenic(itin, { transport: trip.transport });
   // 9. その時期ならではのこと、荷物、旅の意味づけ。
   //    どれも数えれば決まるので、AIには書かせません
   //    （同じ旅程で毎回違う説明が出ると、説明として成立しません）。

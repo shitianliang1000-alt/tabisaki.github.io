@@ -1653,6 +1653,26 @@ function renderItem(item, index, itin, handlers, sunNote) {
           el("span", {}, note)));
       }
     }
+    // 移動そのものの楽しみ（js/scenic.js）。
+    //
+    // 走る道と乗る路線では、**確かさが違います**。路線は調べた結果に
+    // 名前が書いてあるので言い切れますが、どの道を通るかは分かりません。
+    // 言いかたを分けます。
+    if (item.scenic?.kind === "line") {
+      info.append(el("p", { class: "sun scenic" },
+        el("span", { "aria-hidden": "true" }, "🌄"),
+        el("span", {},
+          `${item.scenic.name}。${item.scenic.what}`)));
+    } else if (item.scenic?.kind === "road") {
+      for (const r of item.scenic.roads) {
+        info.append(el("p", { class: "sun scenic" },
+          el("span", { "aria-hidden": "true" }, "🛣"),
+          el("span", {},
+            `この辺り（約${r.km}km）に${r.name}があります。${r.what}`
+            + (r.note ? ` ${r.note}` : "")
+            + "（この旅程の経路には入れていません）")));
+      }
+    }
   }
 
   // 公共交通の中身。所要時間だけでは、現地で予定どおりかを確かめられません。
