@@ -21,15 +21,17 @@ import { haversineKm } from "./feasibility.js";
  * 説明に使う軸。並びはここで決まります。
  * 毎回入れ替わると、読み手が比べられません。
  */
+// icon は絵文字ではなく js/icons.js の名前です（端末ごとに絵が変わり、
+// 大きさもそろわないため、絵文字は画面から外しました）。
 export const AXES = {
-  wish:  { label: "希望との一致", icon: "🎯", order: 1 },
-  move:  { label: "移動のしやすさ", icon: "🚃", order: 2 },
+  wish:  { label: "希望との一致", icon: "target", order: 1 },
+  move:  { label: "移動のしやすさ", icon: "transit", order: 2 },
   // 車の旅のときだけ出ます。移動のしやすさのすぐ後ろ（2.5）に置くのは、
   // 車の人にとっては「どんな道の先か」が選ぶ理由そのものだからです。
-  drive: { label: "道の楽しさ", icon: "🚗", order: 2.5 },
-  crowd: { label: "混雑の避けやすさ", icon: "👥", order: 3 },
-  known: { label: "定番と穴場", icon: "✦", order: 4 },
-  season: { label: "季節の合いかた", icon: "🍁", order: 5 },
+  drive: { label: "道の楽しさ", icon: "car", order: 2.5 },
+  crowd: { label: "混雑の避けやすさ", icon: "crowd", order: 3 },
+  known: { label: "定番と穴場", icon: "star", order: 4 },
+  season: { label: "季節の合いかた", icon: "leaf", order: 5 },
 };
 
 const clamp = (n) => Math.max(0, Math.min(100, Math.round(n)));
@@ -227,11 +229,11 @@ export function tripFit(itin, trip) {
 // 見当はつきます。個別のスポットが値を持っていれば、そちらを使います。
 
 const QUALITY_AXES = [
-  { key: "history", label: "歴史", icon: "🏯" },
-  { key: "nature", label: "自然", icon: "🌿" },
-  { key: "photo", label: "写真", icon: "📷" },
-  { key: "food", label: "食", icon: "🍽" },
-  { key: "activity", label: "体験", icon: "🎫" },
+  { key: "history", label: "歴史", icon: "castle" },
+  { key: "nature", label: "自然", icon: "leaf" },
+  { key: "photo", label: "写真", icon: "camera" },
+  { key: "food", label: "食", icon: "meal" },
+  { key: "activity", label: "体験", icon: "ticket" },
 ];
 
 /** 分類 → [歴史, 自然, 写真, 食, 体験]（0〜5）。 */

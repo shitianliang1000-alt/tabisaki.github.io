@@ -49,18 +49,32 @@ const HUE_BAND = {
 
 const DEFAULT_BAND = [24, 48];
 
-/** 分類に添える記号。写真が無いぶん、形で見分けられるようにします。 */
+/**
+ * 分類に添える記号。写真が無いぶん、形で見分けられるようにします。
+ *
+ * **絵文字ではなく、js/icons.js の名前を入れます。** 絵文字は端末ごとに
+ * 別の絵で、多色で、大きさがそろいません（iPhone の 🏯 と Android の
+ * 🏯 は別物です）。ここは名前だけを持ち、形を描くのは icons.js、
+ * 貼るのは ui.js の仕事にします。
+ *
+ * 分類は40近くありますが、形は**見分けが付く数**に抑えています。
+ * 17px の記号で「渓谷」と「国立公園」を描き分けても読めません。
+ */
 const ICON = {
-  温泉: "♨", 温泉地: "♨", 城: "🏯", 神社: "⛩", 寺院: "🛕", 教会: "⛪",
-  山: "⛰", 丘: "⛰", 高原: "⛰", 登山: "🥾", 滝: "💧", 川: "💧",
-  湖: "🌊", 海岸: "🌊", 漁港: "⚓", 渓谷: "🏞", 公園: "🌳", 庭園: "🌸",
-  国立公園: "🏞", 国定公園: "🏞", 自然: "🌿", 牧場: "🐄",
-  美術館: "🎨", 博物館: "🏛", 文化施設: "🏛", 建築: "🏛",
-  水族館: "🐟", 動物園: "🦌", テーマパーク: "🎡", スキー場: "⛷",
-  展望台: "🔭", 灯台: "🗼", ロープウェイ: "🚡",
-  市場: "🧺", 商店街: "🏮", グルメ: "🍽", 飲食店: "🍽", 酒蔵: "🍶",
-  史跡: "🗿", 世界遺産: "🌏", 町並み: "🏘", 商業施設: "🛍",
-  乗り物: "🚃", 年中行事: "🎏", 観光名所: "📍",
+  温泉: "onsen", 温泉地: "onsen", 城: "castle", 神社: "shrine",
+  寺院: "temple", 教会: "church",
+  山: "mountain", 丘: "mountain", 高原: "mountain", 登山: "hike",
+  滝: "water", 川: "water",
+  湖: "wave", 海岸: "wave", 漁港: "anchor", 渓谷: "valley",
+  公園: "tree", 庭園: "flower",
+  国立公園: "valley", 国定公園: "valley", 自然: "leaf", 牧場: "ranch",
+  美術館: "palette", 博物館: "museum", 文化施設: "museum", 建築: "museum",
+  水族館: "fish", 動物園: "paw", テーマパーク: "ferris", スキー場: "snow",
+  展望台: "scope", 灯台: "tower", ロープウェイ: "ropeway",
+  市場: "basket", 商店街: "lantern", グルメ: "meal", 飲食店: "meal",
+  酒蔵: "sake",
+  史跡: "statue", 世界遺産: "globe", 町並み: "town", 商業施設: "shop",
+  乗り物: "transit", 年中行事: "festival", 観光名所: "spot",
 };
 
 /**
@@ -69,6 +83,7 @@ const ICON = {
  * @param {{id?:string, name?:string, category?:string}} spot
  * @returns {{css:string, hue:number, icon:string, ink:string}}
  *   css … background にそのまま入れられる文字列
+ *   icon … js/icons.js の記号の名前（絵文字ではありません）
  *   ink … その絵の上に載せる文字の色（明るい絵には濃い字）
  */
 export function artFor(spot) {
@@ -108,7 +123,8 @@ export function artFor(spot) {
 
   return {
     css, hue,
-    icon: ICON[spot?.category] ?? "📍",
+    // 記号の「名前」です。形は js/icons.js が持っています。
+    icon: ICON[spot?.category] ?? "spot",
   };
 }
 

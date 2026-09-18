@@ -28,6 +28,7 @@ import { planTrip } from "./pipeline.js";
 import { haversineKm } from "./feasibility.js";
 import { configureQuota, describeUsage, quota } from "./quota.js";
 import { artFor, moodArt } from "./art.js";
+import { icon } from "./icons.js";
 import { mixTargets } from "./mix.js";
 import { photoFor } from "./photos.js";
 import { applyEdit, describeEdit, parseEdit } from "./edit.js";
@@ -205,7 +206,7 @@ function renderRecent() {
       type: "button", class: "recent-del",
       "aria-label": `${item.title} を一覧から消す`,
       onclick: () => { removeHistory(item.id); renderRecent(); },
-    }, "\u2715");
+    }, icon("close"));
 
     list.append(el("li", { class: "recent-item" }, row, del));
   }
@@ -934,7 +935,7 @@ function moodChip(label, full, onPick) {
                              "aria-pressed": "false",
                              style: `background-image:${art.css}` });
   btn.append(
-    el("span", { class: "m-ic", "aria-hidden": "true" }, art.icon),
+    icon(art.icon, { class: "m-ic" }),
     el("span", { class: "m-tx" }, label));
   btn.addEventListener("click", () => onPick(full, btn));
   return btn;

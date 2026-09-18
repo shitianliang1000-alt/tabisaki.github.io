@@ -1103,7 +1103,7 @@ async function computeRouteUncached(points, opts = {}) {
   }
   if (!hasMapsAccess()) {
     return { ...(await estimatedLegs(points)), mode,
-             error: "経路APIのキーが未設定です（⚙ 設定 → 開発者向け から入力できます）" };
+             error: "経路APIのキーが未設定です（設定 →「開発者向け」から入力できます）" };
   }
   if (!USE_ROUTES_API) {
     usage.skipped++;

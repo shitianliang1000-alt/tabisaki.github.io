@@ -6,8 +6,11 @@
 // 文字で渡せるようにします。写真も地図も要りません。何時にどこか、
 // だけで当日はまわれます。
 
-const ICON = { transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕",
-               luggage: "🧳" };
+// 印は**言葉**にします。以前は絵文字（🚃 📍 🍽）でした。貼る先は
+// LINE・メール・メモ帳で、相手の端末に無い絵文字は豆腐（□）になります。
+// 「□ 出雲大社」では何の行か分かりません。js/icons.js の TEXT_MARK は
+// 画面の記号と対になる短い当て字です（[移動] [立寄] …）。
+import { TEXT_MARK } from "./icons.js";
 
 function pad(n) { return String(n).padStart(2, "0"); }
 
@@ -43,7 +46,7 @@ export function itineraryText(itin, opts = {}) {
     for (const item of d.items ?? []) {
       // 空き時間は、書いても相手にすることがありません。
       if (item.kind === "free") continue;
-      const ic = ICON[item.kind] ?? "•";
+      const ic = TEXT_MARK[item.kind] ?? "・";
       const title = String(item.title ?? "").trim();
       const minutes = item.start && item.end
         ? Math.round((new Date(item.end) - new Date(item.start)) / 60000) : 0;

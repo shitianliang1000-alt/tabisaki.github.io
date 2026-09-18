@@ -21,13 +21,13 @@
 // 出どころを言うだけにして、確かめるのは公式で、と添えます。
 
 export const LEVELS = {
-  verified:  { label: "収録データ", icon: "🟢", rank: 0,
+  verified:  { label: "収録データ", icon: "level-verified", rank: 0,
                tone: "収録している実データです。",
                action: "変更されることがあるので、直前に公式でもご確認ください。" },
-  estimated: { label: "目安",       icon: "🟡", rank: 1,
+  estimated: { label: "目安",       icon: "level-estimated", rank: 1,
                tone: "実際と異なる場合があります。",
                action: "時間に余裕を持ってお出かけください。" },
-  ai:        { label: "AI調査",     icon: "🟠", rank: 2,
+  ai:        { label: "AI調査",     icon: "level-ai", rank: 2,
                tone: "公式情報を確認できていません。",
                action: "訪問前に、公式サイトで営業時間をご確認ください。" },
 };

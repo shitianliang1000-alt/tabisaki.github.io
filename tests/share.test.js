@@ -30,9 +30,9 @@ test("題・日付・時刻つきの行になる", () => {
   const text = itineraryText(itin);
   assert.match(text, /^草津温泉 · 群馬県\n/);
   assert.match(text, /■ 9月13日\(日\)/);
-  assert.match(text, /9:00 🚃 東京駅 → 長野原草津口駅\n {6}約132分/);
-  assert.match(text, /12:16 📍 草津温泉 湯畑（88分）/);
-  assert.match(text, /13:44 🍽 昼食/);
+  assert.match(text, /9:00 \[移動\] 東京駅 → 長野原草津口駅\n {6}約132分/);
+  assert.match(text, /12:16 \[立寄\] 草津温泉 湯畑（88分）/);
+  assert.match(text, /13:44 \[食事\] 昼食/);
 });
 
 test("空き時間は書かない", () => {
@@ -50,7 +50,7 @@ test("複数日なら「n日目」が付き、リンクは末尾に", () => {
 test("保存から戻した文字列の日時でも落ちない", () => {
   const frozen = JSON.parse(JSON.stringify(itin));
   const text = itineraryText(frozen);
-  assert.match(text, /12:16 📍 草津温泉 湯畑（88分）/);
+  assert.match(text, /12:16 \[立寄\] 草津温泉 湯畑（88分）/);
 });
 
 test("旅程が空でも一文は返る", () => {

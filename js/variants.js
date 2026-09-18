@@ -14,17 +14,17 @@
 
 export const VARIANTS = {
   relaxed: {
-    key: "relaxed", icon: "🌿", label: "ゆったり",
+    key: "relaxed", icon: "leaf", label: "ゆったり",
     blurb: "立ち寄りを絞って、1か所を長く。移動を減らします。",
     pace: "relaxed", hiddenBias: 0.35,
   },
   classic: {
-    key: "classic", icon: "⭐", label: "王道",
+    key: "classic", icon: "star", label: "王道",
     blurb: "定番を中心に、無理のない数で回ります。",
     pace: "balanced", hiddenBias: 0.25,
   },
   explore: {
-    key: "explore", icon: "🗺", label: "探索",
+    key: "explore", icon: "map", label: "探索",
     blurb: "穴場を多めに、数も多めに。歩く距離は増えます。",
     pace: "packed", hiddenBias: 0.75,
   },
