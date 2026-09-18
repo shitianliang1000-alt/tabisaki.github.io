@@ -1725,6 +1725,20 @@ function renderItem(item, index, itin, handlers, sunNote) {
   if (item.alternatives?.length) {
     info.append(alternativeRoutes(item.alternatives));
   }
+  // 同じ地点にある別の立ち寄り。
+  //
+  // 座標が同じなので、移動は0分です。ただし**同じものかどうかは
+  // 分かりません**（「九重山」と「久住山」は同じ座標の別名ですが、
+  // 「小樽美術館」と「小樽文学館」は同じ建物の別の施設です）。
+  // 決めずに、そう書きます。
+  if (item.sameSpot?.length) {
+    info.append(el("p", { class: "sun samespot" },
+      el("span", { "aria-hidden": "true" }, "⊙"),
+      el("span", {},
+        `${item.sameSpot.join("・")}と同じ地点です`
+        + "（移動は要りません。収録では別の名前で入っていますが、"
+        + "同じものかどうかはこちらでは分かりません）")));
+  }
   if (item.kind === "spot" && (item.reason || item.fit)) {
     info.append(el("p", { class: "reason" }, item.fit?.summary ?? item.reason));
     // なぜここが選ばれたのか。軸ごとに出すと、納得も反論もできます。
