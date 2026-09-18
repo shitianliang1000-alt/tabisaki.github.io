@@ -1323,7 +1323,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--md-sys-color-outline-variant);
 }
 .tl:last-child .rail::after { display: none; }
-.tl.transit .rail i, .tl.free .rail i, .tl.luggage .rail i {
+.tl.transit .rail i, .tl.free .rail i, .tl.luggage .rail i,
+.tl.arrive .rail i {
   width: 8px; height: 8px;
   background: var(--md-sys-color-outline);
   box-shadow: 0 0 0 3px var(--md-sys-color-surface-container-highest);
@@ -1475,14 +1476,16 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .c-label { flex: none; width: 7em; color: var(--md-sys-color-on-surface-variant); }
 .critique li.warn .c-text { color: var(--md-sys-color-error); }
 
-.tl.transit .body, .tl.free .body, .tl.luggage .body {
+.tl.transit .body, .tl.free .body, .tl.luggage .body,
+.tl.arrive .body {
   background: transparent; padding: 8px 4px; margin-bottom: 4px;
 }
 .tl .title {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: var(--hig-t-callout); font-weight: 500; letter-spacing: .15px;
 }
-.tl.transit .title, .tl.free .title, .tl.luggage .title {
+.tl.transit .title, .tl.free .title, .tl.luggage .title,
+.tl.arrive .title {
   font-size: var(--hig-t-subhead); font-weight: 400;
   color: var(--md-sys-color-on-surface-variant);
 }
@@ -1540,7 +1543,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   transition: background-color var(--md-sys-motion-short) var(--md-sys-motion-standard);
 }
 .tl .chev:hover { background: var(--hig-fill); }
-.tl.transit .chev, .tl.free .chev, .tl.luggage .chev { display: none; }
+.tl.transit .chev, .tl.free .chev, .tl.luggage .chev,
+.tl.arrive .chev { display: none; }
+/* 日をまたいで着いた朝の目印。その日の起点なので、少しだけ強く。 */
+.tl.arrive .title { font-weight: 600; color: var(--hig-label); }
 
 .item-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .item-links .link {

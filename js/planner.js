@@ -460,6 +460,47 @@ export function buildItinerary(input) {
     });
   }
 
+  // --- 日をまたぐ区間は、着いた日にも「着いた」を置く ---
+  //
+  // 夜行に乗る旅程が、こうなっていました。
+  //
+  //   1日目  21:50–09:58  東京駅 → 出雲市駅（サンライズ出雲・車中泊）
+  //   2日目  09:58–10:29  出雲大社へ移動
+  //
+  // **2日目に「出雲市駅に着いた」という行がありません。** 着いた時刻は
+  // 1日目の行の右端にしか書かれていないので、2日目だけを見ると
+  // 「09:58 に出雲大社へ移動」から始まります。どこから移動するのかが、
+  // その日のどこにも書かれていません。
+  //
+  // 日をまたぐのは夜行列車だけではありません。夜行の高速バス、
+  // 長距離のフェリー、深夜便の空路も同じです。区間の終わりが別の日に
+  // なるなら、その日の頭に着地を置きます。
+  //
+  // 時間の幅は持ちません（0分です）。旅程の時計を進めるものではなく、
+  // 「その日はここから始まる」という目印だからです。
+  const arrivals = [];
+  const dayOf = (t) => new Date(t).setHours(0, 0, 0, 0);
+  for (const item of items) {
+    if (item.kind !== "transit") continue;
+    if (dayOf(item.end) <= dayOf(item.start)) continue;
+    const where = item.to?.name ?? item.title;
+    arrivals.push({
+      id: nextId(), kind: "arrive",
+      start: new Date(item.end), end: new Date(item.end),
+      title: `${where} 着`,
+      // 何に乗って、いつ出たのか。これが無いと「着」だけが浮きます。
+      detail: `${item.detail ? `${String(item.detail).split("・")[0]}で` : ""}`
+        + `${fmtHm(new Date(item.start))}に${item.from?.name ?? "出発地"}を`
+        + "出て、ここから今日が始まります",
+      place: item.to ?? null,
+      from: item.from ?? null, to: item.to ?? null,
+      km: 0, costYen: 0,
+      routed: item.routed === true,
+      reason: "日をまたぐ移動の到着",
+    });
+  }
+  items.push(...arrivals);
+
   // --- 日ごとに分ける ---
   const days = [];
   for (const item of items) {
@@ -469,7 +510,16 @@ export function buildItinerary(input) {
     day.items.push(item);
   }
   days.sort((a, b) => a.key - b.key);
-  for (const d of days) d.items.sort((a, b) => a.start - b.start);
+  // 同じ時刻に並ぶときは、着地を先にします。
+  //
+  // 着いた時刻と、そこから次へ動き出す時刻は同じです（09:58着で
+  // 09:58発）。時刻だけで並べると、どちらが先になるか決まりません。
+  // 「出雲大社へ移動」が先に来ると、まだ着いていない駅から動くことに
+  // なります。
+  const rank = (i) => (i.kind === "arrive" ? 0 : 1);
+  for (const d of days) {
+    d.items.sort((a, b) => a.start - b.start || rank(a) - rank(b));
+  }
 
   const spotCount = items.filter((i) => i.kind === "spot").length;
   const warnings = [];

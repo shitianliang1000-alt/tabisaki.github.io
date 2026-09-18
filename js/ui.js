@@ -22,6 +22,8 @@ import { icsFilename, toIcs } from "./ical.js";
 const ICON = {
   transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕",
   luggage: "🧳",
+  // 日をまたいで着いた朝の目印（夜行・長距離フェリー・深夜便）。
+  arrive: "🚉",
 };
 
 /** 行の先頭の絵。乗り物は、乗るものによって変えます。 */
