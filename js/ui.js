@@ -729,7 +729,8 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
   // 雨だからと勝手に行き先を差し替えられたら、楽しみにしていた場所が
   // 理由も分からず消えます。理由を添えて出し、押されたら組み直します。
   const rp = itin.replan;
-  if (rp && (rp.suggestions?.length || rp.days?.length || rp.notes?.length)) {
+  if (rp && (rp.suggestions?.length || rp.days?.length || rp.notes?.length
+             || rp.normals?.text)) {
     const box = el("section", { class: "panel replan" });
     box.append(...[el("div", { class: "panel-head" },
       el("h3", {}, "天気・日没・混雑から見ると"),
@@ -741,6 +742,17 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     if (rp.days?.length) {
       box.append(el("ul", { class: "panel-list weather-days" },
         rp.days.map((t) => el("li", {}, t))));
+    }
+
+    // 予報の出ない先の旅（16日より先）に、その時期の「ふつう」。
+    //
+    // **予報ではありません。** 過去の観測の平均です。ここを読み違えると
+    // 「10月20日は24℃」になるので、文のほうにも必ず書いてあります
+    // （js/normals.js の describeNormals）。
+    if (rp.normals?.text) {
+      box.append(el("p", { class: "normals" },
+        icon("sunset"),
+        el("span", {}, rp.normals.text)));
     }
 
     const picked = new Set();
@@ -1201,7 +1213,7 @@ export function renderToday(container, itin, trip, handlers = {}) {
   // 開いた瞬間に通知と現在地の許可を求めるのは、いちばん断られる
   // 聞きかたです（何に使うのか分からないためです）。使うと決めた人が
   // 押したときに、はじめて聞きます。
-  if (handlers.onNotify || handlers.onWatchArrival) {
+  if (handlers.onNotify || handlers.onWatchArrival || handlers.onRequery) {
     const row = el("div", { class: "today-actions" });
     if (handlers.onNotify) {
       const on = handlers.notifyOn === true;
@@ -1223,7 +1235,31 @@ export function renderToday(container, itin, trip, handlers = {}) {
       b.addEventListener("click", () => handlers.onWatchArrival(!on));
       row.append(b);
     }
+    // 次の区間だけ、いまの時刻で引き直す（js/nextleg.js）。
+    //
+    // 10分遅れただけで旅程ぜんぶを組み直すと、1〜2分かかるうえ
+    // **残りの旅程が別のものに変わります**。聞くのは1回、変えるのは
+    // その行の説明だけにします。
+    if (handlers.onRequery) {
+      const busy = handlers.requerying === true;
+      const b = el("button", {
+        class: "md-btn md-btn--tonal md-state", type: "button",
+        disabled: busy ? "" : null,
+      }, icon("transit"), el("span", {},
+        busy ? "調べています…" : "次の便を調べ直す"));
+      b.addEventListener("click", () => handlers.onRequery());
+      row.append(b);
+    }
     box.append(row);
+    // 引き直した結果。**旅程の時刻は動いていません。**
+    if (handlers.requeried?.text) {
+      const lv = handlers.requeried.level;
+      box.append(el("p", {
+        class: `today-requery lv-${lv}`,
+      },
+        icon(lv === "push" ? "warn" : lv === "early" ? "check" : "transit"),
+        el("span", {}, handlers.requeried.text)));
+    }
     // **できないことを、できないと書きます。**
     if (handlers.notifyOn) {
       box.append(el("p", { class: "today-note" }, NOTICE_LIMITS));
@@ -1807,6 +1843,18 @@ function renderItem(item, index, itin, handlers, sunNote) {
             "指定した乗り物（飛行機・船）を使う便が見つからなかったので、"
             + "ほかの乗り物で組んでいます。")));
       }
+    }
+    // いまの時刻で引き直した結果（js/nextleg.js）。
+    //
+    // 当日の一画（今日の旅）にも出しますが、旅程の行まで下りてきた人が
+    // 見るのはこちらです。**この行の時刻は動いていません。** 動かすと、
+    // 同行者に送った旅程と手元の旅程が食い違います。
+    if (item.requeried?.text) {
+      info.append(el("p", {
+        class: `sun requeried${item.requeried.level === "push" ? " tight" : ""}`,
+      },
+        icon(item.requeried.level === "push" ? "warn" : "transit"),
+        el("span", {}, item.requeried.text)));
     }
     // 切符のこと（js/tickets.js）。
     //

@@ -43,6 +43,7 @@ import { itineraryCrowd, spreadCrowds } from "./crowd.js";
 import { costBreakdown } from "./cost.js";
 import { sunNotes, sunTimes } from "./sun.js";
 import { forecastFor, summarizeDay } from "./weather.js";
+import { normalsFor } from "./normals.js";
 import { suggestReplan } from "./replan.js";
 import { attachBackups } from "./backup.js";
 import { attachMeals, dietNote } from "./meals.js";
@@ -1708,6 +1709,25 @@ async function buildReplan(itin, candidates, opts = {}) {
   const pool = candidatePool(candidates);
   const out = suggestReplan(itin, { weather, sunset, candidates: pool });
   out.days = daySummaries;
+
+  // 予報が出ない先の旅には、その時期の「ふつう」を出します。
+  //
+  // 「出発が48日先のため、天気予報はまだ出ていません」は正しいのですが、
+  // これだけでは持ち物も決められません。**予報ではなく、過去の観測の
+  // 平均**を出します（js/normals.js）。1回だけ、最初の日の場所で聞きます
+  // （同じ旅の中で日ごとに聞いても、平年値はほとんど同じです）。
+  const firstDay = (itin.days ?? [])[0];
+  const firstAt = (firstDay?.items ?? [])
+    .find((i) => i.kind === "spot" && i.place)?.place;
+  if (firstAt && firstDay?.date) {
+    try {
+      const n = await (opts.normals ?? normalsFor)(
+        firstAt, new Date(firstDay.date), { signal: opts.signal });
+      if (n?.ok) out.normals = { text: n.text, ...n.value };
+    } catch {
+      // 取れないのは、旅程の失敗ではありません。
+    }
+  }
   return out;
 }
 
