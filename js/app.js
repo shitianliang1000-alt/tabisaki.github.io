@@ -1297,6 +1297,14 @@ function wireForm() {
   // アレルギー・ハラール・子ども向けがどこにも入りませんでした。
   // 店は持っていないので変わるのは地図へ渡す言葉までですが、
   // そこが変われば店選びは変わります。
+  // 同行者。足の話です（食事の条件は上の diet が持ちます）。
+  for (const btn of document.querySelectorAll("#companions-choice button")) {
+    btn.addEventListener("click", () => {
+      const on = btn.getAttribute("aria-pressed") !== "true";
+      btn.setAttribute("aria-pressed", String(on));
+      btn.classList.toggle("is-selected", on);
+    });
+  }
   for (const btn of document.querySelectorAll("#diet-choice button")) {
     btn.addEventListener("click", () => {
       const on = btn.getAttribute("aria-pressed") !== "true";
@@ -1482,6 +1490,9 @@ async function readTrip() {
     foodGenre: state.foodGenre ?? "any",
     diet: [...document.querySelectorAll(
       '#diet-choice button[aria-pressed="true"]')].map((b) => b.dataset.diet),
+    companions: [...document.querySelectorAll(
+      '#companions-choice button[aria-pressed="true"]')]
+      .map((b) => b.dataset.companion),
     // 宿の取りかた。連泊か、泊まるたびに移動か。
     // 宿が決まっているなら連泊です。予約したホテルがあるのに
     // 「泊まり歩く」で組むと、別の街に宿が置かれます。

@@ -57,6 +57,7 @@ const SHELL_FILES = [
   // 同じ場所を2件として扱わないための表。収録を読むときに要ります。
   "./js/dedupe.js",
   "./js/shapes.js",
+  "./js/access.js",
   "./js/sketch.js",
   // 当日に使うもの。**圏外で初めて開いたときに、画面が欠けないように。**
   //

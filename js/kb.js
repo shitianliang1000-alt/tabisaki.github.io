@@ -6,6 +6,7 @@
 
 import { KB_INDEX_URL } from "./config.js";
 import { drivingAppeal } from "./touring.js";
+import { accessAppeal } from "./access.js";
 import { genresForCategory } from "./feasibility.js";
 import { SAMPLE_KB } from "./sample-data.js";
 import { betterOf, dedupeSpots, samePoint, sameThing } from "./dedupe.js";
@@ -499,14 +500,16 @@ export function cosineToQuantized(query, q) {
  * 意味検索。hiddenBias が高いほど、知名度の低い場所を押し上げます。
  */
 export function searchSpots(kb, queryVector,
-                            { limit = 260, hiddenBias = 0, touring = false } = {}) {
+                            { limit = 260, hiddenBias = 0, touring = false,
+                              companions = [] } = {}) {
   const out = [];
   for (const spot of kb.spots) {
     if (!spot.v) continue;
     const sim = cosineToQuantized(queryVector, decodeVector(spot.v));
     const obscurity = 1 - Math.min(100, Math.max(0, spot.fame_score ?? 50)) / 100;
     out.push({ spot,
-      score: sim + hiddenBias * 0.12 * obscurity + touringBonus(spot, touring) });
+      score: sim + hiddenBias * 0.12 * obscurity + touringBonus(spot, touring)
+        + accessBonus(spot, companions) });
   }
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, limit);
@@ -526,6 +529,22 @@ function touringBonus(spot, touring) {
 }
 
 /**
+ * 同行者がいるときだけ足す重み。
+ *
+ * ベビーカー・車椅子・歩くのがゆっくりな人がいるなら、石段と登り道を
+ * 少し後ろへ。**消してはいけません**（行きたい人はいます。抱えて
+ * 上がる人も、一部だけ見る人もいます）。並びを変えるだけです。
+ *
+ * 幅は車のときと同じ 0.12 にしてあります。希望との一致（0〜1）を
+ * 覆すほどではありません。「城が見たい」と書いた人の旅程から、
+ * 城が消えてはいけません。
+ */
+function accessBonus(spot, companions) {
+  if (!companions?.length) return 0;
+  return (accessAppeal(spot, companions) - 0.5) * 0.12;
+}
+
+/**
  * ベクトルが無い知識ベース、または埋め込み失敗時の語句検索。
  *
  * どこに当たったかで重みを変えます。以前は当たった語の数だけを見ていたので、
@@ -538,7 +557,7 @@ const FIELD_WEIGHT = {
 };
 
 export function searchSpotsByKeyword(kb, keywords,
-  { limit = 260, hiddenBias = 0, touring = false } = {}) {
+  { limit = 260, hiddenBias = 0, touring = false, companions = [] } = {}) {
   const terms = (keywords ?? []).map((k) => String(k).trim()).filter(Boolean);
   if (!terms.length) {
     return kb.spots.slice(0, limit).map((spot) => ({ spot, score: 0.1 }));
@@ -566,7 +585,8 @@ export function searchSpotsByKeyword(kb, keywords,
 
     const obscurity = 1 - fame / 100;
     out.push({ spot,
-      score: score + hiddenBias * 0.12 * obscurity + touringBonus(spot, touring) });
+      score: score + hiddenBias * 0.12 * obscurity + touringBonus(spot, touring)
+        + accessBonus(spot, companions) });
   }
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, limit);
