@@ -62,6 +62,37 @@ const page = await (await browser.newContext({
   viewport: { width: 1280, height: 1000 },
 })).newPage();
 
+// 許可を、勝手に求めていないか。
+//
+// 開いた瞬間に通知と現在地の許可を求めるのは、いちばん断られる
+// 聞きかたです（何に使うのか分からないためです）。求めたら印が付く
+// ようにしておいて、押していないのに付いていないことを見ます。
+// **本物は呼びません**（無人の機械では答えが返らず、止まります）。
+await page.addInitScript(() => {
+  window.__geoAsked = false;
+  window.__notifyAsked = false;
+  const geo = navigator.geolocation;
+  if (geo) {
+    const wrap = (name) => {
+      const orig = geo[name]?.bind(geo);
+      if (!orig) return;
+      Object.defineProperty(geo, name, {
+        configurable: true,
+        value: (...args) => { window.__geoAsked = true; return orig(...args); },
+      });
+    };
+    wrap("getCurrentPosition");
+    wrap("watchPosition");
+  }
+  if (window.Notification) {
+    const orig = window.Notification.requestPermission;
+    window.Notification.requestPermission = (...args) => {
+      window.__notifyAsked = true;
+      return orig?.apply(window.Notification, args) ?? Promise.resolve("denied");
+    };
+  }
+});
+
 // ページ側の例外は、そのままこちらの失敗にします。
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));
@@ -1099,6 +1130,67 @@ await check("指で押した跡が、残らない", async () => {
     assert(bad.length === 0,
       `@media (hover: hover) の外に :hover があります: ${bad.join(" / ")}`);
   }
+});
+
+// 旅の当日に出る一画（「今日の旅」）。
+//
+// 当日いちばん見る場所です。ところがここには**決まりが1つもありません
+// でした**——素の段落が旅程の上に並ぶだけで、いちばん見る場所が
+// いちばん読みにくくなっていました。あわせて、当日のしたく
+//（出発の知らせ・現在地で気づく）がここに置かれます。
+//
+// **押されてから聞きます。** 開いた瞬間に通知と現在地の許可を求めるのは
+// いちばん断られる聞きかたなので、そうなっていないことも見ます。
+await check("旅の当日は、次の一手が大きく出る", async () => {
+  // 出発日を今日にして組み直します。
+  //
+  // 欄に直に書き込まず、画面の「今日」を押します。**利用者と同じ道**を
+  // 通るためです（直に書くと change が飛ばず、画面の文だけが前の日の
+  // ままになります。実際そうなりました）。時間の幅はそのままにします。
+  await page.click('[data-day-preset="today"]');
+  await page.click("#make-plan");
+  await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
+  await until(page, () => {
+    const t = document.getElementById("today");
+    return t && !t.hidden;
+  }, { timeout: 120_000 });
+
+  const got = await page.evaluate(() => {
+    const box = document.querySelector("#today .today");
+    const size = (sel) => {
+      const e = document.querySelector(sel);
+      return e ? parseFloat(getComputedStyle(e).fontSize) : 0;
+    };
+    return {
+      has: Boolean(box),
+      next: document.querySelector(".today-next")?.textContent ?? "",
+      nextSize: size(".today-next"),
+      bodySize: parseFloat(getComputedStyle(document.body).fontSize),
+      buttons: [...document.querySelectorAll("#today button")]
+        .map((b) => b.textContent.trim()),
+      // 許可を、勝手に求めていないこと。
+      geoAsked: window.__geoAsked === true,
+      notifyAsked: window.__notifyAsked === true,
+      // 画面からはみ出していないこと。
+      overflow: box
+        ? Math.round(box.getBoundingClientRect().right)
+          - Math.round(document.documentElement.clientWidth)
+        : 0,
+    };
+  });
+  assert(got.has, "当日なのに「今日の旅」が出ていません");
+  assert(got.next.length > 0, "次の予定の名前が出ていません");
+  // 歩きながら、ちらっと見て読める大きさであること。
+  assert(got.nextSize > got.bodySize,
+    `次の予定が本文と同じ大きさです（${got.nextSize}px）`);
+  assert(got.overflow <= 0, `当日の一画が ${got.overflow}px はみ出しています`);
+  // 当日のしたくが置かれていること。
+  const labels = got.buttons.join(" / ");
+  assert(/知らせる/.test(labels), `出発を知らせる手がありません: ${labels}`);
+  assert(/現在地/.test(labels), `現在地で気づく手がありません: ${labels}`);
+  // **押されてから聞きます。**
+  assert(!got.geoAsked, "押していないのに現在地を求めています");
+  assert(!got.notifyAsked, "押していないのに通知を求めています");
 });
 
 // 画面に出ている記号が、絵文字でないこと。

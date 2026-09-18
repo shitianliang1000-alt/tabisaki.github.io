@@ -401,6 +401,7 @@ p, li { text-wrap: pretty; }
   color: var(--hig-label-2);
 }
 .sun.vehicle.tight { color: var(--hig-red-deep); font-weight: 600; }
+.sun.ticket { color: var(--hig-label-2); }
 /* 終電。ふつうは本文寄りの色で、余裕が少ないときだけ強くします。
    色だけに頼っていないことは文のほうが担保しています（「30分しか
    ありません」「この組み方では帰れません」と書いてあります）。 */
@@ -971,6 +972,80 @@ p, li { text-wrap: pretty; }
 /* 「今日の旅」は旅程のすぐ上。下の余白は旅程側が持ちます。 */
 .itin:has(> #today) { padding-bottom: 0; }
 #today[hidden] { display: none !important; }
+
+/* 「今日の旅」— 当日はここしか見ません。
+   ------------------------------------------------------------------
+   この一画には、これまで**決まりが1つもありませんでした**。旅程の
+   上に素の段落が並ぶだけで、当日いちばん見る場所がいちばん読みにくく
+   なっていました。次に何をすればいいかだけを、離れて見ても読める
+   大きさで出します。 */
+.today {
+  margin: 0 calc(-1 * var(--itin-gutter-r)) 20px calc(-1 * var(--itin-gutter-l));
+  padding: 20px var(--itin-gutter-r) 20px var(--itin-gutter-l);
+  background: var(--md-sys-color-surface-container-high);
+  border-bottom: .5px solid var(--hig-separator);
+}
+.today-when {
+  margin: 0 0 10px; font-size: var(--hig-t-footnote);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.today-label {
+  margin: 0; font-size: var(--hig-t-caption1); font-weight: 600;
+  letter-spacing: .4px; color: var(--tabi-indigo);
+}
+/* 次の予定の名前。旅程の見出しより大きくします（歩きながら、
+   ちらっと見て読める必要があります）。 */
+.today-next {
+  margin: 2px 0 0; font-size: var(--hig-t-title2); font-weight: 700;
+  letter-spacing: -.4px; line-height: 1.3;
+}
+.today-at {
+  margin: 4px 0 0; font-size: var(--hig-t-callout); font-weight: 600;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.today-detail {
+  margin: 6px 0 0; font-size: var(--hig-t-footnote); line-height: 1.7;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.today-nav {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin: 14px 0 0; padding: 10px 16px;
+  border-radius: var(--hig-r-full);
+  background: var(--tabi-indigo); color: var(--hig-on-accent);
+  font-size: var(--hig-t-callout); font-weight: 600; text-decoration: none;
+}
+.today-actions {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px;
+}
+/* 現在地から分かったこと。**言うだけ**で、押すのは本人です。 */
+.today-hint {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 14px 0 0; padding: 10px 12px;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: color-mix(in srgb, var(--hig-blue) 10%, transparent);
+  font-size: var(--hig-t-footnote); line-height: 1.7;
+}
+.today-hint .ic { align-self: center; color: var(--md-sys-color-primary); }
+/* できないことを書く行。小さく、でも必ず出します。 */
+.today-note {
+  margin: 10px 0 0; font-size: var(--hig-t-caption1); line-height: 1.7;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.today-note.warn { color: var(--hig-orange); font-weight: 600; }
+.today .notice { margin-top: 16px; }
+
+/* 日の頭に置く、その日ぜんぶに関わる一言（切符・歩く距離）。
+   行ごとの注記より上に、1段だけ。 */
+.day-note {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 0 0 12px; padding: 10px 12px;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-high);
+  font-size: var(--hig-t-footnote); line-height: 1.7;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.day-note .ic { align-self: center; }
+.day-note > span { flex: 1 1 10em; min-width: 0; }
 
 .itin-head { margin-bottom: 16px; }
 .itin-head h2 {

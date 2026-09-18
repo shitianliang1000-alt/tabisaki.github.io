@@ -51,6 +51,7 @@ import { coLocated } from "./dedupe.js";
 import { attachShapes } from "./shapes.js";
 import { attachAccess } from "./access.js";
 import { attachLastTrain } from "./lasttrain.js";
+import { attachTickets } from "./tickets.js";
 import { searchYahooTransit } from "./yahoo-transit.js";
 import { yahooFlags } from "./modes.js";
 import { nearestStop } from "./stops.js";
@@ -723,6 +724,17 @@ export async function planTrip({ trip, kb, onProgress = () => {},
       return null;
     }
   });
+
+  // 8.55 切符のこと。
+  //
+  //      「乗れる」と「乗車券だけで乗れる」は違います。新幹線は
+  //      乗車券のほかに特急券が要り、指定席か自由席かを買うときに
+  //      決める必要があります。同じ会社に1日で何度も乗るなら、
+  //      1日乗車券があるかもしれません。
+  //
+  //      **得かどうかは言いません。** 券の名前も値段も条件も
+  //      持っておらず、毎年変わります。数えられるのは回数だけです。
+  itin.ticketCount = attachTickets(itin);
 
   // 8.6 同じ地点にある立ち寄りを、そう書く。
   //
