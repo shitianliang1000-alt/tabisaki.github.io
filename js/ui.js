@@ -21,6 +21,7 @@ import { icsFilename, toIcs } from "./ical.js";
 import { mountSketch } from "./sketch.js";
 import { KIND_NOTE } from "./modes.js";
 import { icon } from "./icons.js";
+import { NOTICE_LIMITS } from "./notify.js";
 
 // 行の先頭の記号の「名前」です。形は js/icons.js が持っています。
 //
@@ -728,7 +729,8 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
   // 雨だからと勝手に行き先を差し替えられたら、楽しみにしていた場所が
   // 理由も分からず消えます。理由を添えて出し、押されたら組み直します。
   const rp = itin.replan;
-  if (rp && (rp.suggestions?.length || rp.days?.length || rp.notes?.length)) {
+  if (rp && (rp.suggestions?.length || rp.days?.length || rp.notes?.length
+             || rp.normals?.text)) {
     const box = el("section", { class: "panel replan" });
     box.append(...[el("div", { class: "panel-head" },
       el("h3", {}, "天気・日没・混雑から見ると"),
@@ -740,6 +742,17 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     if (rp.days?.length) {
       box.append(el("ul", { class: "panel-list weather-days" },
         rp.days.map((t) => el("li", {}, t))));
+    }
+
+    // 予報の出ない先の旅（16日より先）に、その時期の「ふつう」。
+    //
+    // **予報ではありません。** 過去の観測の平均です。ここを読み違えると
+    // 「10月20日は24℃」になるので、文のほうにも必ず書いてあります
+    // （js/normals.js の describeNormals）。
+    if (rp.normals?.text) {
+      box.append(el("p", { class: "normals" },
+        icon("sunset"),
+        el("span", {}, rp.normals.text)));
     }
 
     const picked = new Set();
@@ -933,6 +946,21 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       el("b", {}, itin.days.length > 1 ? `${di + 1}日目` : "旅程"),
       el("span", {}, fmtDay(day.date)),
       el("i", {}, dayShape(day))));
+
+    // その日ぜんぶに関わる一言。行ごとの注記とは別に、日の頭に置きます。
+    //
+    //   passNote  … 同じ会社に何回乗るか（js/tickets.js）
+    //   walkLoad  … 移動だけでどれだけ歩くか（js/access.js）
+    //
+    // walkLoad は書き足されていたのに、**どこにも出していませんでした**。
+    // 数えたものを画面に出さないのは、数えていないのと同じです。
+    for (const [kind, text] of [["pass", day.passNote],
+                                ["walk", day.walkLoad]]) {
+      if (!text) continue;
+      section.append(el("p", { class: `day-note day-note--${kind}` },
+        icon(kind === "pass" ? "ticket" : "walk"),
+        el("span", {}, text)));
+    }
 
     const list = el("ol", { class: "timeline" });
     day.items.forEach((item, ii) => {
@@ -1154,14 +1182,95 @@ export function renderToday(container, itin, trip, handlers = {}) {
     //
     // 押す対象は「行き先」です。移動そのものに「着いた」とは言いません
     // （「小町通りへ移動 に着いた」は日本語として通りません）。
-    const arrivable = [step.current, n]
-      .find((x) => x && ["spot", "meal", "lodging"].includes(x.kind));
+    //
+    // 現在地から分かったときは、**そちら**を先に見ます。予定の順に
+    // 出していると、1か所飛ばして先へ進んだ人が押せる相手がいません。
+    const hint = handlers.arrivedHint ?? null;
+    const arrivable = hint?.item
+      ?? [step.current, n]
+        .find((x) => x && ["spot", "meal", "lodging"].includes(x.kind));
+    if (hint?.item) {
+      // **決めません。** 位置から分かるのは「近くにいる」までで、
+      // 中に入ったかは分かりません。押すのは本人です。
+      box.append(el("p", { class: "today-hint" },
+        icon("locate"),
+        el("span", {},
+          `現在地から、「${hint.item.title}」の近く`
+          + `（約${Math.max(10, Math.round(hint.km * 1000))}m）にいるようです。`
+          + "着いていれば、下を押してください。")));
+    }
     if (handlers.onArrived && arrivable) {
       const btn = el("button", { class: "md-btn md-btn--tonal md-state",
                                  type: "button" },
         el("span", {}, `「${arrivable.title}」に着いた`));
       btn.addEventListener("click", () => handlers.onArrived(arrivable.id));
       box.append(el("div", { class: "today-actions" }, btn));
+    }
+  }
+
+  // 当日のしたく。押されてから聞きます。
+  //
+  // 開いた瞬間に通知と現在地の許可を求めるのは、いちばん断られる
+  // 聞きかたです（何に使うのか分からないためです）。使うと決めた人が
+  // 押したときに、はじめて聞きます。
+  if (handlers.onNotify || handlers.onWatchArrival || handlers.onRequery) {
+    const row = el("div", { class: "today-actions" });
+    if (handlers.onNotify) {
+      const on = handlers.notifyOn === true;
+      const b = el("button", {
+        class: `md-btn md-state ${on ? "md-btn--filled" : "md-btn--tonal"}`,
+        type: "button", "aria-pressed": String(on),
+      }, icon("wait"), el("span", {},
+        on ? "出発を知らせています" : "出発を知らせる"));
+      b.addEventListener("click", () => handlers.onNotify(!on));
+      row.append(b);
+    }
+    if (handlers.onWatchArrival) {
+      const on = handlers.watchOn === true;
+      const b = el("button", {
+        class: `md-btn md-state ${on ? "md-btn--filled" : "md-btn--tonal"}`,
+        type: "button", "aria-pressed": String(on),
+      }, icon("locate"), el("span", {},
+        on ? "現在地で気づいています" : "現在地で気づく"));
+      b.addEventListener("click", () => handlers.onWatchArrival(!on));
+      row.append(b);
+    }
+    // 次の区間だけ、いまの時刻で引き直す（js/nextleg.js）。
+    //
+    // 10分遅れただけで旅程ぜんぶを組み直すと、1〜2分かかるうえ
+    // **残りの旅程が別のものに変わります**。聞くのは1回、変えるのは
+    // その行の説明だけにします。
+    if (handlers.onRequery) {
+      const busy = handlers.requerying === true;
+      const b = el("button", {
+        class: "md-btn md-btn--tonal md-state", type: "button",
+        disabled: busy ? "" : null,
+      }, icon("transit"), el("span", {},
+        busy ? "調べています…" : "次の便を調べ直す"));
+      b.addEventListener("click", () => handlers.onRequery());
+      row.append(b);
+    }
+    box.append(row);
+    // 引き直した結果。**旅程の時刻は動いていません。**
+    if (handlers.requeried?.text) {
+      const lv = handlers.requeried.level;
+      box.append(el("p", {
+        class: `today-requery lv-${lv}`,
+      },
+        icon(lv === "push" ? "warn" : lv === "early" ? "check" : "transit"),
+        el("span", {}, handlers.requeried.text)));
+    }
+    // **できないことを、できないと書きます。**
+    if (handlers.notifyOn) {
+      box.append(el("p", { class: "today-note" }, NOTICE_LIMITS));
+    }
+    if (handlers.watchOn) {
+      box.append(el("p", { class: "today-note" },
+        "現在地は、この端末の中で予定の場所と見比べるだけに使います。"
+        + "どこにも送りません。"));
+    }
+    if (handlers.todayNote) {
+      box.append(el("p", { class: "today-note warn" }, handlers.todayNote));
     }
   }
 
@@ -1734,6 +1843,29 @@ function renderItem(item, index, itin, handlers, sunNote) {
             "指定した乗り物（飛行機・船）を使う便が見つからなかったので、"
             + "ほかの乗り物で組んでいます。")));
       }
+    }
+    // いまの時刻で引き直した結果（js/nextleg.js）。
+    //
+    // 当日の一画（今日の旅）にも出しますが、旅程の行まで下りてきた人が
+    // 見るのはこちらです。**この行の時刻は動いていません。** 動かすと、
+    // 同行者に送った旅程と手元の旅程が食い違います。
+    if (item.requeried?.text) {
+      info.append(el("p", {
+        class: `sun requeried${item.requeried.level === "push" ? " tight" : ""}`,
+      },
+        icon(item.requeried.level === "push" ? "warn" : "transit"),
+        el("span", {}, item.requeried.text)));
+    }
+    // 切符のこと（js/tickets.js）。
+    //
+    // 「15,290円」と書いてあっても、当日みどりの窓口の前で止まります。
+    // 新幹線は乗車券と特急券の2枚で、指定席か自由席かを買うときに
+    // 決める必要があります。**得かどうかは言いません**（券の名前も
+    // 値段も持っていません）。確かめるきっかけだけを置きます。
+    for (const t of item.tickets ?? []) {
+      info.append(el("p", { class: "sun ticket" },
+        icon("ticket"),
+        el("span", {}, t.text)));
     }
     // 終電の線（js/lasttrain.js）。
     //

@@ -44,9 +44,13 @@ let failures = 0;
  * 1つの画面を測ります。
  *
  * @param {string} name 画面の名前（落ちたときに出ます）
- * @param {{dark?:boolean, plan?:boolean, width?:number}} opts
+ * @param {{dark?:boolean, plan?:boolean, width?:number, today?:boolean}} opts
+ *   today … 旅の当日として組みます（「今日の旅」の一画が出ます）。
+ *   ここには押せるものが3つ（案内・着いた・お知らせ）並ぶので、
+ *   読み上げと色を別に測ります。
  */
-async function audit(name, { dark = false, plan = false, width = 1280 } = {}) {
+async function audit(name, { dark = false, plan = false, width = 1280,
+                             today = false } = {}) {
   const ctx = await browser.newContext({
     viewport: { width, height: 900 },
     colorScheme: dark ? "dark" : "light",
@@ -69,6 +73,8 @@ async function audit(name, { dark = false, plan = false, width = 1280 } = {}) {
 
   if (plan) {
     await page.click(".mood");
+    // 旅の当日として組みます。欄に直に書かず、画面の「今日」を押します。
+    if (today) await page.click('[data-day-preset="today"]');
     await page.click("#make-plan");
     // 「もう少し詳しく調べますか」には、利用者として答え続けます。
     const answering = setInterval(() => {
@@ -187,6 +193,10 @@ await audit("条件の画面（携帯の幅）", { width: 390 });
 await audit("旅程の画面（明るい配色）", { plan: true });
 await audit("旅程の画面（暗い配色）", { dark: true, plan: true });
 await audit("旅程の画面（携帯の幅）", { width: 390, plan: true });
+await audit("旅の当日の画面（携帯の幅）",
+            { width: 390, plan: true, today: true });
+await audit("旅の当日の画面（暗い配色）",
+            { dark: true, plan: true, today: true });
 
 // axe が飛ばすところ（絵・押せないボタン・畳んだ中身）を、自分で測ります。
 await contrast("主色の上の字（明るい配色）", false);

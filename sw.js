@@ -20,8 +20,8 @@
 // 殻（js/ の入っていないもの）を持っている端末は入れ直しません。
 // 収録の入れ物が変わりました（出典ごと → 県ごと。tools/reshard_kb.py）。
 // 版を上げないと、前の版で溜めた 4.8MB が端末に残り続けます。
-// v5: 画面の記号を絵文字から単線SVG（js/icons.js）に替えました。先に
-// 入れるものが1つ増えたので、また上げます。
+// v5: 画面の記号を単線SVGに替え、js/ をぜんぶ先に入れるようにしました。
+// 先に入れるものが増えたので、また上げます。
 const VERSION = "tabisaki-v5";
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
@@ -36,52 +36,104 @@ const SHELL_FILES = [
   "./css/hig-tokens.css",
   "./css/hig.css",
   "./css/app.css",
-  // 画面を組み立てるのに欠かせないものは、先に入れておきます。
+  // **js/ は、ぜんぶ先に入れます。**
   //
-  // 以前は js/ を1つも列挙していませんでした。初回に読んだものが下の
-  // fetch で自然に入る、という考えでしたが、**初回が圏外だったら何も
-  // 入りません**。旅の当日に山の中でアプリを開いて、真っ白な画面を
-  // 見ることになります。数が多く名前も変わりうるので全部は挙げませんが、
-  // これが欠けると起動しないものだけは挙げます。
-  "./js/app.js",
-  "./js/ui.js",
-  "./js/pipeline.js",
-  "./js/planner.js",
-  "./js/config.js",
-  "./js/settings.js",
-  "./js/kb.js",
-  "./js/sample-data.js",
-  // 字の大きさは、画面を組む前に当てます。これが読めないと、
-  // 標準の大きさで一度描いてから大きくなり、字が飛び跳ねます。
-  "./js/typescale.js",
-  // 乗り物の表。これが無いと、時刻表への問い合わせが組み立てられません。
-  "./js/modes.js",
-  // 同じ場所を2件として扱わないための表。収録を読むときに要ります。
-  "./js/dedupe.js",
-  // 画面の記号。これが無いと、行の先頭に何も出ない旅程になります。
-  "./js/icons.js",
-  "./js/shapes.js",
+  // ここは以前「これが欠けると起動しないものだけ」を手で並べていました。
+  // 数えてみると、app.js が import で辿るものは72件あり、そのうち
+  // **列挙されていたのは13件**でした。残る45件は「初回に読んだものが
+  // 下の fetch で自然に入る」に任されていましたが、それが成り立つのは
+  // 一度でも圏内で使ったときだけです。
+  //
+  //   ホーム画面に追加して、翌朝そのまま山へ行く
+  //
+  // これをやると、import が1つ解けずに真っ白な画面になります。旅の
+  // 当日に、いちばんしてはいけないことです。
+  //
+  // 手で並べる形は、**黙って腐ります**（新しいモジュールを足した人が
+  // ここを直し忘れても、圏内では何も起きないので気づけません）。
+  // 全部並べて、tests/sw-shell.test.js が js/ と突き合わせます。
+  //
+  // 大きさは合計1.4MBです。圏外で開けることのほうが大事です。
   "./js/access.js",
-  "./js/sketch.js",
-  // 当日に使うもの。**圏外で初めて開いたときに、画面が欠けないように。**
-  //
-  // 以前は「初回に読んだものが fetch で自然に入る」に任せていました。
-  // ところが旅行中モードや持ち出しは、旅の当日に初めて開くものです。
-  // その日が山の中なら、そのとき初めて取りに行って、失敗します。
-  "./js/today.js",
-  "./js/ical.js",
-  "./js/share.js",
+  "./js/ai.js",
+  "./js/app.js",
+  "./js/areas.js",
+  "./js/arrive.js",
+  "./js/art.js",
+  "./js/backup.js",
+  "./js/confidence.js",
+  "./js/config.js",
+  "./js/cost.js",
+  "./js/crowd.js",
+  "./js/dedupe.js",
+  "./js/discover.js",
   "./js/edit.js",
-  "./js/transfer.js",
+  "./js/endpoints.js",
+  "./js/errors.js",
+  "./js/events.js",
+  "./js/feasibility.js",
+  "./js/fit.js",
+  "./js/geo.js",
   "./js/history.js",
+  "./js/hours.js",
+  "./js/ical.js",
+  "./js/icons.js",
+  "./js/intent.js",
+  "./js/kb.js",
+  "./js/keywords.js",
+  "./js/lasttrain.js",
   "./js/links.js",
+  "./js/lodging.js",
+  "./js/luggage.js",
   "./js/map.js",
+  "./js/match.js",
+  "./js/meals.js",
+  "./js/mix.js",
+  "./js/modes.js",
+  "./js/nextleg.js",
+  "./js/normals.js",
+  "./js/notify.js",
+  "./js/photos.js",
+  "./js/pipeline.js",
+  "./js/places.js",
+  "./js/planner.js",
+  "./js/quota.js",
+  "./js/relax.js",
+  "./js/reliability.js",
+  "./js/replan.js",
+  "./js/romaji.js",
+  "./js/routes.js",
+  "./js/sample-data.js",
+  "./js/scenic.js",
+  "./js/score.js",
+  "./js/settings.js",
+  "./js/shapes.js",
+  "./js/share.js",
+  "./js/sketch.js",
+  "./js/stays.js",
+  "./js/stops-data.js",
+  "./js/stops-worker.js",
+  "./js/stops.js",
+  "./js/story.js",
+  "./js/sun.js",
+  "./js/tickets.js",
+  "./js/today.js",
+  "./js/touring.js",
+  "./js/trains.js",
+  "./js/transfer.js",
+  "./js/transit.js",
+  "./js/trip.js",
+  "./js/typescale.js",
+  "./js/ui.js",
+  "./js/variants.js",
+  "./js/verify.js",
+  "./js/weather.js",
+  "./js/yahoo-transit.js",
 ];
 
 self.addEventListener("install", (e) => {
-  // 1つでも落とせないと install が失敗するので、個別に入れます。
-  // js/ は数が多く、名前も変わりうるので、ここでは列挙しません
-  // （初回に読んだものが下の fetch で自然に入ります）。
+  // 1つでも落とせないと install が失敗するので、個別に入れます
+  // （allSettled。1件の取りこぼしで全部が無駄になりません）。
   e.waitUntil((async () => {
     const cache = await caches.open(SHELL);
     await Promise.allSettled(SHELL_FILES.map((f) => cache.add(f)));

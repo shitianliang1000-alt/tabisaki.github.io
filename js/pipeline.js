@@ -43,6 +43,7 @@ import { itineraryCrowd, spreadCrowds } from "./crowd.js";
 import { costBreakdown } from "./cost.js";
 import { sunNotes, sunTimes } from "./sun.js";
 import { forecastFor, summarizeDay } from "./weather.js";
+import { normalsFor } from "./normals.js";
 import { suggestReplan } from "./replan.js";
 import { attachBackups } from "./backup.js";
 import { attachMeals, dietNote } from "./meals.js";
@@ -51,6 +52,7 @@ import { coLocated } from "./dedupe.js";
 import { attachShapes } from "./shapes.js";
 import { attachAccess } from "./access.js";
 import { attachLastTrain } from "./lasttrain.js";
+import { attachTickets } from "./tickets.js";
 import { searchYahooTransit } from "./yahoo-transit.js";
 import { yahooFlags } from "./modes.js";
 import { nearestStop } from "./stops.js";
@@ -723,6 +725,17 @@ export async function planTrip({ trip, kb, onProgress = () => {},
       return null;
     }
   });
+
+  // 8.55 切符のこと。
+  //
+  //      「乗れる」と「乗車券だけで乗れる」は違います。新幹線は
+  //      乗車券のほかに特急券が要り、指定席か自由席かを買うときに
+  //      決める必要があります。同じ会社に1日で何度も乗るなら、
+  //      1日乗車券があるかもしれません。
+  //
+  //      **得かどうかは言いません。** 券の名前も値段も条件も
+  //      持っておらず、毎年変わります。数えられるのは回数だけです。
+  itin.ticketCount = attachTickets(itin);
 
   // 8.6 同じ地点にある立ち寄りを、そう書く。
   //
@@ -1696,6 +1709,25 @@ async function buildReplan(itin, candidates, opts = {}) {
   const pool = candidatePool(candidates);
   const out = suggestReplan(itin, { weather, sunset, candidates: pool });
   out.days = daySummaries;
+
+  // 予報が出ない先の旅には、その時期の「ふつう」を出します。
+  //
+  // 「出発が48日先のため、天気予報はまだ出ていません」は正しいのですが、
+  // これだけでは持ち物も決められません。**予報ではなく、過去の観測の
+  // 平均**を出します（js/normals.js）。1回だけ、最初の日の場所で聞きます
+  // （同じ旅の中で日ごとに聞いても、平年値はほとんど同じです）。
+  const firstDay = (itin.days ?? [])[0];
+  const firstAt = (firstDay?.items ?? [])
+    .find((i) => i.kind === "spot" && i.place)?.place;
+  if (firstAt && firstDay?.date) {
+    try {
+      const n = await (opts.normals ?? normalsFor)(
+        firstAt, new Date(firstDay.date), { signal: opts.signal });
+      if (n?.ok) out.normals = { text: n.text, ...n.value };
+    } catch {
+      // 取れないのは、旅程の失敗ではありません。
+    }
+  }
   return out;
 }
 

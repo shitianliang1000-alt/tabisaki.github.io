@@ -42,6 +42,12 @@ import { VARIANTS, distinguishOf, recommendOf, summaryOf, tripsFor }
 import { $, el, openSheet, renderItinerary, renderProgress, renderToday,
          scrollBehavior, suggestionButton } from "./ui.js";
 import { catchUp } from "./today.js";
+import { watchArrival } from "./arrive.js";
+import { armNotices, askNotifyPermission, scheduleNotices }
+  from "./notify.js";
+import { requeryNextLeg } from "./nextleg.js";
+import { searchYahooTransit } from "./yahoo-transit.js";
+import { yahooFlags } from "./modes.js";
 import { addHistory, clearHistory, freezeItinerary, loadHistory, removeHistory,
          replaceHistory, savedLabel, thawItinerary } from "./history.js";
 import { applyTypeScale, initTypeScale, saveTypeScale } from "./typescale.js";
@@ -69,6 +75,15 @@ const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
                 chosenTrip: null,
                 // 旅行中モードで「着いた」を押した予定
                 arrivedAtId: "",
+                // 当日のしたく。
+                //   watch   … 現在地の見張り（js/arrive.js）
+                //   notices … 仕掛けた知らせ（js/notify.js）
+                //   hint    … 現在地から分かったこと。**旅程は変えません**
+                //   note    … 断られた理由など、画面に出す一言
+                // どちらも**押されてから**始めます。開いた瞬間に許可を
+                // 求めるのは、いちばん断られる聞きかたです。
+                today: { watch: null, notices: null, hint: null, note: "",
+                         requeried: null, requerying: false },
                 pinned: new Map() };
 
 // --- 起動 -------------------------------------------------------------------
@@ -2367,8 +2382,100 @@ function renderTodayBox(itin, trip) {
 
   renderToday(box, itin, trip, {
     now,
+    // 現在地から分かったこと（js/arrive.js）。**旅程は変えません。**
+    arrivedHint: state.today.hint,
+    notifyOn: Boolean(state.today.notices),
+    watchOn: Boolean(state.today.watch),
+    todayNote: state.today.note,
+    // 次の区間だけを引き直した結果（js/nextleg.js）。旅程は変えません。
+    requeried: state.today.requeried,
+    requerying: state.today.requerying,
     onArrived: (id) => {
       state.arrivedAtId = id;
+      // 押されたら、その場所の知らせは役目を終えます。
+      state.today.hint = null;
+      renderTodayBox(itin, trip);
+    },
+    onNotify: async (want) => {
+      state.today.note = "";
+      state.today.notices?.stop();
+      state.today.notices = null;
+      if (!want) { renderTodayBox(itin, trip); return; }
+      const ok = await askNotifyPermission();
+      if (!ok.ok) {
+        state.today.note = ok.why;
+        renderTodayBox(itin, trip);
+        return;
+      }
+      const list = scheduleNotices(itin, new Date());
+      state.today.notices = armNotices(list, {
+        show: ({ title, body }) => {
+          try {
+            // eslint-disable-next-line no-new
+            new Notification(title, { body, tag: "tabisaki-next" });
+          } catch { /* 鳴らせなくても、画面は動き続けます */ }
+        },
+      });
+      if (!state.today.notices.count) {
+        state.today.note = "この先に、知らせる予定がありませんでした。";
+      }
+      renderTodayBox(itin, trip);
+    },
+    // 次の区間だけを、いまの時刻で引き直します。
+    //
+    // 旅程ぜんぶを組み直すと1〜2分かかり、**残りの旅程が別のものに
+    // 変わります**。10分遅れただけの人が払う代償としては大きすぎます。
+    // 聞くのは1回、変えるのはその行の説明だけです。
+    onRequery: async () => {
+      if (state.today.requerying) return;
+      state.today.requerying = true;
+      state.today.note = "";
+      renderTodayBox(itin, trip);
+      let got = null;
+      try {
+        got = await requeryNextLeg(itin, async (from, to, when) => {
+          try {
+            return await searchYahooTransit(from, to, {
+              departAt: when,
+              modes: yahooFlags(trip.transport ?? "any"),
+            });
+          } catch {
+            return null;
+          }
+        });
+      } finally {
+        state.today.requerying = false;
+      }
+      state.today.requeried = got?.note ?? null;
+      if (!got) {
+        // 何が足りないのかで、言うことが変わります。
+        state.today.note = "次の便を調べ直せませんでした"
+          + "（この先に電車・バスの区間が無いか、時刻表に届きませんでした）。";
+      }
+      renderTodayBox(itin, trip);
+    },
+    onWatchArrival: (want) => {
+      state.today.note = "";
+      state.today.watch?.stop();
+      state.today.watch = null;
+      state.today.hint = null;
+      if (!want) { renderTodayBox(itin, trip); return; }
+      state.today.watch = watchArrival({
+        // 組み直されても追いつけるよう、そのつど今の旅程を渡します。
+        // 組み直すと renderTodayBox がまた呼ばれ、見張りは
+        // 作り直されます。ここは今の旅程を見ていれば足ります。
+        getItinerary: () => itin,
+        onArrive: (found) => {
+          state.today.hint = found;
+          renderTodayBox(itin, trip);
+        },
+        onDeny: (why) => {
+          state.today.note = why;
+          state.today.watch?.stop();
+          state.today.watch = null;
+          renderTodayBox(itin, trip);
+        },
+      });
       renderTodayBox(itin, trip);
     },
     onCatchUp: (actions) => {
@@ -2433,6 +2540,14 @@ function show(itin, trip) {
 
   // 旅の当日は、「今日の旅」を旅程の上に出します。
   // 当日に知りたいのは、次に何をすればいいかだけです。
+  //
+  // 組み直したら、当日のしたくは**いったん全部やめます**。前の旅程の
+  // 時刻で仕掛けた知らせがそのまま残ると、消したはずの立ち寄りの
+  // 出発時刻に鳴ります。押し直してもらうほうが確かです。
+  state.today.watch?.stop();
+  state.today.notices?.stop();
+  state.today = { watch: null, notices: null, hint: null, note: "",
+                  requeried: null, requerying: false };
   renderTodayBox(itin, trip);
 
   renderItinerary($("#itinerary"), itin, trip, {
