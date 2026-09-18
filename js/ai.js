@@ -14,7 +14,7 @@ import {
   CF_FALLBACK_MODELS, CF_MODEL, LOCAL_MODEL, MODEL, MODEL_PROVIDER,
 } from "./config.js";
 import { endpointFor, keyHeaders, missingSecretHelp, proxyStatus,
-         readProxyError, usingProxy } from "./endpoints.js";
+         readProxyError, requestSignal, usingProxy } from "./endpoints.js";
 import { effectiveConfig } from "./settings.js";
 import { buildSearchText, extractKeywords } from "./keywords.js";
 import { meteredFetch } from "./quota.js";
@@ -250,8 +250,86 @@ export function hasApiKey() {
 
 /** モデル候補の順序。指定を最優先し、だめなら控えへ。 */
 function modelCandidates() {
-  const list = [MODEL, ...FALLBACK_MODELS].filter(Boolean);
+  const list = [MODEL, ...FALLBACK_MODELS, ...discovered].filter(Boolean);
   return [...new Set(resolved ? [resolved, ...list] : list)];
+}
+
+/**
+ * このキーで実際に使えるモデル。
+ *
+ * 候補を全部試して全部404だったとき、**一度だけ**聞きに行きます。
+ * Google 自身がそう言っているからです。
+ *
+ *   models/gemma-3-12b-it is not found for API version v1beta, or is
+ *   not supported for generateContent. Call ModelService.ListModels to
+ *   see the list of available models …
+ *
+ * この文は、英語であることより「**では何なら使えるのか**」が書いて
+ * いないことが困ります。書いてある指示のとおりに聞けば、答えは
+ * その場にあります。
+ *
+ * 聞いた結果は候補の末尾に足します。**こちらで名前を決め打ちしません。**
+ * 決め打ちすると、そのモデルが廃止された日にまた同じことが起きます。
+ */
+let discovered = [];
+let askedForModels = false;
+
+/** 一覧の中から、旅程を作らせる順に並べ替えます。 */
+export function rankModels(names) {
+  const list = (names ?? []).map((n) => String(n ?? "").trim()).filter(Boolean)
+    // 埋め込み・読み上げ・画像のモデルは、文を作れません。
+    .filter((n) => !/embedding|embed|tts|image|vision-only|aqa/i.test(n))
+    // 実験版・プレビュー版は最後に回します（黙って消えるためです）。
+    .sort((a, b) => score(b) - score(a));
+  return list;
+}
+
+function score(name) {
+  let n = 0;
+  // 設定と同じ系統をいちばん上に。
+  if (/gemma/i.test(name)) n += 40;
+  if (/flash/i.test(name)) n += 20;
+  if (/lite/i.test(name)) n += 5;
+  if (/pro/i.test(name)) n += 10;
+  if (/exp|preview|latest|\d{4}-\d{2}-\d{2}/i.test(name)) n -= 30;
+  return n;
+}
+
+/**
+ * 使えるモデルを聞いて、候補に足します。
+ *
+ * @returns {Promise<string[]>} 使えるモデル（聞けなければ空）
+ */
+export async function listModels(opts = {}) {
+  const cfg = effectiveConfig();
+  let url;
+  try {
+    url = endpointFor("gemini:models", {}, cfg);
+  } catch { return []; }
+  try {
+    const send = opts.fetchImpl ?? globalThis.fetch;
+    // 中継は POST しか受けません。直に聞くときは Google の GET です。
+    const viaProxy = usingProxy(cfg);
+    const res = await send(url, {
+      method: viaProxy ? "POST" : "GET",
+      headers: {
+        "Content-Type": "application/json",
+        ...keyHeaders("gemini", cfg),
+      },
+      body: viaProxy ? "{}" : undefined,
+      signal: requestSignal(opts.signal, 20_000),
+    });
+    if (!res?.ok) return [];
+    const doc = await res.json();
+    // 中継は名前だけを返します。直に聞いたときは Google の形です。
+    const names = Array.isArray(doc?.models)
+      ? doc.models.map((m) => (typeof m === "string" ? m
+          : String(m?.name ?? "").replace(/^models\//, "")))
+      : [];
+    return rankModels(names);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -566,26 +644,54 @@ export async function callModel(prompt, opts = {}) {
   }
 
   let lastErr = null;
-  for (const model of modelCandidates()) {
-    try {
-      const text = await callOnce(model, prompt, opts);
-      if (resolved !== model) {
-        resolved = model;
-        if (!triedOnce || model !== MODEL) {
-          console.info(`[ai] 使用モデル: ${model}`
-            + (model === MODEL ? "" : `（指定の ${MODEL} は使えませんでした）`));
+  for (let round = 0; round < 2; round++) {
+    for (const model of modelCandidates()) {
+      try {
+        const text = await callOnce(model, prompt, opts);
+        if (resolved !== model) {
+          resolved = model;
+          if (!triedOnce || model !== MODEL) {
+            console.info(`[ai] 使用モデル: ${model}`
+              + (model === MODEL ? "" : `（指定の ${MODEL} は使えませんでした）`));
+          }
+          triedOnce = true;
         }
-        triedOnce = true;
+        return text;
+      } catch (e) {
+        lastErr = e;
+        // モデルが存在しない/使えない場合だけ次を試す
+        if (e.status === 404 || e.status === 400) continue;
+        throw e;
       }
-      return text;
-    } catch (e) {
-      lastErr = e;
-      // モデルが存在しない/使えない場合だけ次を試す
-      if (e.status === 404 || e.status === 400) continue;
-      throw e;
     }
+    // 候補が全部だめでした。**決め打ちの名前を増やすのではなく**、
+    // このキーで何が使えるのかを聞いて、その中から選びます
+    //（Google のエラー文が「ListModels を呼べ」と言っています）。
+    if (askedForModels) break;
+    askedForModels = true;
+    discovered = await listModels(opts);
+    if (!discovered.length) break;
+    console.info(`[ai] 使えるモデルを聞き直しました: ${discovered.slice(0, 5).join(", ")}`);
+  }
+  // どれも使えなかったときは、**何なら使えるのか**まで書きます。
+  // 「404」とだけ出しても、直す先が分かりません。
+  if (discovered.length) {
+    const err = new Error(
+      `設定したモデル（${[MODEL, ...FALLBACK_MODELS].join("・")}）は、`
+      + "このキーでは使えませんでした。"
+      + `使えるのは ${discovered.slice(0, 6).join("・")} などです。`
+      + "js/config.js の MODEL を書き換えてください。");
+    err.status = lastErr?.status ?? 404;
+    err.models = discovered;
+    throw err;
   }
   throw lastErr ?? new Error("利用できるモデルがありません");
+}
+
+/** 試験と、設定を変えたときのために、聞き直した結果を捨てます。 */
+export function resetModelDiscovery() {
+  discovered = [];
+  askedForModels = false;
 }
 
 // --- JSON の取り出し --------------------------------------------------------

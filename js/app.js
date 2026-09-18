@@ -27,7 +27,7 @@ import { TripMap, pointsFromItinerary } from "./map.js";
 import { planTrip } from "./pipeline.js";
 import { haversineKm } from "./feasibility.js";
 import { configureQuota, describeUsage, quota } from "./quota.js";
-import { artFor, moodArt } from "./art.js";
+import { artFor } from "./art.js";
 import { icon } from "./icons.js";
 import { mixTargets } from "./mix.js";
 import { photoFor } from "./photos.js";
@@ -111,7 +111,6 @@ async function boot() {
 
   fillPlaces();
   setDefaultDates();
-  fillMoodRail();
   wireForm();
   wireKeyPanel();
   wireChrome();
@@ -917,71 +916,12 @@ function moveBackgroundMap(lat, lng, zoom = 10) {
 }
 
 // --- 雰囲気チップ -----------------------------------------------------------
-// 文字だけのボタンを並べると、どれも同じに見えて読み飛ばされます。
-// 色の面をつけると、読む前に「温泉っぽい」「海っぽい」で選べます。
-
-// 旅の入口に並べるもの。**6枚まで**にしています。
+// 旅のきっかけは、記述欄の下の札にまとめました。
 //
-// 9枚あったときは、選ぶ前にスクロールが要りました。入口で迷わせては
-// 意味がありません。「富士山に登りたい」「オーロラが見たい」のような
-// 行き先の名指しは、カードではなく自由入力の例に回しました
-// （選択肢としてではなく、「こういうことも書ける」の見本として）。
-const MOODS = [
-  "温泉でゆっくり癒されたい",
-  "歴史ある街を歩いて、美味しいものを食べたい",
-  "人が少ない静かな場所で自然を感じたい",
-  "絶景が見たい。写真をたくさん撮りたい",
-  "海の見えるところでのんびりしたい",
-  "美術館と建築をめぐりたい",
-];
-
-const MOOD_LABEL = {
-  "温泉でゆっくり癒されたい": "温泉でゆっくり",
-  "歴史ある街を歩いて、美味しいものを食べたい": "歴史ある街歩き",
-  "人が少ない静かな場所で自然を感じたい": "静かな自然",
-  "絶景が見たい。写真をたくさん撮りたい": "絶景・写真",
-  "海の見えるところでのんびりしたい": "海でのんびり",
-  "美術館と建築をめぐりたい": "アートと建築",
-};
-
-function moodChip(label, full, onPick) {
-  const art = moodArt(full);
-  const btn = el("button", { type: "button", class: "mood",
-                             "aria-pressed": "false",
-                             style: `background-image:${art.css}` });
-  btn.append(
-    icon(art.icon, { class: "m-ic" }),
-    el("span", { class: "m-tx" }, label));
-  btn.addEventListener("click", () => onPick(full, btn));
-  return btn;
-}
-
-function fillMoodRail() {
-  const rail = $("#mood-rail");
-  if (!rail) return;
-  for (const m of MOODS) {
-    rail.append(moodChip(MOOD_LABEL[m] ?? m, m, (text, btn) => {
-      // 押したら、その希望文をそのまま条件にします。
-      // 自由入力の欄は畳んだままで構いません。開かなくても
-      // 「これを選んだ」と分かるように、カード側に印を付けます。
-      $("#note").value = text;
-      saveConditions();
-      for (const other of rail.querySelectorAll(".mood")) {
-        other.classList.toggle("is-selected", other === btn);
-        other.setAttribute("aria-pressed", String(other === btn));
-      }
-    }));
-  }
-
-  // 自由入力を触ったら、カードの印は外します。
-  // 選んだ文と、書いてある文が違う状態を残さないためです。
-  $("#note")?.addEventListener("input", () => {
-    for (const other of rail.querySelectorAll(".mood")) {
-      other.classList.remove("is-selected");
-      other.setAttribute("aria-pressed", "false");
-    }
-  });
-}
+// ここには以前、色の面のカード（温泉・歴史・自然…）を6枚、別に並べて
+// いました。同じ「書く言葉のきっかけ」が2か所に分かれていて、画面の
+// 1枚目がカードで埋まっていました。**同じ役目のものは1か所にまとめます。**
+// 札（index.html の data-example）に寄せたので、ここは要りません。
 
 // --- 穴場の度合いを、星の粒で見せる -----------------------------------------
 // 「40%」と書かれても、それがどれくらいかは伝わりません。

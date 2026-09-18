@@ -247,6 +247,10 @@ p, li { text-wrap: pretty; }
    ほうが早いことがほとんどです。時刻は、いま入っているものを保ちます。 */
 /* そのまま使える例。自由入力のすぐ下に置きます。 */
 .note-examples { margin: 10px 0 2px; }
+/* 札は11枚あります。行にゆとりを持たせて、折り返しても読めるように。
+   高さは 32px ですが、指で押せる範囲は hig.css の当たり判定
+   （.hig-hit-slop 相当の ::after）が 44pt に広げています。 */
+.note-examples { display: flex; flex-wrap: wrap; gap: 8px; }
 .note-examples .md-chip { min-height: 32px; padding: 5px 12px; font-size: var(--hig-t-footnote); }
 
 .date-presets { margin: 0 0 12px; }
@@ -266,46 +270,6 @@ p, li { text-wrap: pretty; }
 /* 旅の入口。文章を書かせる前に、選べるものを見せます。
    白紙の入力欄に向かうより、「これがいい」と指すほうが早い。
    写真の面が主役になるよう、大きく並べます。 */
-.mood-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  /* 10px では、隣どうしが1枚の帯に見えていました。
-     カードは「別々に選ぶもの」なので、離して置きます。 */
-  gap: 16px;
-  margin-bottom: 14px;
-}
-.mood {
-  position: relative;
-  aspect-ratio: 3 / 2;
-  border: none; padding: 0; cursor: pointer;
-  border-radius: var(--hig-r-md);
-  overflow: hidden;
-  transition: transform var(--hig-fast) var(--hig-ease),
-              box-shadow var(--hig-fast) var(--hig-ease);
-}
-@media (hover: hover) and (pointer: fine) {
-  .mood:hover { transform: translateY(-2px); box-shadow: var(--hig-shadow-2); }
-}
-.mood.is-selected {
-  box-shadow: 0 0 0 3px var(--tabi-indigo), var(--hig-shadow-2);
-}
-.mood .m-ic {
-  position: absolute; top: 12px; left: 14px;
-  font-size: var(--hig-t-title1);
-  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, .35));
-}
-/* 写真の上に文字を置くので、下から暗く落とします。 */
-.mood .m-tx {
-  position: absolute; inset: auto 0 0 0;
-  padding: 28px 14px 12px;
-  text-align: left;
-  font-size: var(--hig-t-subhead); font-weight: 600; letter-spacing: -.1px; line-height: 1.35;
-  color: #fff;
-  /* 面そのものを濃くしたので、幕と影を薄くできます。幕が濃いと、
-     どのカードも下半分が同じ黒になり、色相の違いが消えます。 */
-  text-shadow: 0 1px 3px rgba(0, 0, 0, .4);
-  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, .42) 82%);
-}
 
 /* 自分の言葉で書く（畳んでおきます）。 */
 .free { margin-bottom: 4px; }
@@ -369,16 +333,6 @@ p, li { text-wrap: pretty; }
 .make-note {
   margin: 8px 2px 0; text-align: center;
   font-size: var(--hig-t-caption1); color: var(--hig-label-2);
-}
-
-/* 「または」の区切り。自由入力とカードのあいだ。 */
-.or-line {
-  display: flex; align-items: center; gap: 12px;
-  margin: 18px 0 12px;
-  font-size: var(--hig-t-caption1); color: var(--hig-label-2);
-}
-.or-line::before, .or-line::after {
-  content: ""; flex: 1; height: .5px; background: var(--hig-separator);
 }
 
 .note-field { margin-bottom: 10px; }
@@ -2143,6 +2097,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .md-sheet .sheet-art img.on { opacity: 1; }
 .md-sheet .sheet-art .art-ic {
   position: absolute; right: 20px; bottom: 14px; font-size: var(--hig-t-large-title);
+  /* 色の面（または写真）の上に置きます。currentColor のままだと
+     黒い線になり、濃い面の上で見えません。 */
+  color: #fff;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .45));
 }
 .md-sheet .sheet-art .tier { position: absolute; left: 24px; bottom: 16px; }
 .md-sheet .close {
@@ -2274,7 +2232,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   45%  { scale: 1.04; }
   100% { scale: 1; }
 }
-.mood.is-selected, .variant.is-selected {
+.variant.is-selected {
   animation: pick-pop 360ms var(--md-sys-motion-emphasized) both;
 }
 
