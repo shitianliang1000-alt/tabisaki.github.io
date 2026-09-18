@@ -508,6 +508,20 @@ p, li { text-wrap: pretty; }
    ところだけで、それは JS が持ちます。行の下に説明文が続くので、
    少しだけ間を空けます。 */
 .chip-choice { margin-bottom: 4px; }
+/* 設定の中の「字の大きさ」。名前・説明・チップの3段なので、
+   横に並べる md-list-item の並びから縦に切り替えます。 */
+.type-scale-row {
+  display: block; padding: 12px 16px;
+  border-radius: var(--hig-r-sm); background: var(--hig-fill);
+  margin-bottom: 12px;
+}
+.type-scale-row .md-list-text {
+  display: block; font-weight: 600; color: var(--hig-label);
+}
+.type-scale-row .md-list-support {
+  display: block; margin: 2px 0 10px;
+  font-size: var(--hig-t-footnote); color: var(--hig-label-2);
+}
 
 /* スイッチの行 */
 .switch-row {
@@ -667,7 +681,8 @@ p, li { text-wrap: pretty; }
 .home-steps li > i {
   flex: none; width: 22px; height: 22px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  font: 700 12px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+  font: inherit; font-size: var(--hig-t-caption1); font-weight: 700;
+  line-height: 1; letter-spacing: 0;
   color: var(--hig-on-accent); background: var(--tabi-indigo);
 }
 .home-steps li:last-child > i { background: var(--tabi-teal); }
@@ -1101,26 +1116,40 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--md-sys-color-on-surface-variant);
 }
 .axes { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; }
+/* 適合度の1行（絵・名前・星・点／説明）。
+   ---------------------------------------------------------------
+   ここは grid で列幅を決めていました（auto 8.5em 1fr auto）。
+   ふつうの字では収まりますが、**字を大きくすると横に溢れます**。
+   8.5em は字についてくるので広がり、星は ★★★★★ のひと続きで
+   縮まないためです。390px の画面で 398px になり、読むために
+   横へスクロールすることになりました。字を大きくする人は、
+   まさにそれができない人です。
+
+   折り返せる並べかた（flex + wrap）に変えます。入らなくなったら
+   星と点が次の行へ落ちるだけで、溢れません。ふつうの字では
+   これまでと同じ1行です。 */
 .axes li {
-  display: grid; grid-template-columns: auto 8.5em 1fr auto;
-  gap: 4px 10px; align-items: center;
-  grid-template-areas: "ic label stars score" ".  note note note";
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
   font-size: var(--hig-t-footnote);
 }
-.ax-ic { grid-area: ic; }
-.ax-label { grid-area: label; color: var(--md-sys-color-on-surface-variant); }
+.ax-ic { flex: none; }
+.ax-label {
+  flex: 1 1 6em; min-width: 0;
+  color: var(--md-sys-color-on-surface-variant);
+}
 .ax-stars {
-  grid-area: stars; letter-spacing: 2px;
+  flex: none; letter-spacing: 2px;
   color: var(--md-sys-color-primary); font-size: var(--hig-t-subhead);
 }
 .ax-stars .off { color: var(--md-sys-color-outline-variant); }
 .ax-score {
-  grid-area: score; text-align: right;
+  flex: none; margin-left: auto; text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--md-sys-color-on-surface-variant);
 }
+/* 説明は、いつでも自分の行を持ちます。 */
 .ax-note {
-  grid-area: note; font-size: var(--hig-t-caption1); line-height: 1.65;
+  flex: 1 0 100%; font-size: var(--hig-t-caption1); line-height: 1.65;
   color: var(--md-sys-color-on-surface-variant);
 }
 
@@ -2054,7 +2083,12 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* 3列に固定して、数字の大きさを幅に合わせます。auto-fit のままだと
      390px で3列に入りきらず、「9時間45分」が2行に折れていました。 */
   .stats { grid-template-columns: repeat(3, 1fr); gap: 12px 6px; }
-  .stats strong { font-size: clamp(15px, 4.6vw, 20px); }
+  /* 数字は幅にも合わせますが、下限と上限は**字の大きさの設定に
+     ついていきます**（px のままだと、文字を大きくしても数字だけ
+     動きません）。 */
+  .stats strong {
+    font-size: clamp(var(--hig-t-subhead), 4.6vw, var(--hig-t-title3));
+  }
   .stats span { font-size: var(--hig-t-caption2); letter-spacing: 0; }
   /* 歯車は、携帯ではページと一緒に流れます。固定のままだと、旅程を
      読み進めるあいだずっと右上の文字や星に重なっていました。

@@ -49,6 +49,11 @@ const SHELL_FILES = [
   "./js/settings.js",
   "./js/kb.js",
   "./js/sample-data.js",
+  // 字の大きさは、画面を組む前に当てます。これが読めないと、
+  // 標準の大きさで一度描いてから大きくなり、字が飛び跳ねます。
+  "./js/typescale.js",
+  // 乗り物の表。これが無いと、時刻表への問い合わせが組み立てられません。
+  "./js/modes.js",
 ];
 
 self.addEventListener("install", (e) => {

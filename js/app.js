@@ -43,6 +43,7 @@ import { $, el, openSheet, renderItinerary, renderProgress, renderToday,
 import { catchUp } from "./today.js";
 import { addHistory, clearHistory, loadHistory, removeHistory, savedLabel,
          thawItinerary } from "./history.js";
+import { applyTypeScale, initTypeScale, saveTypeScale } from "./typescale.js";
 
 const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
                 endMode: "origin", mode: "plan",
@@ -64,6 +65,12 @@ const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
 // --- 起動 -------------------------------------------------------------------
 
 async function boot() {
+  // **画面を組む前に、字の大きさを当てます。**
+  //
+  // あとから当てると、標準の大きさで一度描いてから大きくなるので、
+  // 開いた瞬間に字が飛び跳ねます。
+  initTypeScale();
+
   state.map = new TripMap("map");
   state.map.configure({ tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION });
   startBackgroundMap();
@@ -1161,15 +1168,44 @@ function wireForm() {
   segmented("#transport-choice", "transport", (v) => {
     state.transport = v ?? "any";
   });
+  // 字の大きさ。押した瞬間に画面ぜんぶが変わります（rem で書いて
+  // あるので、根の大きさを書き換えるだけで全部ついてきます）。
+  const scaleNow = String(initTypeScale());
+  for (const btn of document.querySelectorAll("#type-scale-choice button")) {
+    const on = btn.dataset.scale === scaleNow;
+    btn.classList.toggle("is-selected", on);
+    btn.setAttribute("aria-pressed", String(on));
+  }
+  segmented("#type-scale-choice", "scale", (v) => {
+    const n = saveTypeScale(v);
+    applyTypeScale(n);
+  });
   // 宿の取りかた。連泊と周遊は、同じ日数でも別の旅です（stays.js）。
   segmented("#stay-choice", "stay", (v) => {
     state.stayStyle = v ?? "auto";
   });
-  // 食べたいもの。店は持っていないので、決まるのは
-  // 「その土地の何を食べるか」までです（meals.js）。
-  segmented("#food-choice", "food", (v) => {
-    state.foodGenre = v ?? "any";
-  });
+  // 食べたいもの。6択なので、切り替えではなくメニューにしました
+  // （ガイドラインのセグメンテッドコントロールは2〜5個までで、
+  // 6つ並べると390pxで字が詰まり、字を大きくすると溢れます）。
+  // 店は持っていないので、決まるのは「その土地の何を食べるか」
+  // までです（meals.js）。
+  const food = $("#food-choice");
+  if (food) {
+    food.addEventListener("change", () => {
+      state.foodGenre = food.value || "any";
+    });
+  }
+  // 食べられないもの。海鮮・麺までは選べるのに、ベジタリアン・
+  // アレルギー・ハラール・子ども向けがどこにも入りませんでした。
+  // 店は持っていないので変わるのは地図へ渡す言葉までですが、
+  // そこが変われば店選びは変わります。
+  for (const btn of document.querySelectorAll("#diet-choice button")) {
+    btn.addEventListener("click", () => {
+      const on = btn.getAttribute("aria-pressed") !== "true";
+      btn.setAttribute("aria-pressed", String(on));
+      btn.classList.toggle("is-selected", on);
+    });
+  }
 
   for (const btn of document.querySelectorAll("#end-choice button")) {
     btn.addEventListener("click", () => {
@@ -1324,6 +1360,8 @@ async function readTrip() {
     transport: state.transport ?? "any",
     // 食べたいものの向き。昼食・夕食にその土地の名物を当てます。
     foodGenre: state.foodGenre ?? "any",
+    diet: [...document.querySelectorAll(
+      '#diet-choice button[aria-pressed="true"]')].map((b) => b.dataset.diet),
     // 宿の取りかた。連泊か、泊まるたびに移動か。
     stayStyle: state.stayStyle ?? "auto",
     // 定番と穴場のまぜかた。画面では星の粒として出しています。

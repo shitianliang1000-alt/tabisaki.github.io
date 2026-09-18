@@ -340,27 +340,27 @@
            どうかを分けます。距離からは推し量れません。 -->
       <div class="tune-group">
         <span class="tune-label" id="budget-label">予算のめやす（ひとり）</span>
-        <div class="md-segmented" id="budget-choice"
+        <div class="chip-set chip-choice" id="budget-choice"
              role="group" aria-labelledby="budget-label">
-          <button type="button" class="md-state is-selected" data-budget="">
+          <button type="button" class="md-chip md-state is-selected" data-budget="">
             <span>おまかせ</span>
           </button>
-          <button type="button" class="md-state" data-budget="10000">
+          <button type="button" class="md-chip md-state" data-budget="10000">
             <span>1万円まで</span>
           </button>
-          <button type="button" class="md-state" data-budget="20000">
+          <button type="button" class="md-chip md-state" data-budget="20000">
             <span>2万円まで</span>
           </button>
-          <button type="button" class="md-state" data-budget="30000">
+          <button type="button" class="md-chip md-state" data-budget="30000">
             <span>3万円まで</span>
           </button>
         </div>
-        <div class="md-segmented" id="budget-mode" role="group"
+        <div class="chip-set chip-choice" id="budget-mode" role="group"
              aria-label="予算の扱い" hidden>
-          <button type="button" class="md-state is-selected" data-mode="guide">
+          <button type="button" class="md-chip md-state is-selected" data-mode="guide">
             <span>目安として使う</span>
           </button>
-          <button type="button" class="md-state" data-mode="strict">
+          <button type="button" class="md-chip md-state" data-mode="strict">
             <span>できるだけ収める</span>
           </button>
         </div>
@@ -427,40 +427,59 @@
           毎朝まとめ直すことになります。</p>
       </div>
 
+      <!-- 食べたいもの。
+           ------------------------------------------------------------
+           6択でした。ガイドラインのセグメンテッドコントロールは
+           2〜5個までで、6つ並べると390pxでは字が詰まります。
+           数の多い単一選択は、メニュー（プルダウン）が作法です。
+
+           ついでに「食べられないもの」を足しました。海鮮・麺までは
+           選べるのに、ベジタリアン・アレルギー・ハラール・子ども向けが
+           どこにも入りません。店は持っていないので、決まるのは
+           地図へ渡す言葉までですが、そこが変われば店選びは変わります。 -->
       <div class="tune-group">
-        <span class="tune-label" id="food-label">食べたいもの</span>
-        <div class="md-segmented" id="food-choice"
-             role="group" aria-labelledby="food-label">
-          <button type="button" class="md-state is-selected" data-food="any">
-            <span>おまかせ</span>
-          </button>
-          <button type="button" class="md-state" data-food="seafood">
-            <span>海鮮</span>
-          </button>
-          <button type="button" class="md-state" data-food="noodle">
-            <span>麺</span>
-          </button>
-          <button type="button" class="md-state" data-food="meat">
-            <span>肉</span>
-          </button>
-          <button type="button" class="md-state" data-food="rice">
-            <span>ご飯</span>
-          </button>
-          <button type="button" class="md-state" data-food="sweets">
-            <span>甘いもの</span>
-          </button>
+        <label class="md-field">
+          <span class="md-field-label" id="food-label">食べたいもの</span>
+          <select id="food-choice" class="md-select">
+            <option value="any" selected>おまかせ</option>
+            <option value="seafood">海鮮</option>
+            <option value="noodle">麺</option>
+            <option value="meat">肉</option>
+            <option value="rice">ご飯</option>
+            <option value="sweets">甘いもの</option>
+          </select>
+        </label>
+        <span class="tune-label" id="diet-label"
+              style="margin-top:14px">食べられないもの（任意・複数可）</span>
+        <div class="chip-set" id="diet-choice" role="group"
+             aria-labelledby="diet-label">
+          <button type="button" class="md-chip md-state" data-diet="vegetarian"
+                  aria-pressed="false"><span>ベジタリアン</span></button>
+          <button type="button" class="md-chip md-state" data-diet="vegan"
+                  aria-pressed="false"><span>ヴィーガン</span></button>
+          <button type="button" class="md-chip md-state" data-diet="halal"
+                  aria-pressed="false"><span>ハラール</span></button>
+          <button type="button" class="md-chip md-state" data-diet="gluten"
+                  aria-pressed="false"><span>小麦を避ける</span></button>
+          <button type="button" class="md-chip md-state" data-diet="seafood-free"
+                  aria-pressed="false"><span>魚介を避ける</span></button>
+          <button type="button" class="md-chip md-state" data-diet="kids"
+                  aria-pressed="false"><span>子ども向け</span></button>
         </div>
         <p class="md-field-help">その土地の名物から、昼食と夕食に当てます。
-          店の予約や在庫は持っていないので、お店選びは地図に渡します。</p>
+          店の予約や在庫は持っていないので、お店選びは地図に渡します。
+          「食べられないもの」を選ぶと、<strong>地図で探す言葉が変わります</strong>
+          （「出雲 ベジタリアン」など）。お店がその条件に合うかは、
+          こちらでは確かめられません。</p>
       </div>
 
       <div class="tune-group">
         <span class="tune-label">旅の終わり</span>
-        <div class="md-segmented" id="end-choice">
-          <button type="button" class="md-state is-selected" data-end="origin">
+        <div class="chip-set chip-choice" id="end-choice">
+          <button type="button" class="md-chip md-state is-selected" data-end="origin">
             <span>出発地に戻る</span>
           </button>
-          <button type="button" class="md-state" data-end="other">
+          <button type="button" class="md-chip md-state" data-end="other">
             <span>別の場所で終える</span>
           </button>
         </div>
@@ -543,6 +562,30 @@
   <h2 class="hig-title-2">設定</h2>
 
   <!-- 使う人が知りたいこと。「Geminiとは」ではなく「AIは使えるのか」。 -->
+  <!-- 字の大きさ。
+       ------------------------------------------------------------
+       字は rem で書いてあるので、ブラウザの既定の字と、iOS の
+       Dynamic Type（font: -apple-system-body）にはついていきます。
+       ただ **Android の Chrome では Dynamic Type が効きません**し、
+       OSの設定の場所を知らない人もいます。ここで倍率を選べるように
+       します（OSの設定とは掛け算になります）。 -->
+  <div class="md-list-item type-scale-row">
+    <span class="md-list-text" id="type-scale-label">字の大きさ</span>
+    <span class="md-list-support">端末の設定にも合わせますが、ここでも
+      変えられます</span>
+    <div class="chip-set chip-choice" id="type-scale-choice"
+         role="group" aria-labelledby="type-scale-label">
+      <button type="button" class="md-chip md-state is-selected"
+              data-scale="1"><span>標準</span></button>
+      <button type="button" class="md-chip md-state"
+              data-scale="1.15"><span>やや大きい</span></button>
+      <button type="button" class="md-chip md-state"
+              data-scale="1.3"><span>大きい</span></button>
+      <button type="button" class="md-chip md-state"
+              data-scale="1.5"><span>特大</span></button>
+    </div>
+  </div>
+
   <ul class="md-list">
     <li class="md-list-item">
       <span class="md-list-text">配色</span>

@@ -45,7 +45,7 @@ import { sunNotes, sunTimes } from "./sun.js";
 import { forecastFor, summarizeDay } from "./weather.js";
 import { suggestReplan } from "./replan.js";
 import { attachBackups } from "./backup.js";
-import { attachMeals } from "./meals.js";
+import { attachMeals, dietNote } from "./meals.js";
 import { eventNotesFor } from "./events.js";
 import { attachLuggage, luggagePlanFor } from "./luggage.js";
 import { storyFor } from "./story.js";
@@ -638,7 +638,14 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   //    食事どころが興味の絞り込みで落ちていることがあるためです。
   itin.mealCount = attachMeals(itin, {
     spots: kb.spots, genre: trip.foodGenre,
+    // 食べられないもの。ここが抜けていると、選んでも何も変わりません。
+    diet: trip.diet,
   });
+  // 制約があるなら、旅程に断り書きを添えます。
+  // **「対応店です」とは言いません。** 変えたのは地図を探す言葉だけで、
+  // その店が条件に合うかは確かめられません。
+  const dn = dietNote(trip.diet);
+  if (dn) itin.warnings = [...(itin.warnings ?? []), dn];
   // 9. その時期ならではのこと、荷物、旅の意味づけ。
   //    どれも数えれば決まるので、AIには書かせません
   //    （同じ旅程で毎回違う説明が出ると、説明として成立しません）。

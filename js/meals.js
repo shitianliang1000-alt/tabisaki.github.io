@@ -196,10 +196,89 @@ export function pickDish(prefecture, opts = {}) {
   const wanted = genre === "any"
     ? all.filter((f) => f.genre !== "sweets")
     : all.filter((f) => f.genre === genre);
-  const pool = wanted.length ? wanted : (genre === "any" ? all : []);
+  // 食べられないものは、名物のほうからも外します。
+  //
+  // 「小麦を避ける」を選んだ人に「出雲そば」を出しても、旅程として
+  // 役に立ちません。外した結果1つも残らなければ、名物の話はやめて
+  // 地図の言葉だけを渡します（無い料理を作るより正確です）。
+  const avoid = avoidedGenres(opts.diet);
+  const allowed = avoid.size
+    ? wanted.filter((f) => !avoid.has(f.genre))
+    : wanted;
+  const pool = allowed.length
+    ? allowed
+    : (genre === "any" && !avoid.size ? all : []);
   if (!pool.length) return null;
   const seed = Number.isFinite(opts.seed) ? Math.abs(Math.trunc(opts.seed)) : 0;
   return pool[seed % pool.length];
+}
+
+/**
+ * 食べられないもの。
+ *
+ * 海鮮・麺・肉までは選べるのに、**ベジタリアン・アレルギー・ハラール・
+ * 子ども向けがどこにも入りませんでした。** 食べられないものがある人に
+ * とっては、名物より先に決まる条件です。「出雲そば」と書かれても、
+ * 小麦を避けている人には使えません。
+ *
+ * 店は持っていないので、ここで変わるのは**地図へ渡す言葉**だけです。
+ * それでも「出雲 ベジタリアン」で開くのと「出雲 出雲そば」で開くのでは、
+ * 出てくる店がまるで違います。
+ *
+ * **その店が条件に合うかは、こちらでは確かめられません。** 言葉を
+ * 渡すところまでが、持っている情報でできることです。旅程には
+ * そう書き添えます（勝手に「対応店です」とは言いません）。
+ *
+ * query は地図検索に足す言葉、avoid は名物のほうで外す分類です。
+ */
+export const DIETS = [
+  { id: "vegetarian", label: "ベジタリアン", query: "ベジタリアン",
+    avoid: ["seafood", "meat"] },
+  { id: "vegan", label: "ヴィーガン", query: "ヴィーガン",
+    avoid: ["seafood", "meat", "sweets"] },
+  { id: "halal", label: "ハラール", query: "ハラール", avoid: ["meat"] },
+  // 小麦は、麺の名物とまっすぐぶつかります（そば・うどん・ラーメン）。
+  { id: "gluten", label: "小麦を避ける", query: "グルテンフリー",
+    avoid: ["noodle"] },
+  { id: "seafood-free", label: "魚介を避ける", query: "魚介不使用",
+    avoid: ["seafood"] },
+  // 子ども向けは、何かを外すのではなく探す言葉が変わります。
+  { id: "kids", label: "子ども向け", query: "子連れ 座敷", avoid: [] },
+];
+
+const DIET_BY_ID = new Map(DIETS.map((d) => [d.id, d]));
+
+/** 選ばれた制約を、正しいものだけに絞ります。 */
+export function normalizeDiet(list) {
+  const out = [];
+  for (const id of Array.isArray(list) ? list : []) {
+    if (DIET_BY_ID.has(id) && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+/** 制約のせいで外れる名物の分類。 */
+export function avoidedGenres(diet) {
+  const out = new Set();
+  for (const id of normalizeDiet(diet)) {
+    for (const g of DIET_BY_ID.get(id).avoid) out.add(g);
+  }
+  return out;
+}
+
+/** 地図へ渡す言葉に足す、制約の言葉。 */
+export function dietQuery(diet) {
+  return normalizeDiet(diet).map((id) => DIET_BY_ID.get(id).query).join(" ");
+}
+
+/** 旅程に添える断り書き。対応しているとは言いません。 */
+export function dietNote(diet) {
+  const ids = normalizeDiet(diet);
+  if (!ids.length) return "";
+  const names = ids.map((id) => DIET_BY_ID.get(id).label).join("・");
+  return `${names}の条件で、地図を探す言葉を変えています。`
+    + "お店がその条件に合うかは、こちらでは確かめられません。"
+    + "行く前にお店へご確認ください。";
 }
 
 /**
@@ -301,7 +380,8 @@ export function attachMeals(itin, opts = {}) {
       if (!spot) {
         // 同じものが続かないよう、seed をずらしながら探します
         for (let k = 0; k < 6 && !dish; k += 1) {
-          const cand = pickDish(pref, { genre, seed: seed + k });
+          const cand = pickDish(pref, { genre, seed: seed + k,
+                                        diet: opts.diet });
           if (!cand) break;
           if (!usedDishes.has(cand.name)) dish = cand;
         }
@@ -319,9 +399,13 @@ export function attachMeals(itin, opts = {}) {
         spotId: spot?.id ?? null,
         spotName: spot?.name ?? null,
         // 地図に渡す言葉。名物が分かればそれ、向きだけ分かればそれ。
-        query: dish?.name
-          ?? FOOD_GENRES.find((g) => g.id === genre)?.query
-          ?? "",
+        // 食べられないものがあるなら、**その言葉を先に置きます**
+        // （「ベジタリアン 出雲そば」ではなく「ベジタリアン」が主）。
+        query: [dietQuery(opts.diet),
+                dish?.name
+                  ?? FOOD_GENRES.find((g) => g.id === genre)?.query
+                  ?? ""].filter(Boolean).join(" "),
+        diet: normalizeDiet(opts.diet),
       };
       item.detail = mealDetail({
         regionName: near.regionName, dish, spot, genre,

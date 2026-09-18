@@ -221,6 +221,23 @@ export function makeTrip(init = {}) {
      */
     foodGenre: ["any", "seafood", "noodle", "meat", "rice", "sweets"]
       .includes(init.foodGenre) ? init.foodGenre : "any",
+    /**
+     * 食べられないもの。
+     *
+     * 海鮮・麺・肉までは選べるのに、**ベジタリアン・アレルギー・
+     * ハラール・子ども向けがどこにも入りませんでした。** 食べられない
+     * ものがある人にとっては、名物より先に決まる条件です。
+     * 「出雲そば」と書かれても、小麦を避けている人には使えません。
+     *
+     * 変えられるのは地図へ渡す言葉と、名物の選びかたまでです
+     * （店は持っていないので、対応店かどうかは確かめられません）。
+     */
+    // 正しい値だけを通します（ここは meals.js の DIETS と同じ並びです。
+    // import すると trip.js → meals.js → … の輪ができるので、
+    // 並びだけを写しています。ずれたら tests/meals.test.js が落ちます）。
+    diet: (Array.isArray(init.diet) ? init.diet : []).filter((d, i, a) =>
+      ["vegetarian", "vegan", "halal", "gluten", "seafood-free", "kids"]
+        .includes(d) && a.indexOf(d) === i),
   };
 }
 

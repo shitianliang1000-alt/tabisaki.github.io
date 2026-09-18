@@ -119,32 +119,83 @@
    web も本文は 17px 前後だからです（意図的な差として書き残します）。
    ===================================================================== */
 
+/* ---------------------------------------------------------------------
+   利用者が決めた字の大きさに、**ついていく**。
+   ---------------------------------------------------------------------
+   ここは px で書いてありました。Apple の表の値をそのまま置いたので、
+   「表を使っている」ことにはなります。ところが Dynamic Type の中身は
+   表ではなく、**利用者の設定に追従すること**です。iOS の「文字を
+   大きく」や Android の文字サイズを上げても、px で書いた字は
+   1px も動きません。表を写しただけで、肝心のところが抜けていました。
+
+   直しかたは3つ重ねます。1つでは届かない場所が残るためです。
+
+   ① 大きさを rem にする
+      ブラウザの既定の字（ふつう16px）を基準にします。これで
+      ・パソコンの「フォントサイズ」設定
+      ・携帯の「最小フォントサイズ」
+      ・ページの拡大
+      が、そのまま効きます。既定のままなら、これまでと同じ見た目です
+      （17px = 1.0625rem）。
+
+   ② iOS の Dynamic Type に、根を直結する
+      iOS の「文字を大きく」は、ブラウザの既定の字を動かしません。
+      代わりに Safari / WKWebView は font: -apple-system-body という
+      書きかたを解釈し、**そのとき設定されている本文の大きさ**を
+      返します。これを根（:root）の大きさに使うと、rem で書いた字が
+      全部ついていきます。対応していない環境では @supports が
+      丸ごと無視されるので、①のままです。
+
+   ③ アプリの中にも「字の大きさ」を置く
+      Android の Chrome では②が効きません。OSの設定に触れない人も
+      います。倍率（--hig-type-scale）を1つ持って、設定画面から
+      標準・大・特大を選べるようにします（js/settings.js）。
+
+   3つは掛け算になります。②で 20px になった根に、③の1.2倍が乗ります。
+   ===================================================================== */
+
 :root {
-  --hig-t-large-title: 34px;  --hig-l-large-title: 41px;
-  --hig-t-title1:      28px;  --hig-l-title1:      34px;
-  --hig-t-title2:      22px;  --hig-l-title2:      28px;
-  --hig-t-title3:      20px;  --hig-l-title3:      25px;
-  --hig-t-headline:    17px;  --hig-l-headline:    22px;
-  --hig-t-body:        17px;  --hig-l-body:        22px;
-  --hig-t-callout:     16px;  --hig-l-callout:     21px;
-  --hig-t-subhead:     15px;  --hig-l-subhead:     20px;
-  --hig-t-footnote:    13px;  --hig-l-footnote:    18px;
-  --hig-t-caption1:    12px;  --hig-l-caption1:    16px;
-  --hig-t-caption2:    11px;  --hig-l-caption2:    13px;
+  /* 字の大きさの倍率。設定画面から書き換えます（既定は1）。 */
+  --hig-type-scale: 1;
+  font-size: calc(100% * var(--hig-type-scale));
+}
+
+/* iOS の Dynamic Type に直結します。
+   font: -apple-system-body は字の族と行間もまとめて設定するので、
+   大きさだけを取り出して根に当てます（族は body で決め直します）。 */
+@supports (font: -apple-system-body) {
+  :root {
+    font: -apple-system-body;
+    font-size: calc(1em * var(--hig-type-scale));
+  }
+}
+
+:root {
+  --hig-t-large-title: 2.125rem;    --hig-l-large-title: 2.5625rem;
+  --hig-t-title1: 1.75rem;          --hig-l-title1: 2.125rem;
+  --hig-t-title2: 1.375rem;         --hig-l-title2: 1.75rem;
+  --hig-t-title3: 1.25rem;          --hig-l-title3: 1.5625rem;
+  --hig-t-headline: 1.0625rem;      --hig-l-headline: 1.375rem;
+  --hig-t-body: 1.0625rem;          --hig-l-body: 1.375rem;
+  --hig-t-callout: 1rem;            --hig-l-callout: 1.3125rem;
+  --hig-t-subhead: 0.9375rem;       --hig-l-subhead: 1.25rem;
+  --hig-t-footnote: 0.8125rem;      --hig-l-footnote: 1.125rem;
+  --hig-t-caption1: 0.75rem;        --hig-l-caption1: 1rem;
+  --hig-t-caption2: 0.6875rem;      --hig-l-caption2: 0.8125rem;
 }
 
 /* 広い画面では1段下げます（上の「画面の広さについて」）。 */
 @media (min-width: 861px) {
   :root {
-    --hig-t-large-title: 28px;  --hig-l-large-title: 34px;
-    --hig-t-title1:      22px;  --hig-l-title1:      28px;
-    --hig-t-title2:      20px;  --hig-l-title2:      25px;
-    --hig-t-title3:      17px;  --hig-l-title3:      22px;
-    --hig-t-headline:    15px;  --hig-l-headline:    20px;
-    --hig-t-body:        15px;  --hig-l-body:        20px;
-    --hig-t-callout:     15px;  --hig-l-callout:     20px;
-    --hig-t-subhead:     13px;  --hig-l-subhead:     18px;
-    --hig-t-footnote:    13px;  --hig-l-footnote:    18px;
+    --hig-t-large-title: 1.75rem;     --hig-l-large-title: 2.125rem;
+    --hig-t-title1: 1.375rem;         --hig-l-title1: 1.75rem;
+    --hig-t-title2: 1.25rem;          --hig-l-title2: 1.5625rem;
+    --hig-t-title3: 1.0625rem;        --hig-l-title3: 1.375rem;
+    --hig-t-headline: 0.9375rem;      --hig-l-headline: 1.25rem;
+    --hig-t-body: 0.9375rem;          --hig-l-body: 1.25rem;
+    --hig-t-callout: 0.9375rem;       --hig-l-callout: 1.25rem;
+    --hig-t-subhead: 0.8125rem;       --hig-l-subhead: 1.125rem;
+    --hig-t-footnote: 0.8125rem;      --hig-l-footnote: 1.125rem;
   }
 }
 
@@ -414,6 +465,20 @@
   transition: box-shadow var(--hig-fast) var(--hig-ease);
 }
 .md-field > textarea { min-height: 96px; resize: vertical; line-height: 1.6; }
+/* メニュー（プルダウン）。
+   appearance:none で OS の三角が消えるので、自分で置きます。
+   数の多い単一選択は、切り替えを並べるよりこちらが作法です
+   （ガイドライン: セグメンテッドコントロールは2〜5個まで）。 */
+.md-select {
+  padding-right: 38px !important;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--hig-label-2) 50%),
+    linear-gradient(135deg, var(--hig-label-2) 50%, transparent 50%);
+  background-position: right 18px center, right 13px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
 .md-field > *::placeholder { color: var(--hig-label-3); }
 .md-field > *:focus {
   outline: none;

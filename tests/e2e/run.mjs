@@ -889,6 +889,93 @@ await check("書けなかったところが、null のまま出ていない", as
   await page.setViewportSize({ width: 1280, height: 1000 });
 });
 
+// 字を大きくしたら、本当に大きくなること。
+//
+// ここは Apple の表の値を px で書いていました。「表を使っている」
+// ことにはなりますが、Dynamic Type の中身は表ではなく**利用者の設定に
+// 追従すること**です。px で書いた字は、iOS の「文字を大きく」でも
+// Android の文字サイズでもブラウザの拡大でも、1pxも動きません。
+//
+// rem に直して、根の大きさを倍率から出すようにしました。ここでは
+// 「倍率を上げたら、実際に描かれる字が大きくなる」ことを測ります
+// （変数の値を見るだけでは、どこかで px に上書きされていても通ります）。
+await check("字を大きくすると、実際に大きくなる", async () => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const read = () => page.evaluate(() => {
+    const px = (sel) => {
+      const e = document.querySelector(sel);
+      return e ? parseFloat(getComputedStyle(e).fontSize) : 0;
+    };
+    return {
+      root: parseFloat(getComputedStyle(document.documentElement).fontSize),
+      title: px(".step-title"),
+      help: px(".md-field-help"),
+      button: px(".md-fab-extended"),
+      // 当たり判定は指の大きさで決まるので、**動かないこと**を見ます。
+      touch: parseFloat(getComputedStyle(
+        document.querySelector(".md-btn")).minHeight),
+      scrollW: document.documentElement.scrollWidth,
+      innerW: window.innerWidth,
+      // どこが溢れているのか。数だけだと直せません。
+      wide: (() => {
+        const W = window.innerWidth;
+        const out = [];
+        for (const e of document.querySelectorAll("body *")) {
+          const r = e.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue;
+          if (r.right <= W + 1 && r.left >= -1) continue;
+          if ([...e.children].some((c) => {
+            const cr = c.getBoundingClientRect();
+            return cr.right > W + 1 || cr.left < -1;
+          })) continue;
+          // 横に流す入れもの（中身が溢れて当然のもの）は除きます。
+          let sc = e.parentElement;
+          let inScroller = false;
+          while (sc && sc !== document.body) {
+            const ov = getComputedStyle(sc).overflowX;
+            if (ov === "auto" || ov === "scroll") { inScroller = true; break; }
+            sc = sc.parentElement;
+          }
+          if (inScroller) continue;
+          out.push(`${e.tagName}.${String(e.className).slice(0, 30)}`
+            + `[${Math.round(r.left)}..${Math.round(r.right)}]`);
+          if (out.length >= 6) break;
+        }
+        return out;
+      })(),
+    };
+  });
+  // 幅を変えた直後は、まだ組み直しが終わっていません。
+  await page.waitForTimeout(400);
+  const before = await read();
+  await page.evaluate(() =>
+    document.documentElement.style.setProperty("--hig-type-scale", "1.5"));
+  await page.waitForTimeout(150);
+  const after = await read();
+
+  assert(after.root > before.root * 1.4,
+    `根の字が ${before.root} から ${after.root} しか変わりません`);
+  for (const k of ["title", "help", "button"]) {
+    assert(before[k] > 0, `${k} が見つかりません`);
+    assert(after[k] > before[k] * 1.4,
+      `${k} が ${before[k]}px から ${after[k]}px しか変わりません（px 固定では？）`);
+  }
+  // 44pt は指の大きさです。字を大きくしても指は大きくなりません。
+  assert(after.touch === before.touch,
+    `当たり判定が ${before.touch} から ${after.touch} に動きました`);
+  // 大きくしても、横にはみ出さないこと。
+  //
+  // 溢れると、読むために横へスクロールすることになります。字を
+  // 大きくする人は、まさにそれができない人です。
+  assert(after.wide.length === 0,
+    `字を大きくすると横に溢れます（${after.scrollW}px / 画面 ${after.innerW}px）`
+    + `: ${after.wide.join(" / ")}`);
+
+  await page.evaluate(() =>
+    document.documentElement.style.removeProperty("--hig-type-scale"));
+  await page.setViewportSize({ width: 1280, height: 1000 });
+});
+
 await check("ページの例外が出ていない", () => {
   assert(pageErrors.length === 0, pageErrors.join(" / "));
 });
