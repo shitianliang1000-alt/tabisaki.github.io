@@ -667,3 +667,25 @@ test("日をまたがない旅程には、「着いた」を足さない", async
     .filter((i) => i.kind === "arrive");
   assert.deepEqual(arrives, []);
 });
+
+test("予約済みの宿を書いたら、毎晩そこに泊まる旅程になる", async () => {
+  // 旅程を組む側は「指定された宿」を前から受け取れました
+  // （planner.js の pushLodging → lodging.js の explicit）。無かったのは
+  // 入力する欄です。すでに取ったホテルがあっても、旅程は別の場所に宿を
+  // 置いていました。
+  const hotel = { name: "松江しんじ湖温泉駅", lat: 35.4727, lng: 133.0468 };
+  const itin = await planTrip({
+    trip: trip({ note: "松江と出雲をゆっくり",
+                 departAt: new Date("2026-09-12T08:00"),
+                 arriveBy: new Date("2026-09-14T20:00"),
+                 lodging: [{ place: hotel }, { place: hotel }],
+                 stayStyle: "base" }),
+    kb,
+  });
+  const nights = itin.days.flatMap((d) => d.items)
+    .filter((i) => i.kind === "lodging");
+  assert.equal(nights.length, 2, "2泊になっていません");
+  for (const n of nights) {
+    assert.equal(n.place?.name, hotel.name, `${n.title} が指定の宿ではありません`);
+  }
+});

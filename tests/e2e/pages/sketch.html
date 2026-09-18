@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- 待ち画面の絵（js/sketch.js）を、旅程を組まずに見るための頁。
+     本番の旅程づくりは圏内なら1〜2分ですが、圏外の試験では3秒で
+     終わってしまい、絵を確かめられません。ここでは段を手で進めます。
+     公開はしません（tests/ は配信に含めません）。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../../css/hig-tokens.css">
+<link rel="stylesheet" href="../../../css/hig.css">
+<link rel="stylesheet" href="../../../css/app.css">
+<style>body { margin: 0; padding: 16px; background: var(--hig-grouped-bg); }</style>
+</head>
+<body>
+<div id="progress" class="planning"></div>
+<script type="module">
+import { renderProgress } from "../../../js/ui.js";
+const box = document.getElementById("progress");
+const trip = { origin: { name: "東京駅", lat: 35.6812, lng: 139.7671 }, note: "鎌倉" };
+// 収録の代わり。鎌倉のあたりに星をまき、候補と順を渡します。
+const stars = [];
+for (let i = 0; i < 260; i += 1) {
+  stars.push({ name: `星${i}`, lat: 35.30 + Math.random() * 0.06,
+               lng: 139.50 + Math.random() * 0.10 });
+}
+const picks = [
+  { name: "鶴岡八幡宮", lat: 35.3260, lng: 139.5563, description: "鎌倉の中心にある源氏ゆかりの社。" },
+  { name: "高徳院（鎌倉大仏）", lat: 35.3167, lng: 139.5358, description: "大仏で知られる寺。" },
+  { name: "長谷寺", lat: 35.3125, lng: 139.5330, description: "紫陽花と海の見える寺。" },
+  { name: "由比ヶ浜", lat: 35.3100, lng: 139.5420, description: "鎌倉の海岸。" },
+  { name: "報国寺", lat: 35.3210, lng: 139.5720, description: "竹の庭で知られる寺。" },
+];
+window.__go = (step) => {
+  const extra = { trip, stars: () => stars };
+  if (step >= 2) extra.picks = picks;
+  if (step >= 4) extra.route = [picks[0], picks[4], picks[1], picks[2], picks[3]];
+  renderProgress(box, step, "", extra);
+};
+window.__go(0);
+</script>
+</body>
+</html>

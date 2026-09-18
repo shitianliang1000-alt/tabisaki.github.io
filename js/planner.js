@@ -33,6 +33,18 @@ const MIN_IDLE_MIN = 60;
  * 実際には乗り換えがあるのに直通だと読まれます。
  * 空欄のほうが、間違った断定より役に立ちます。
  */
+/**
+ * その区間で乗る乗り物の種類（js/modes.js の classifyLine による）。
+ *
+ * routes.js の yahooLeg が、調べた経路の路線名から見分けて kinds に
+ * 入れています。preferMet は「指定した乗り物で組めたか」です
+ * （フェリーを指定したのに船の便が無かった、など）。
+ */
+function vehicleOf(leg) {
+  if (!leg || !Array.isArray(leg.kinds) || !leg.kinds.length) return null;
+  return { kinds: [...leg.kinds], preferMet: leg.preferMet !== false };
+}
+
 function withTransit(item, transit) {
   if (!transit) return item;
   item.transit = transit;
@@ -140,6 +152,10 @@ export function buildItinerary(input) {
     // 調べた便の中身。これを渡していなかったので、Yahoo!で引いた往路が
     // 画面では「収録データ・Googleの経路」と出ていました。
     yahoo: outFits ? (legs?.outbound?.yahoo ?? null) : null,
+    // 何に乗る区間か（飛行機・船・高速バス…）。routes.js が調べた
+    // 結果に付けています。これが無いと、飛行機の区間が「電車」の顔で
+    // 並び、搭乗手続きの断り書きも出ません。
+    vehicle: outFits ? vehicleOf(legs?.outbound) : null,
     km: haversineKm(trip.origin, firstStation),
     costYen: 0,
     reason: overnight
@@ -218,6 +234,7 @@ export function buildItinerary(input) {
         noTransit: leg?.noTransit === true,
         taxi: leg?.taxi === true,
         yahoo: fits ? (leg?.yahoo ?? null) : null,
+        vehicle: fits ? vehicleOf(leg) : null,
         alternatives: fits ? (leg?.alternatives ?? []) : [],
         km: haversineKm(mv.from, mv.to),
         reason: `${day + 1}日目から${region.name}を拠点にするため`,
@@ -329,6 +346,7 @@ export function buildItinerary(input) {
           noTransit: leg?.noTransit === true && !onFoot,
           taxi: leg?.taxi === true && !onFoot,
           yahoo: fits ? (leg?.yahoo ?? null) : null,
+          vehicle: fits ? vehicleOf(leg) : null,
           alternatives: fits ? (leg?.alternatives ?? []) : [],
           costYen: 0,
           reason: routed && fits
@@ -451,6 +469,7 @@ export function buildItinerary(input) {
         + (legs?.inbound?.routed ? "" : "（推定）"),
       from: null, to: end.place,
       routed: Boolean(legs?.inbound?.routed),
+      vehicle: vehicleOf(legs?.inbound),
       noTransit: legs?.inbound?.noTransit === true,
       taxi: legs?.inbound?.taxi === true,
       km: haversineKm(visits.at(-1)?.spot ?? lastRegion, end.place),

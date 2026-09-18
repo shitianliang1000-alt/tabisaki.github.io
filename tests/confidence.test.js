@@ -250,3 +250,38 @@ test("ふつうに引けなかった区間は、これまでどおり「目安�
   const c = confidenceOf("travel", { kind: "transit", routed: false });
   assert.equal(c.label, "目安");
 });
+
+// --- 当日行っても入れない場所 -----------------------------------------------
+//
+// 分類の目安（酒蔵・テーマパーク）とは別に、名指しで持ちます。
+// ジブリ美術館は日時指定の予約券だけで、当日券はありません。旅程に
+// 入った時点で言わないと、行ってから知ることになります。
+
+test("予約券だけの場所を、名指しで「必要」と言う", () => {
+  const ghibli = reservationOf({ name: "三鷹の森ジブリ美術館（三鷹市立アニメーション美術館）" });
+  assert.equal(ghibli.required, true);
+  assert.match(ghibli.text, /当日券はありません/);
+  // いつ売り出されるかは、取りかたの型として書きます（値段は書きません）。
+  assert.match(ghibli.text, /毎月10日/);
+  assert.doesNotMatch(ghibli.text, /\d+円/);
+});
+
+test("公式サイトがあれば、そこへ渡す", () => {
+  // 収録の url（Wikidata の公式サイト）をそのまま使います。
+  const r = reservationOf({ name: "ジブリパーク", url: "https://ghibli-park.jp/" });
+  assert.equal(r.url, "https://ghibli-park.jp/");
+  // http のものは https に書き換えます（平文で開かせません）。
+  const r2 = reservationOf({ name: "ジブリパーク", url: "http://ghibli-park.jp/" });
+  assert.equal(r2.url, "https://ghibli-park.jp/");
+  // 無ければ、公式で申し込むように書きます（リンクは出せません）。
+  const r3 = reservationOf({ name: "ジブリパーク" });
+  assert.equal(r3.url, "");
+  assert.match(r3.text, /公式サイト/);
+});
+
+test("「混むから予約したほうがいい」程度の場所は、名指ししない", () => {
+  // 載せると、要らない場所で予約を探させることになります。
+  const r = reservationOf({ name: "出雲大社", category: "神社" });
+  assert.equal(r.required, false);
+  assert.equal(r.likely, false);
+});

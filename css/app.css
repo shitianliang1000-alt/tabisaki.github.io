@@ -397,7 +397,8 @@ p, li { text-wrap: pretty; }
 
 /* 移動そのものの楽しみ（走る道・乗る路線）。
    休憩の一行（.rest）と同じ形で、移動の行に添えます。 */
-.sun.scenic, .sun.samespot, .sun.shape { color: var(--hig-label-2); }
+.sun.scenic, .sun.samespot, .sun.shape, .sun.vehicle { color: var(--hig-label-2); }
+.sun.vehicle.tight { color: var(--hig-red-deep); font-weight: 600; }
 /* 休憩の枠が、帰りの余裕に収まらないとき。色だけに頼らず、
    文のほうにも「超えます」と書いてあります。 */
 .sun.rest.tight { color: var(--hig-red-deep); font-weight: 600; }
@@ -769,6 +770,22 @@ p, li { text-wrap: pretty; }
   background: var(--hig-card);
   box-shadow: var(--hig-shadow-1);
 }
+/* 待っているあいだの絵（js/sketch.js）。札の上いっぱいに置きます。 */
+.sketch {
+  margin: -32px -28px 18px; padding: 0;
+  border-radius: var(--hig-r-xl) var(--hig-r-xl) 0 0;
+  background: var(--hig-fill);
+  overflow: hidden;
+}
+.sketch canvas { display: block; width: 100%; }
+/* 収録の説明文から取った一言。読み終わる前に変えません（5秒）。 */
+.sketch-caption {
+  margin: 0; padding: 10px 16px 12px; min-height: 2.6em;
+  font-size: var(--hig-t-footnote); line-height: 1.6;
+  color: var(--hig-label-2);
+  border-top: .5px solid var(--hig-separator);
+}
+.sketch-caption:empty { padding: 0; min-height: 0; border: 0; }
 .plan-card .step-text {
   margin: 0 0 4px; font-size: var(--hig-t-title2); font-weight: 700; letter-spacing: -.3px;
 }
