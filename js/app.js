@@ -39,13 +39,18 @@ import { paceBreakdown, slackLevel } from "./score.js";
 import { VARIANTS, distinguishOf, recommendOf, summaryOf, tripsFor }
   from "./variants.js";
 import { $, el, openSheet, renderItinerary, renderProgress, renderToday,
-         suggestionButton } from "./ui.js";
+         scrollBehavior, suggestionButton } from "./ui.js";
 import { catchUp } from "./today.js";
-import { addHistory, clearHistory, loadHistory, removeHistory, savedLabel,
-         thawItinerary } from "./history.js";
+import { addHistory, clearHistory, freezeItinerary, loadHistory, removeHistory,
+         replaceHistory, savedLabel, thawItinerary } from "./history.js";
+import { applyTypeScale, initTypeScale, saveTypeScale } from "./typescale.js";
+import { mergeTrips, readTripFile, toBackupFile, toTripFile, tripFilename }
+  from "./transfer.js";
 
 const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
                 endMode: "origin", mode: "plan",
+                // 人数。費用の概算に効きます（宿と入場は人数ぶん）。
+                people: 1,
                 discovering: false, aiSpots: 0,
                 // ペースは、利用者が「もっとゆっくり」等を押したときだけ
                 // 指定します。既定では希望文からの読み取りに任せます。
@@ -64,6 +69,12 @@ const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
 // --- 起動 -------------------------------------------------------------------
 
 async function boot() {
+  // **画面を組む前に、字の大きさを当てます。**
+  //
+  // あとから当てると、標準の大きさで一度描いてから大きくなるので、
+  // 開いた瞬間に字が飛び跳ねます。
+  initTypeScale();
+
   state.map = new TripMap("map");
   state.map.configure({ tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION });
   startBackgroundMap();
@@ -1021,14 +1032,95 @@ function renderDayWindow() {
   help.textContent = `1日あたり${len}・${mood}`;
 }
 
+/**
+ * 取り消せない操作の確認。
+ *
+ * window.confirm は使いません。文面を日本語で整えられず、この画面の
+ * 作りからも浮きます（すでに <dialog> の作法があります）。**何が
+ * どれだけ消えるのか**を数えて出せることのほうが大事です。
+ *
+ * 閉じかたは3通りあります（「やめる」・幕を押す・Esc）。どれでも
+ * 「やめた」として扱います。取り消せない操作なので、迷ったときは
+ * 何もしないほうが正しいからです。
+ *
+ * @param {{title:string, detail:string, yes:string}} opts
+ * @returns {Promise<boolean>} 実行してよいか
+ */
+function confirmDanger({ title, detail, yes }) {
+  const dlg = $("#confirm-dialog");
+  if (!dlg?.showModal) {
+    // <dialog> が使えない古い環境。黙って実行はしません。
+    return Promise.resolve(globalThis.confirm?.(`${title}\n${detail}`) === true);
+  }
+  $("#confirm-title").textContent = title;
+  $("#confirm-detail").textContent = detail;
+  const yesBtn = $("#confirm-yes");
+  yesBtn.querySelector("span").textContent = yes;
+
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      yesBtn.removeEventListener("click", onYes);
+      $("#confirm-no").removeEventListener("click", onNo);
+      dlg.removeEventListener("click", onScrim);
+      dlg.removeEventListener("close", onClose);
+      if (dlg.open) dlg.close();
+      resolve(value);
+    };
+    const onYes = () => finish(true);
+    const onNo = () => finish(false);
+    // 幕（ダイアログの外側）を押したときも、やめたことにします。
+    const onScrim = (e) => { if (e.target === dlg) finish(false); };
+    // Esc。ブラウザが勝手に閉じるので、ここで受け取ります。
+    const onClose = () => finish(false);
+    yesBtn.addEventListener("click", onYes);
+    $("#confirm-no").addEventListener("click", onNo);
+    dlg.addEventListener("click", onScrim);
+    dlg.addEventListener("close", onClose);
+    dlg.showModal();
+    // 指が最初に触れるのは「やめる」です。取り消せない操作の上に
+    // 指を置いた状態で開くのは、危ない作りです。
+    $("#confirm-no").focus();
+  });
+}
+
 // --- 画面の共通部品 ---------------------------------------------------------
 
 function wireChrome() {
   // 前につくった旅を、まとめて消す。
   // 端末に残るものなので、消す手段は必ず画面から届くところに置きます。
-  $("#recent-clear")?.addEventListener("click", () => {
+  //
+  // **押した瞬間に消していました。** 履歴は端末にしか無いので、
+  // 消したら戻せません（サーバーにも控えはありません）。取り消せない
+  // 操作には、色と確認の両方が要ります（ガイドライン: destructive）。
+  $("#recent-clear")?.addEventListener("click", async () => {
+    const n = loadHistory().length;
+    if (!n) return;
+    const ok = await confirmDanger({
+      title: "つくった旅を、すべて消しますか",
+      detail: `${n}件を消します。この端末にしか残っていないので、`
+        + "消すと戻せません。",
+      yes: "すべて消す",
+    });
+    if (!ok) return;
     clearHistory();
     renderRecent();
+  });
+
+  // つくった旅の控え。端末の保存は消えるものなので、外へ出す手を
+  // 画面から届くところに置きます。
+  $("#backup-export")?.addEventListener("click", exportBackup);
+  $("#backup-import")?.addEventListener("click", () => {
+    $("#backup-file")?.click();
+  });
+  $("#backup-file")?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    // 同じファイルを続けて選べるように、値を空に戻します
+    // （戻さないと、2度目の change が起きません）。
+    e.target.value = "";
+    await importTripFile(file);
   });
 
   // 設定。ふだんは見えなくてよいものを、ここにまとめます。
@@ -1124,11 +1216,24 @@ function wantsDevPanel() {
 
 function wireForm() {
   // 予算と移動手段。押されたものを覚えるだけの、同じ形の切り替えです。
+  // 選ばれていることを、**読み上げにも出します。**
+  //
+  // これまで印は is-selected（見た目）だけでした。画面を見ない人には
+  // 「おまかせ・電車・バス・車…」が並んでいるだけで、どれがいま選ばれて
+  // いるのか分かりません。押した状態として aria-pressed を持たせます
+  // （単一選択なので、押すたびに他を false に戻します）。
   const segmented = (sel, key, onPick) => {
-    for (const btn of document.querySelectorAll(`${sel} button`)) {
+    const all = () => document.querySelectorAll(`${sel} button`);
+    for (const btn of all()) {
+      // 最初の状態も書いておきます（見た目と読み上げを合わせます）。
+      btn.setAttribute("aria-pressed",
+                       String(btn.classList.contains("is-selected")));
       btn.addEventListener("click", () => {
-        document.querySelectorAll(`${sel} button`)
-          .forEach((b) => b.classList.toggle("is-selected", b === btn));
+        for (const b of all()) {
+          const on = b === btn;
+          b.classList.toggle("is-selected", on);
+          b.setAttribute("aria-pressed", String(on));
+        }
         onPick(btn.dataset[key]);
       });
     }
@@ -1148,15 +1253,53 @@ function wireForm() {
   segmented("#transport-choice", "transport", (v) => {
     state.transport = v ?? "any";
   });
+  // 字の大きさ。押した瞬間に画面ぜんぶが変わります（rem で書いて
+  // あるので、根の大きさを書き換えるだけで全部ついてきます）。
+  const scaleNow = String(initTypeScale());
+  for (const btn of document.querySelectorAll("#type-scale-choice button")) {
+    const on = btn.dataset.scale === scaleNow;
+    btn.classList.toggle("is-selected", on);
+    btn.setAttribute("aria-pressed", String(on));
+  }
+  segmented("#type-scale-choice", "scale", (v) => {
+    const n = saveTypeScale(v);
+    applyTypeScale(n);
+  });
   // 宿の取りかた。連泊と周遊は、同じ日数でも別の旅です（stays.js）。
   segmented("#stay-choice", "stay", (v) => {
     state.stayStyle = v ?? "auto";
   });
-  // 食べたいもの。店は持っていないので、決まるのは
-  // 「その土地の何を食べるか」までです（meals.js）。
-  segmented("#food-choice", "food", (v) => {
-    state.foodGenre = v ?? "any";
-  });
+  // 食べたいもの。6択なので、切り替えではなくメニューにしました
+  // （ガイドラインのセグメンテッドコントロールは2〜5個までで、
+  // 6つ並べると390pxで字が詰まり、字を大きくすると溢れます）。
+  // 店は持っていないので、決まるのは「その土地の何を食べるか」
+  // までです（meals.js）。
+  // 人数。費用の計算は people を受け取れるのに、聞く欄がどこにも
+  // ありませんでした（つねに1人ぶんの概算です）。
+  const people = $("#people-choice");
+  if (people) {
+    people.addEventListener("change", () => {
+      state.people = Math.max(1, Number(people.value) || 1);
+      setBudgetHelp();
+    });
+  }
+  const food = $("#food-choice");
+  if (food) {
+    food.addEventListener("change", () => {
+      state.foodGenre = food.value || "any";
+    });
+  }
+  // 食べられないもの。海鮮・麺までは選べるのに、ベジタリアン・
+  // アレルギー・ハラール・子ども向けがどこにも入りませんでした。
+  // 店は持っていないので変わるのは地図へ渡す言葉までですが、
+  // そこが変われば店選びは変わります。
+  for (const btn of document.querySelectorAll("#diet-choice button")) {
+    btn.addEventListener("click", () => {
+      const on = btn.getAttribute("aria-pressed") !== "true";
+      btn.setAttribute("aria-pressed", String(on));
+      btn.classList.toggle("is-selected", on);
+    });
+  }
 
   for (const btn of document.querySelectorAll("#end-choice button")) {
     btn.addEventListener("click", () => {
@@ -1284,8 +1427,15 @@ async function resolvePlace(text) {
 }
 
 async function readTrip() {
-  const genres = [...document.querySelectorAll('.md-chip[aria-pressed="true"]')]
-    .map((c) => c.dataset.genre);
+  // **拾うのは興味のチップだけです。**
+  //
+  // ここは画面のチップを種類で選ばずに拾っていました。押されている
+  // チップは興味だけ、という前提です。移動手段のような単一選択を
+  // チップに変えた瞬間に、それが「興味」として混ざります
+  // （dataset.genre は undefined なので、黙って undefined が並びます）。
+  // data-genre を持つものに限ります。
+  const genres = [...document.querySelectorAll(
+    '.md-chip[data-genre][aria-pressed="true"]')].map((c) => c.dataset.genre);
   const other = state.endMode === "other";
   const end = other ? await resolvePlace($("#end-place").value) : null;
   return makeTrip({
@@ -1303,7 +1453,10 @@ async function readTrip() {
     // 何で移動するか。車が使えるかどうかで、組める旅程が変わります。
     transport: state.transport ?? "any",
     // 食べたいものの向き。昼食・夕食にその土地の名物を当てます。
+    people: state.people ?? 1,
     foodGenre: state.foodGenre ?? "any",
+    diet: [...document.querySelectorAll(
+      '#diet-choice button[aria-pressed="true"]')].map((b) => b.dataset.diet),
     // 宿の取りかた。連泊か、泊まるたびに移動か。
     stayStyle: state.stayStyle ?? "auto",
     // 定番と穴場のまぜかた。画面では星の粒として出しています。
@@ -1334,8 +1487,8 @@ function formState() {
     end: state.endMode,
     dep: $("#depart-at").value,
     arr: $("#arrive-by").value,
-    genres: [...document.querySelectorAll('.md-chip[aria-pressed="true"]')]
-      .map((c) => c.dataset.genre),
+    genres: [...document.querySelectorAll(
+      '.md-chip[data-genre][aria-pressed="true"]')].map((c) => c.dataset.genre),
     crowd: $("#avoid-crowds").checked,
     bias: Number($("#hidden-bias")?.value ?? 40),
     dayStart: $("#day-start")?.value ?? "09:00",
@@ -1422,6 +1575,90 @@ function unpack(code) {
   return decodeURIComponent(escape(atob(b64)));
 }
 
+/**
+ * いま画面に出ている旅程を、ファイルにして渡します。
+ *
+ * 条件のリンクは**条件だけ**を運びます。受け取った人が開くと、その場で
+ * 組み直されるので時刻が変わり、同行者と同じ時刻で回れません。
+ * 凍結した旅程そのものを渡せば、その人の端末で同じ時刻の旅程が開きます。
+ *
+ * どこにも送りません。ブラウザの中でファイルを作って、端末に保存する
+ * だけです。
+ */
+function exportTrip(itin, trip) {
+  const doc = toTripFile({
+    id: null,
+    title: itin?.title ?? "旅",
+    savedAt: Date.now(),
+    state: formState(),
+    trip: freezeItinerary(trip ?? null),
+    itin: freezeItinerary(itin ?? null),
+  });
+  downloadJson(doc);
+  setBadge("旅程のファイルを保存しました");
+  setTimeout(() => setBadge(kbBadgeText()), 2600);
+}
+
+/** 履歴ぜんぶを、控えのファイルにします。 */
+function exportBackup() {
+  const list = loadHistory();
+  if (!list.length) {
+    setBadge("控えにする旅がまだありません");
+    setTimeout(() => setBadge(kbBadgeText()), 2600);
+    return;
+  }
+  const doc = toBackupFile(list);
+  downloadJson(doc);
+  setBadge(`${list.length}件を控えに書き出しました`);
+  setTimeout(() => setBadge(kbBadgeText()), 2600);
+}
+
+/** JSON を端末に保存します（.ics と同じやりかたです）。 */
+function downloadJson(doc) {
+  const blob = new Blob([JSON.stringify(doc, null, 1)],
+                        { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = tripFilename(doc);
+  document.body.append(a);
+  a.click();
+  a.remove();
+  // すぐに消すと、保存が始まる前に無効になることがあります。
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/**
+ * ファイルから読み込みます。
+ *
+ * **手元の履歴は消しません。** 混ぜるだけです。控えを読み込んだら
+ * 手元の旅程が消えた、はいちばん困ります。
+ */
+async function importTripFile(file) {
+  if (!file) return;
+  let text = "";
+  try {
+    text = await file.text();
+  } catch (e) {
+    setBadge(`ファイルを開けませんでした（${e?.message ?? e}）`);
+    setTimeout(() => setBadge(kbBadgeText()), 4000);
+    return;
+  }
+  const out = readTripFile(text);
+  if (!out.ok) {
+    // **黙って読み違えません。** 何が違うのかを言います。
+    setBadge(out.error);
+    setTimeout(() => setBadge(kbBadgeText()), 5000);
+    return;
+  }
+  const { list, added, replaced } = mergeTrips(loadHistory(), out.trips);
+  replaceHistory(list);
+  renderRecent();
+  setBadge(`${added}件を読み込みました`
+    + (replaced ? `（${replaced}件は上書き）` : ""));
+  setTimeout(() => setBadge(kbBadgeText()), 3600);
+}
+
 async function shareConditions() {
   const packed = pack(JSON.stringify(formState()));
   const url = `${location.origin}${location.pathname}?p=${packed}`;
@@ -1503,12 +1740,19 @@ function showRoutesUsage() {
 function setBudgetHelp() {
   const help = $("#budget-help");
   if (!help) return;
-  help.textContent = !state.budgetYen
+  // 人数を選んだら、合計がいくらになるのかを先に言います。
+  // 「ひとり3万円まで」で4人なら、旅の合計は12万円です。**そこを
+  // 黙っていると、合計を見たときに驚かせます。**
+  const n = state.people ?? 1;
+  const total = state.budgetYen && n > 1
+    ? `${n}人だと合計 約${(state.budgetYen * n).toLocaleString("ja-JP")}円です。`
+    : "";
+  help.textContent = total + (!state.budgetYen
     ? "決めなければ、費用は概算として出すだけです。"
     : state.budgetMode === "strict"
       ? "収まらないときは、入場料の高い場所から外して組み直します。"
         + "外した場所の名前は出します。"
-      : "超えたぶんを勝手に削りはしません。超えていたら、そう伝えます。";
+      : "超えたぶんを勝手に削りはしません。超えていたら、そう伝えます。");
 }
 
 function isNarrow() {
@@ -1520,7 +1764,7 @@ function showView(view) {
   // 結果の画面に移ったら、そこで地図を用意します（携帯では、ここが
   // 地図の見え始めです）。2度目以降は startHomeMap 側で弾かれます。
   if (view === "result" && isNarrow()) startHomeMap();
-  globalThis.scrollTo?.({ top: 0, behavior: "smooth" });
+  globalThis.scrollTo?.({ top: 0, behavior: scrollBehavior() });
 }
 
 function showError(text, suggestions = [], kind = "plan") {
@@ -1554,7 +1798,7 @@ function showError(text, suggestions = [], kind = "plan") {
     box.append(el("div", { class: "relax-list", style: "margin-top:12px" },
       suggestions.map((s) => suggestionButton(s, applySuggestion))));
   }
-  box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  box.scrollIntoView({ block: "nearest", behavior: scrollBehavior() });
 }
 
 /**
@@ -2142,6 +2386,7 @@ function show(itin, trip) {
       $("#placeholder").hidden = false;
     },
     onShare: () => shareConditions(trip),
+    onExport: () => exportTrip(itin, trip),
     onDay: (index) => state.map.showDay(index),
     onHover: (item, on) => state.map.highlight(item.spotId, on),
     onSuggest: applySuggestion,
@@ -2198,7 +2443,7 @@ function openSpotSheet(item) {
     state.map.highlight(id, true);
   }
   if (isNarrow()) {
-    $("#map")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    $("#map")?.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
   }
   openSheet(item, {
     describe: (sp) => describeSpot(sp),

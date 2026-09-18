@@ -154,7 +154,25 @@ export function makeTrip(init = {}) {
      * 「電車・バス」を選ぶとバスが1日3本の土地を歩かされます。
      * 新幹線で行って駅でレンタカーを借りる旅は、そのどちらでもありません。
      */
-    transport: ["any", "transit", "car", "walk", "transit+car"]
+    /*
+     * 空路と船が、どこにも無かった。
+     *
+     * 選べるのは 電車・バス／車／徒歩／電車＋現地の車 の4つだけで、
+     * **飛行機とフェリーは指定できません**でした。すると
+     *
+     *   ・東京から那覇へ行く旅程が、33時間39分（新幹線＋船）で組まれる
+     *     （飛行機なら4時間46分です）
+     *   ・佐渡・小豆島・屋久島のように船でしか行けない土地を、
+     *     「近くに駅・バス停が見当たりません」で片づけてしまう
+     *
+     * ことになります。時刻を引く手はもとからありました（Yahoo!路線
+     * 情報は空路も船も返します）。指定する口が無かっただけです。
+     *
+     * local は「普通列車のみ」（青春18きっぷ）です。新幹線と特急を
+     * 切ります。使えない切符で組んだ旅程は、そのまま使えません。
+     */
+    transport: ["any", "transit", "car", "walk", "transit+car",
+                "air", "air+car", "ferry", "local"]
       .includes(init.transport) ? init.transport : "any",
     hiddenBias: init.hiddenBias ?? 0.5,
     /**
@@ -203,6 +221,23 @@ export function makeTrip(init = {}) {
      */
     foodGenre: ["any", "seafood", "noodle", "meat", "rice", "sweets"]
       .includes(init.foodGenre) ? init.foodGenre : "any",
+    /**
+     * 食べられないもの。
+     *
+     * 海鮮・麺・肉までは選べるのに、**ベジタリアン・アレルギー・
+     * ハラール・子ども向けがどこにも入りませんでした。** 食べられない
+     * ものがある人にとっては、名物より先に決まる条件です。
+     * 「出雲そば」と書かれても、小麦を避けている人には使えません。
+     *
+     * 変えられるのは地図へ渡す言葉と、名物の選びかたまでです
+     * （店は持っていないので、対応店かどうかは確かめられません）。
+     */
+    // 正しい値だけを通します（ここは meals.js の DIETS と同じ並びです。
+    // import すると trip.js → meals.js → … の輪ができるので、
+    // 並びだけを写しています。ずれたら tests/meals.test.js が落ちます）。
+    diet: (Array.isArray(init.diet) ? init.diet : []).filter((d, i, a) =>
+      ["vegetarian", "vegan", "halal", "gluten", "seafood-free", "kids"]
+        .includes(d) && a.indexOf(d) === i),
   };
 }
 

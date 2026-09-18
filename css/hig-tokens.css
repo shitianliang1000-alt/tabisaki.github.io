@@ -152,6 +152,9 @@
   --hig-material:      #F4F1EBE0;
   --hig-material-thin: #F4F1EBB8;
   --hig-scrim:         #00000040;
+  /* 透明度を下げる設定のときの幕。幕は「後ろを見せないための面」
+     なので、霜を濃くするより不透明にするほうが意図に合います。 */
+  --hig-scrim-opaque:  rgba(0, 0, 0, .74);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -219,6 +222,7 @@
     --hig-material:      #16140FE6;
     --hig-material-thin: #16140FBF;
     --hig-scrim:         #00000099;
+    --hig-scrim-opaque:  rgba(0, 0, 0, .86);
   }
 }
 

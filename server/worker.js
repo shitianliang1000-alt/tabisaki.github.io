@@ -301,12 +301,26 @@ async function yahooTransit(request) {
   u.searchParams.set("userpass", "1");
   u.searchParams.set("ws", "3");
   u.searchParams.set("s", "0");
-  u.searchParams.set("al", "1");
-  u.searchParams.set("shin", "1");
-  u.searchParams.set("ex", "1");
-  u.searchParams.set("hb", "1");
-  u.searchParams.set("lb", "1");
-  u.searchParams.set("sr", "1");
+  // どの乗り物を使ってよいか。
+  //
+  // ここは「全部1（使う）」の決め打ちでした。旗の意味は実測で
+  // 確かめてあります（東京→那覇を al=1 で引くと4時間46分の空路、
+  // al=0 で引くと33時間39分の陸と船）。つまり**切り替えは効くのに、
+  // 切り替えていなかった**だけでした。
+  //
+  //   al=飛行機 / shin=新幹線 / ex=有料特急 / hb=高速バス /
+  //   lb=路線バス / sr=船
+  //
+  // 画面で選ばれた乗り物に合わせて、呼ぶ側（js/modes.js）が決めます。
+  // 渡されなければ、これまでどおり全部使います。
+  const flags = { al: 1, shin: 1, ex: 1, hb: 1, lb: 1, sr: 1 };
+  const asked = body?.modes;
+  if (asked && typeof asked === "object") {
+    for (const k of Object.keys(flags)) {
+      if (asked[k] === 0 || asked[k] === "0" || asked[k] === false) flags[k] = 0;
+    }
+  }
+  for (const [k, v] of Object.entries(flags)) u.searchParams.set(k, String(v));
 
   // 同じ検索は、取りに行きません。
   //
@@ -380,7 +394,21 @@ async function yahooTransit(request) {
   // 採るのは「その時刻に出て、いちばん早く着く」もの。乗車時間ではなく
   // **待ち時間を含めた着時刻**で選びます。始発待ちの長い速達より、
   // すぐ乗れる各駅のほうが早く着くことがあります。
-  const best = routes.reduce((a, b) => (a.minutes <= b.minutes ? a : b));
+  //
+  // ただし**乗り物が指定されているときは、速さより指定が先**です。
+  //
+  //   「フェリーで佐渡へ」と書いた人に、いちばん早い経路を返しても
+  //   意味がありません。船を使う候補が返っているのに、到着が遅いから
+  //   採られない——それでは「フェリーで」と書けないのと同じです。
+  //
+  // 指定に合う候補があれば、そのなかでいちばん早いものを採ります。
+  // 1つも無ければ、これまでどおり速い順です（無いものは作れません）。
+  const prefer = Array.isArray(body?.prefer) ? body.prefer : [];
+  const fits = prefer.length
+    ? routes.filter((r) => routeKinds(r).some((k) => prefer.includes(k)))
+    : [];
+  const pool = fits.length ? fits : routes;
+  const best = pool.reduce((a, b) => (a.minutes <= b.minutes ? a : b));
 
   return json({
     routed: true,
@@ -388,6 +416,12 @@ async function yahooTransit(request) {
     rideMinutes: best.rideMinutes,
     waitMinutes: best.waitMinutes,
     summary: best.summary,
+    // 採った経路に含まれる乗り物と、指定に合っていたか。
+    // 画面は「フェリーで組みました」「船の便は見つかりませんでした」を
+    // ここで言い分けます（黙って陸の経路を出すと、指定を無視した
+    // ことに気づけません）。
+    kinds: routeKinds(best),
+    preferMet: prefer.length ? fits.length > 0 : true,
     meta: {
       url: u.toString(),
       departure: best.departure,
@@ -419,6 +453,33 @@ function liWithClass(html, name) {
     if (m[1].split(/\s+/).includes(name)) return cleanText(m[2]);
   }
   return "";
+}
+
+/**
+ * 経路に含まれる乗り物の種類。
+ *
+ * ここで見分けるのは、**指定できる乗り物だけ**です（飛行機と船）。
+ * 呼び名を全部付け直すのは画面の仕事で、js/modes.js が持っています。
+ * 中継は Cloudflare Worker として単体で動くので js/ を読み込めず、
+ * 同じ見分けかたを2か所に置くことになります。そこで**ここは必要最小限**に
+ * 絞り、2つの表がずれたら試験（tests/modes.test.js）で落ちるように
+ * してあります。
+ *
+ * 全角の英字で返ってくるので（ＡＮＡ・ＪＡＬ）、半角に直してから見ます。
+ */
+export function routeKinds(route) {
+  const out = [];
+  const lines = (route?.legs ?? []).map((l) => String(l?.line ?? ""));
+  if (route?.summary) lines.push(String(route.summary));
+  for (const raw of lines) {
+    const s = raw.replace(/[Ａ-Ｚａ-ｚ０-９]/g,
+      (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+    if (/航空|エアライン|ANA|JAL|ADO|SKY|SFJ|APJ|JJP|IBX|FDA|ORC|AMX|RAC|SNA|JTA|AIRDO|ソラシド|スカイマーク|スターフライヤー|ジェットスター|ピーチ|春秋航空|\d+便/
+      .test(s) && !out.includes("air")) out.push("air");
+    if (/フェリー|汽船|海運|ジェットフォイル|高速船|水上バス|遊覧船|渡船|連絡船/
+      .test(s) && !out.includes("ferry")) out.push("ferry");
+  }
+  return out;
 }
 
 export function parseSummary(html) {

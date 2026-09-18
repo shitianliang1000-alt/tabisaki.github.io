@@ -148,6 +148,24 @@ export function clearHistory(storage) {
   return [];
 }
 
+/**
+ * 読み込んだ一覧を、そのまま書き込みます。
+ *
+ * ファイルから戻すときに使います（js/transfer.js）。addHistory は
+ * 1件ずつ足す口なので、控えを丸ごと戻すには向きません（10件の上限に
+ * 当たると、戻したそばから落ちていきます）。
+ *
+ * **上限は守ります。** localStorage は端末の容量です。上限を外すと、
+ * いつか書き込めなくなり、そのとき失うのは新しいぶんです。
+ *
+ * @returns {Array} 実際に残った一覧
+ */
+export function replaceHistory(list, storage) {
+  const keep = (Array.isArray(list) ? list : []).filter(isValid).slice(0, MAX);
+  write(keep, storage);
+  return loadHistory(storage);
+}
+
 function write(list, storage) {
   // 旅程まで持つと、1件が数十KBになります。localStorage がいっぱいなら、
   // **古いものから落として**、新しいぶんだけでも残します。何も残らない

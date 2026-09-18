@@ -106,6 +106,56 @@ export function longDriveNote(minutes) {
   return `${hours}時間を超える運転です。2時間ごとを目安に休憩をはさんでください`;
 }
 
+/** 1回の休憩に見ておく時間（分）。トイレ・給油・飲みもの。 */
+export const REST_MIN = 15;
+
+/**
+ * その区間に入れる休憩の枠。
+ *
+ * 「2時間ごとに休憩を」と書いてはいましたが、**旅程はその時間を
+ * 数えていません**。3時間の運転が「3時間」のまま並び、休憩を入れると
+ * そのぶん全部が後ろへずれます。子ども連れなら、まず入れます。
+ *
+ * ここでは**枠だけ**を決めます。
+ *
+ *   ・どこで休むかは言いません（店名も道の駅名も作りません）
+ *   ・何時ごろかと、何分見ておくかだけを出します
+ *
+ * **時刻は動かしません。** 動かすと、確かめ済みの旅程（帰りの時刻に
+ * 間に合うか、施設が開いているか）をもう一度確かめ直すことになります。
+ * 代わりに「入れても間に合うか」を余裕から答えます。
+ *
+ * @param {{start:Date|string, end:Date|string}} item 移動の行
+ * @param {number|null} slackMin 帰りの余裕（分）。分からなければ null
+ * @returns {{times:string[], minutes:number, fits:boolean|null,
+ *            note:string}|null}
+ */
+export function restSlots(item, slackMin = null) {
+  const start = new Date(item?.start);
+  const end = new Date(item?.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const minutes = Math.round((end - start) / 60000);
+  if (minutes < LONG_DRIVE_MIN) return null;
+
+  // 2時間ごと。3時間なら1回、5時間なら2回です。
+  const count = Math.max(1, Math.floor(minutes / 120));
+  const times = [];
+  for (let i = 1; i <= count; i += 1) {
+    const at = new Date(start.getTime() + (minutes * i / (count + 1)) * 60000);
+    times.push(`${at.getHours()}:${String(at.getMinutes()).padStart(2, "0")}`);
+  }
+  const need = count * REST_MIN;
+  const fits = Number.isFinite(slackMin) ? slackMin >= need : null;
+  const note = fits === false
+    ? `この${count}回ぶん（約${need}分）を入れると、帰りの余裕`
+      + `（${Math.round(slackMin)}分）を超えます。`
+      + "どこかを削るか、帰りを遅らせてください。"
+    : `旅程の時刻には、この${need}分を入れていません。`
+      + (fits === true
+        ? `帰りの余裕（${Math.round(slackMin)}分）の中には収まります。` : "");
+  return { times, minutes: need, fits, note };
+}
+
 /**
  * 日ごとの運転時間（分）。
  *

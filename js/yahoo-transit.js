@@ -102,10 +102,27 @@ export async function searchYahooTransit(from, to, opts = {}) {
   const departAt = Number.isNaN(requested.getTime())
     ? neutralDepartureTime() : requested;
 
+  // **どの乗り物を使ってよいかを、いっしょに渡します。**
+  //
+  // これまでは渡していなかったので、中継の側で「全部使う」を
+  // 決め打ちしていました。すると
+  //
+  //   ・「電車で」と書いた人に、飛行機の経路が返る
+  //   ・「フェリーで」と書いた人に、速い陸の経路が返る（船は候補に
+  //     入っていても、到着が遅いので採られません）
+  //   ・「普通列車で」（青春18きっぷ）と書いた人に、新幹線が返る
+  //
+  // のどれも起きます。旗（modes）と、優先して採る種類（prefer）を
+  // 渡して、指定に合うものを選んでもらいます。
+  //
+  // 渡さなければ、中継はこれまでどおり「全部使う・速い順」で答えます
+  // （古い画面がつながっても壊れません）。
   const body = JSON.stringify({
     from: fromName,
     to: toName,
     departAt: departAt.toISOString(),
+    modes: opts.modes ?? undefined,
+    prefer: opts.prefer?.length ? opts.prefer : undefined,
   });
   const url = endpointFor("yahoo:transit", {}, cfg);
 

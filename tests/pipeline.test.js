@@ -610,3 +610,60 @@ test("立ち寄りの数の上限は、旅程に効く", async () => {
   assert.ok(count(capped) <= 4,
     `上限4のはずが${count(capped)}件あります`);
 });
+
+test("日をまたいで着いた朝は、その日の頭に「着いた」を置く", async () => {
+  // 夜行の旅程が、こうなっていました。
+  //
+  //   1日目  21:50–09:58  東京駅 → 出雲市駅（サンライズ出雲・車中泊）
+  //   2日目  09:58–10:29  出雲大社へ移動
+  //
+  // **2日目に「出雲市駅に着いた」行がありません。** 着いた時刻は
+  // 1日目の行の右端にしかなく、2日目だけを見ると、どこから動き出すのか
+  // その日のどこにも書かれていません。
+  const itin = await planTrip({
+    trip: trip({ note: "サンライズに乗って出雲大社へ",
+                 departAt: new Date("2026-09-12T10:00"),
+                 arriveBy: new Date("2026-09-15T20:00") }),
+    kb,
+  });
+  const out = itin.days.flatMap((d) => d.items)
+    .find((i) => i.kind === "transit" && /サンライズ/.test(i.detail ?? ""));
+  assert.ok(out, "夜行の区間がありません");
+  // 着く日の頭に、着地があること。
+  const arriveDay = itin.days.find((d) =>
+    new Date(d.date).setHours(0, 0, 0, 0)
+      === new Date(out.end).setHours(0, 0, 0, 0));
+  assert.ok(arriveDay, "着いた日が旅程にありません");
+  const first = arriveDay.items[0];
+  assert.equal(first.kind, "arrive",
+    `着いた日の1行目が ${first.kind}（${first.title}）です`);
+  assert.match(first.title, /出雲市.*着/);
+  // 着いた時刻そのものであること（前後にずらしません）。
+  assert.equal(+new Date(first.start), +new Date(out.end));
+  // 幅は持ちません。時計を進めるものではなく、その日の起点の目印です。
+  assert.equal(+new Date(first.end), +new Date(first.start));
+  // 何に乗って、いつ出たのかが書かれていること。
+  assert.match(first.detail, /サンライズ/);
+  assert.match(first.detail, /21:50/);
+  // 同じ時刻に並ぶ移動より先にあること（まだ着いていない駅から
+  // 動き出す旅程にはしません）。
+  const move = arriveDay.items.find((i) => i.kind === "transit");
+  if (move && +new Date(move.start) === +new Date(first.start)) {
+    assert.ok(arriveDay.items.indexOf(first) < arriveDay.items.indexOf(move),
+      "着く前に動き出しています");
+  }
+});
+
+test("日をまたがない旅程には、「着いた」を足さない", async () => {
+  // 日帰り・ふつうの泊まりでは、着地の行は要りません。足すと
+  // 「9:00 東京駅 着」が毎朝並びます。
+  const itin = await planTrip({
+    trip: trip({ note: "鎌倉をゆっくり回りたい",
+                 departAt: new Date("2026-09-12T09:00"),
+                 arriveBy: new Date("2026-09-12T19:00") }),
+    kb,
+  });
+  const arrives = itin.days.flatMap((d) => d.items)
+    .filter((i) => i.kind === "arrive");
+  assert.deepEqual(arrives, []);
+});

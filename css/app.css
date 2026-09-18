@@ -113,7 +113,17 @@ p, li { text-wrap: pretty; }
      出られません。padding-bottom を足したぶんだけ帯が浮き上がり、
      その下に次の項目が透けて見えていました。
      sticky は流れの中に場所を持つので、そもそも予約は要りません。 */
-  padding: 24px 20px 0;
+  /* 横持ちのノッチと角丸を、避けます。
+     ------------------------------------------------------------
+     上・下・右の安全領域は見ていましたが、**左右の内側**が
+     入っていませんでした。横向きの iPhone では、画面の左（または
+     右）にノッチと角丸が食い込みます。そこに本文の1文字目が
+     重なって、読めなくなっていました。
+
+     max() で「ふつうは20px、ノッチのぶんが大きければそちら」に
+     します。ノッチの無い端末では 20px のままです。 */
+  padding: 24px max(20px, env(safe-area-inset-right))
+           0 max(20px, env(safe-area-inset-left));
 }
 .pane-result {
   position: relative;
@@ -226,7 +236,9 @@ p, li { text-wrap: pretty; }
   font-size: var(--hig-t-footnote); font-weight: 600;
   border-radius: var(--hig-r-sm);
 }
-.here-btn:hover { background: var(--hig-fill); opacity: 1; }
+@media (hover: hover) and (pointer: fine) {
+  .here-btn:hover { background: var(--hig-fill); opacity: 1; }
+}
 .here-btn > span:first-child { font-size: var(--hig-t-caption1); opacity: .8; }
 
 /* 出発と帰着は対で読むものなので、横に並べます。 */
@@ -271,7 +283,9 @@ p, li { text-wrap: pretty; }
   transition: transform var(--hig-fast) var(--hig-ease),
               box-shadow var(--hig-fast) var(--hig-ease);
 }
-.mood:hover { transform: translateY(-2px); box-shadow: var(--hig-shadow-2); }
+@media (hover: hover) and (pointer: fine) {
+  .mood:hover { transform: translateY(-2px); box-shadow: var(--hig-shadow-2); }
+}
 .mood.is-selected {
   box-shadow: 0 0 0 3px var(--tabi-indigo), var(--hig-shadow-2);
 }
@@ -368,6 +382,26 @@ p, li { text-wrap: pretty; }
 }
 
 .note-field { margin-bottom: 10px; }
+
+/* 指の端末に、触った跡を残さない。
+   ------------------------------------------------------------------
+   :hover の指定に @media (hover: hover) の囲いがありませんでした。
+   指で押すと、iOS も Android も**指を離したあとまで :hover を
+   当てたまま**にします。すると押したものが薄くなったり浮いたままに
+   なり、「選択済み」に見えます。実際に選ばれているものと見分けが
+   つかないので、押し間違いに気づけません。
+
+   囲いは (hover: hover) and (pointer: fine) にしました。hover だけだと
+   一部の端末が「hover できる」と答えつつ指で操作します。
+   この下と css/hig.css の :hover は、すべてこの形にしてあります。 */
+
+/* 移動そのものの楽しみ（走る道・乗る路線）。
+   休憩の一行（.rest）と同じ形で、移動の行に添えます。 */
+.sun.scenic { color: var(--hig-label-2); }
+/* 休憩の枠が、帰りの余裕に収まらないとき。色だけに頼らず、
+   文のほうにも「超えます」と書いてあります。 */
+.sun.rest.tight { color: var(--hig-red-deep); font-weight: 600; }
+.sun.scenic > span:last-child { line-height: 1.7; }
 
 /* --- 定番と穴場のまぜかた ------------------------------------------------ */
 /* 定番と穴場のまぜかた。
@@ -484,7 +518,9 @@ p, li { text-wrap: pretty; }
   font-size: var(--hig-t-subhead); font-weight: 600; letter-spacing: -.05px;
   color: var(--hig-label-2);
 }
-.tune > summary:hover { color: var(--tabi-indigo); }
+@media (hover: hover) and (pointer: fine) {
+  .tune > summary:hover { color: var(--tabi-indigo); }
+}
 .tune > summary::-webkit-details-marker { display: none; }
 /* Apple は開閉を山形（chevron）で示します。 */
 .tune > summary::after {
@@ -503,6 +539,25 @@ p, li { text-wrap: pretty; }
   color: var(--hig-label-2);
 }
 .chip-set { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 1つだけ選ぶチップの列（移動手段など）。
+   見た目は興味のチップと同じで構いません。違うのは「押すと他が外れる」
+   ところだけで、それは JS が持ちます。行の下に説明文が続くので、
+   少しだけ間を空けます。 */
+.chip-choice { margin-bottom: 4px; }
+/* 設定の中の「字の大きさ」。名前・説明・チップの3段なので、
+   横に並べる md-list-item の並びから縦に切り替えます。 */
+.type-scale-row {
+  display: block; padding: 12px 16px;
+  border-radius: var(--hig-r-sm); background: var(--hig-fill);
+  margin-bottom: 12px;
+}
+.type-scale-row .md-list-text {
+  display: block; font-weight: 600; color: var(--hig-label);
+}
+.type-scale-row .md-list-support {
+  display: block; margin: 2px 0 10px;
+  font-size: var(--hig-t-footnote); color: var(--hig-label-2);
+}
 
 /* スイッチの行 */
 .switch-row {
@@ -555,7 +610,9 @@ p, li { text-wrap: pretty; }
   text-align: left; cursor: pointer; color: inherit;
   border-radius: 10px;
 }
-.recent-row:hover { background: var(--hig-fill); }
+@media (hover: hover) and (pointer: fine) {
+  .recent-row:hover { background: var(--hig-fill); }
+}
 .recent-row:focus-visible {
   outline: 2px solid var(--tabi-teal); outline-offset: -2px;
 }
@@ -578,13 +635,34 @@ p, li { text-wrap: pretty; }
   border: 0; border-radius: 50%; background: none; cursor: pointer;
   color: var(--hig-label-2); font-size: var(--hig-t-subhead); line-height: 1;
 }
-.recent-del:hover { background: var(--hig-fill); color: var(--hig-label); }
+@media (hover: hover) and (pointer: fine) {
+  .recent-del:hover { background: var(--hig-fill); color: var(--hig-label); }
+}
 .recent-note { margin: 8px 0 0; font-size: var(--hig-t-caption2); color: var(--hig-label-2); }
 .linkish {
   border: 0; background: none; padding: 0; cursor: pointer;
   font: inherit; font-size: var(--hig-t-caption1); color: var(--tabi-teal);
 }
-.linkish:hover { text-decoration: underline; }
+/* 取り消せない操作。
+   ガイドライン（Buttons / destructive）: 色で示し、確認を挟む。
+   色だけには頼りません（確認の文と、ボタンの文字そのものが「消す」）。 */
+.linkish--danger { color: var(--hig-red); font-weight: 600; }
+/* 字だけのボタンは、見た目のとおりの小ささです。指で押す端末では
+   押せる範囲だけを 44pt にします（透明な面を重ねます）。 */
+@media (pointer: coarse) {
+  .linkish { position: relative; }
+  .linkish::after {
+    content: "";
+    position: absolute; left: 50%; top: 50%;
+    width: 100%; height: 100%;
+    min-width: var(--hig-touch); min-height: var(--hig-touch);
+    transform: translate(-50%, -50%);
+    background: transparent;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .linkish:hover { text-decoration: underline; }
+}
 
 /* つくるボタンと、データの出どころ */
 /* 下に貼り付きます。スクロールがどこにあっても押せます。
@@ -597,9 +675,16 @@ p, li { text-wrap: pretty; }
   position: relative;
   position: sticky; bottom: 0; z-index: 5;
   width: 100%;
-  margin: 8px -20px 0;
-  padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
-  width: calc(100% + 40px);
+  /* 帯は面の余白の外へはみ出して、幅いっぱいに敷きます。
+     余白が安全領域で広がることがあるので、はみ出す量も同じ式に
+     します（決め打ちの -20px だと、横持ちで帯だけがずれます）。 */
+  --make-gutter-l: max(20px, env(safe-area-inset-left));
+  --make-gutter-r: max(20px, env(safe-area-inset-right));
+  margin: 8px calc(-1 * var(--make-gutter-r)) 0
+          calc(-1 * var(--make-gutter-l));
+  padding: 12px var(--make-gutter-r)
+           calc(12px + env(safe-area-inset-bottom)) var(--make-gutter-l);
+  width: calc(100% + var(--make-gutter-l) + var(--make-gutter-r));
 }
 .make .md-fab-extended { width: 100%; }
 .credits {
@@ -662,7 +747,8 @@ p, li { text-wrap: pretty; }
 .home-steps li > i {
   flex: none; width: 22px; height: 22px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  font: 700 12px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+  font: inherit; font-size: var(--hig-t-caption1); font-weight: 700;
+  line-height: 1; letter-spacing: 0;
   color: var(--hig-on-accent); background: var(--tabi-indigo);
 }
 .home-steps li:last-child > i { background: var(--tabi-teal); }
@@ -743,6 +829,24 @@ p, li { text-wrap: pretty; }
 */
 
 .trip-pin { background: none; border: none; }
+/* 地図のピンも、指で押せる大きさに。
+   ------------------------------------------------------------------
+   見た目は 34px（尖った雨滴の形）です。Leaflet が置く枠は 30×30 で、
+   指では小さすぎました。ピンは押すと説明が開くので、押せなければ
+   地図の意味が半分になります。形は変えず、押せる範囲だけを広げます。
+
+   ::after は使えません（ピンは回して置いてあるので、重ねた面も
+   回ってしまい、当たり判定が斜めの菱形になります）。枠そのものを
+   広げて、中身を真ん中に置きます。 */
+@media (pointer: coarse) {
+  .trip-pin {
+    display: flex; align-items: center; justify-content: center;
+    width: var(--hig-touch); height: var(--hig-touch);
+    /* Leaflet が iconAnchor で置いた位置から、広げたぶんだけ戻します
+       （ピンの先が指す場所を動かさないため）。 */
+    margin: -7px 0 0 -7px;
+  }
+}
 .trip-pin > span {
   display: flex; align-items: center; justify-content: center;
   width: 34px; height: 34px;
@@ -821,7 +925,14 @@ p, li { text-wrap: pretty; }
 }
 .result.map-full .itin { max-height: 240px; overflow-y: auto; }
 
-.itin { padding: 20px; }
+/* 旅程の面も、横持ちのノッチを避けます（上と同じ考えです）。
+   余白は変数にしておきます。中で「余白の外まで敷きたいもの」
+   （日のタブなど）が、同じ値を使えるようにするためです。 */
+.itin {
+  --itin-gutter-l: max(20px, env(safe-area-inset-left));
+  --itin-gutter-r: max(20px, env(safe-area-inset-right));
+  padding: 20px var(--itin-gutter-r) 20px var(--itin-gutter-l);
+}
 /* 「今日の旅」は旅程のすぐ上。下の余白は旅程側が持ちます。 */
 .itin:has(> #today) { padding-bottom: 0; }
 #today[hidden] { display: none !important; }
@@ -1096,26 +1207,40 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--md-sys-color-on-surface-variant);
 }
 .axes { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; }
+/* 適合度の1行（絵・名前・星・点／説明）。
+   ---------------------------------------------------------------
+   ここは grid で列幅を決めていました（auto 8.5em 1fr auto）。
+   ふつうの字では収まりますが、**字を大きくすると横に溢れます**。
+   8.5em は字についてくるので広がり、星は ★★★★★ のひと続きで
+   縮まないためです。390px の画面で 398px になり、読むために
+   横へスクロールすることになりました。字を大きくする人は、
+   まさにそれができない人です。
+
+   折り返せる並べかた（flex + wrap）に変えます。入らなくなったら
+   星と点が次の行へ落ちるだけで、溢れません。ふつうの字では
+   これまでと同じ1行です。 */
 .axes li {
-  display: grid; grid-template-columns: auto 8.5em 1fr auto;
-  gap: 4px 10px; align-items: center;
-  grid-template-areas: "ic label stars score" ".  note note note";
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
   font-size: var(--hig-t-footnote);
 }
-.ax-ic { grid-area: ic; }
-.ax-label { grid-area: label; color: var(--md-sys-color-on-surface-variant); }
+.ax-ic { flex: none; }
+.ax-label {
+  flex: 1 1 6em; min-width: 0;
+  color: var(--md-sys-color-on-surface-variant);
+}
 .ax-stars {
-  grid-area: stars; letter-spacing: 2px;
+  flex: none; letter-spacing: 2px;
   color: var(--md-sys-color-primary); font-size: var(--hig-t-subhead);
 }
 .ax-stars .off { color: var(--md-sys-color-outline-variant); }
 .ax-score {
-  grid-area: score; text-align: right;
+  flex: none; margin-left: auto; text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--md-sys-color-on-surface-variant);
 }
+/* 説明は、いつでも自分の行を持ちます。 */
 .ax-note {
-  grid-area: note; font-size: var(--hig-t-caption1); line-height: 1.65;
+  flex: 1 0 100%; font-size: var(--hig-t-caption1); line-height: 1.65;
   color: var(--md-sys-color-on-surface-variant);
 }
 
@@ -1245,10 +1370,22 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
    ません）。内容がこの下を流れていくので、ガラスにして、下の行が
    透けて見えるようにします。不透明な帯だと、貼り付いた瞬間に
    「読んでいた行が消えた」ように見えます。 */
+/* 日のタブ。面の余白の外まで敷きます（帯として端まで届かせるため）。
+   ------------------------------------------------------------------
+   はみ出す量は -20px の決め打ちでした。ところが携帯の幅では面の余白は
+   12px です。**8px ずつ余分にはみ出して、390px の画面で 406px**に
+   なっていました。横にスクロールできてしまい、旅程を読んでいると
+   画面が左右に揺れます。横持ちの安全領域を入れると、ずれはさらに
+   大きくなります。
+
+   面の余白と同じ変数からはみ出す量を出せば、どの幅でもぴったり
+   端で止まります。 */
 .day-tabs {
   position: sticky; top: -1px; z-index: 6;
   display: flex; gap: 8px; overflow-x: auto;
-  margin: 0 -20px 4px; padding: 12px 20px;
+  margin: 0 calc(-1 * var(--itin-gutter-r, 20px)) 4px
+          calc(-1 * var(--itin-gutter-l, 20px));
+  padding: 12px var(--itin-gutter-r, 20px) 12px var(--itin-gutter-l, 20px);
   background: var(--hig-glass-tint-2);
   -webkit-backdrop-filter: var(--hig-glass-blur);
   backdrop-filter: var(--hig-glass-blur);
@@ -1318,7 +1455,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--md-sys-color-outline-variant);
 }
 .tl:last-child .rail::after { display: none; }
-.tl.transit .rail i, .tl.free .rail i, .tl.luggage .rail i {
+.tl.transit .rail i, .tl.free .rail i, .tl.luggage .rail i,
+.tl.arrive .rail i {
   width: 8px; height: 8px;
   background: var(--md-sys-color-outline);
   box-shadow: 0 0 0 3px var(--md-sys-color-surface-container-highest);
@@ -1344,7 +1482,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   cursor: pointer;
   transition: box-shadow var(--md-sys-motion-short) var(--md-sys-motion-standard);
 }
-.tl .body.tap:hover { box-shadow: var(--md-sys-elevation-1); }
+@media (hover: hover) and (pointer: fine) {
+  .tl .body.tap:hover { box-shadow: var(--md-sys-elevation-1); }
+}
 
 .card-info { padding: 14px 16px 16px; }
 
@@ -1470,14 +1610,16 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .c-label { flex: none; width: 7em; color: var(--md-sys-color-on-surface-variant); }
 .critique li.warn .c-text { color: var(--md-sys-color-error); }
 
-.tl.transit .body, .tl.free .body, .tl.luggage .body {
+.tl.transit .body, .tl.free .body, .tl.luggage .body,
+.tl.arrive .body {
   background: transparent; padding: 8px 4px; margin-bottom: 4px;
 }
 .tl .title {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: var(--hig-t-callout); font-weight: 500; letter-spacing: .15px;
 }
-.tl.transit .title, .tl.free .title, .tl.luggage .title {
+.tl.transit .title, .tl.free .title, .tl.luggage .title,
+.tl.arrive .title {
   font-size: var(--hig-t-subhead); font-weight: 400;
   color: var(--md-sys-color-on-surface-variant);
 }
@@ -1534,8 +1676,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font: inherit; font-size: var(--hig-t-title3); line-height: 1; cursor: pointer;
   transition: background-color var(--md-sys-motion-short) var(--md-sys-motion-standard);
 }
-.tl .chev:hover { background: var(--hig-fill); }
-.tl.transit .chev, .tl.free .chev, .tl.luggage .chev { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .tl .chev:hover { background: var(--hig-fill); }
+}
+.tl.transit .chev, .tl.free .chev, .tl.luggage .chev,
+.tl.arrive .chev { display: none; }
+/* 日をまたいで着いた朝の目印。その日の起点なので、少しだけ強く。 */
+.tl.arrive .title { font-weight: 600; color: var(--hig-label); }
 
 .item-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .item-links .link {
@@ -1575,7 +1722,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--md-sys-color-on-surface-variant);
   font: inherit; font-size: var(--hig-t-footnote); line-height: 1; cursor: pointer;
 }
-.spot-tune .tune-move:hover { background: var(--hig-fill); }
+@media (hover: hover) and (pointer: fine) {
+  .spot-tune .tune-move:hover { background: var(--hig-fill); }
+}
 .spot-tune .tune-cap {
   margin-left: 4px; font-size: var(--hig-t-caption1);
   color: var(--md-sys-color-on-surface-variant);
@@ -1621,8 +1770,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   cursor: pointer;
   transition: background-color var(--hig-fast) var(--hig-ease);
 }
-.spot-action:hover {
-  background: color-mix(in srgb, var(--hig-label) 14%, transparent);
+@media (hover: hover) and (pointer: fine) {
+  .spot-action:hover {
+    background: color-mix(in srgb, var(--hig-label) 14%, transparent);
+  }
 }
 .spot-action[data-action="remove"] { color: var(--md-sys-color-error, #b3261e); }
 
@@ -2039,11 +2190,20 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
   .pane-form { padding-bottom: 24px; }
   .map { height: 260px; margin: 12px 12px 0; }
-  .itin { padding: 16px 12px 40px; }
+  .itin {
+    --itin-gutter-l: max(12px, env(safe-area-inset-left));
+    --itin-gutter-r: max(12px, env(safe-area-inset-right));
+    padding: 16px var(--itin-gutter-r) 40px var(--itin-gutter-l);
+  }
   /* 3列に固定して、数字の大きさを幅に合わせます。auto-fit のままだと
      390px で3列に入りきらず、「9時間45分」が2行に折れていました。 */
   .stats { grid-template-columns: repeat(3, 1fr); gap: 12px 6px; }
-  .stats strong { font-size: clamp(15px, 4.6vw, 20px); }
+  /* 数字は幅にも合わせますが、下限と上限は**字の大きさの設定に
+     ついていきます**（px のままだと、文字を大きくしても数字だけ
+     動きません）。 */
+  .stats strong {
+    font-size: clamp(var(--hig-t-subhead), 4.6vw, var(--hig-t-title3));
+  }
   .stats span { font-size: var(--hig-t-caption2); letter-spacing: 0; }
   /* 歯車は、携帯ではページと一緒に流れます。固定のままだと、旅程を
      読み進めるあいだずっと右上の文字や星に重なっていました。

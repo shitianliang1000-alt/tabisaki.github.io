@@ -62,7 +62,33 @@ test("歩き・自転車は、歩く速さで見る", () => {
 
 test("電車の指定は、公共交通として見る", () => {
   assert.equal(readIntent("電車で回りたい").transport, "transit");
-  assert.equal(readIntent("青春18きっぷで行く").transport, "transit");
+});
+
+test("青春18きっぷは、新幹線と特急を切る指定として読む", () => {
+  // ここは "transit" と同じ扱いでした。すると時刻表への問い合わせでは
+  // 新幹線も有料特急も使われ、**その切符では乗れない便**で旅程が
+  // 組まれます。「実際の便は時刻表でご確認ください」と添えても、
+  // 確かめた先で乗れないと分かるだけです。
+  assert.equal(readIntent("青春18きっぷで行く").transport, "local");
+  assert.equal(readIntent("鈍行で行きたい").transport, "local");
+  assert.match(readIntent("青春18きっぷで行く").notes.join(""), /普通列車と快速/);
+});
+
+test("飛行機・フェリーの指定を、そのまま読み取る", () => {
+  // どちらも、これまでは**どこにも読み取られていませんでした**。
+  // 「飛行機で沖縄へ」と書いても電車・バスの旅程になり、東京→那覇は
+  // 33時間39分（新幹線＋船）で出ます。飛行機なら4時間46分です。
+  assert.equal(readIntent("飛行機で沖縄に行きたい").transport, "air");
+  assert.equal(readIntent("LCCで札幌へ").transport, "air");
+  assert.equal(readIntent("フェリーで佐渡へ渡りたい").transport, "ferry");
+  assert.equal(readIntent("船で小豆島へ").transport, "ferry");
+  // 空路＋現地の車は、いちばん多い形です（車の指定より先に見ます）。
+  assert.equal(readIntent("飛行機で行ってレンタカーを借りる").transport,
+    "air+car");
+  // 断り書きは、現地で旅程が壊れないために要ることだけを書きます。
+  assert.match(readIntent("飛行機で沖縄に行きたい").notes.join(""),
+    /搭乗手続き/);
+  assert.match(readIntent("フェリーで佐渡へ渡りたい").notes.join(""), /欠航/);
 });
 
 test("夜行は、狙っている列車として読み取る", () => {

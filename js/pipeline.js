@@ -45,7 +45,8 @@ import { sunNotes, sunTimes } from "./sun.js";
 import { forecastFor, summarizeDay } from "./weather.js";
 import { suggestReplan } from "./replan.js";
 import { attachBackups } from "./backup.js";
-import { attachMeals } from "./meals.js";
+import { attachMeals, dietNote } from "./meals.js";
+import { attachScenic } from "./scenic.js";
 import { eventNotesFor } from "./events.js";
 import { attachLuggage, luggagePlanFor } from "./luggage.js";
 import { storyFor } from "./story.js";
@@ -612,7 +613,11 @@ export async function planTrip({ trip, kb, onProgress = () => {},
       + "近場を増やすには知識ベースの拡充が必要です。");
   }
   itin.crowd = trip.avoidCrowds === false ? null : itineraryCrowd(itin);
-  itin.cost = costBreakdown(itin, { people: trip.people ?? 1 });
+  itin.cost = costBreakdown(itin, { people: trip.people ?? 1,
+                                    transport: trip.transport ?? "any" });
+  // 何人ぶんの金額なのかを、旅程そのものに持たせます（画面と
+  // 書き出しが、それぞれ trip を見に行かなくて済むように）。
+  itin.people = trip.people ?? 1;
   itin.sun = sunNotes(itin);
   itin.critique = critique(itin);
   // 旅程の質は、プログラム側で数えて採点します。AIに自己採点させると、
@@ -638,7 +643,22 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   //    食事どころが興味の絞り込みで落ちていることがあるためです。
   itin.mealCount = attachMeals(itin, {
     spots: kb.spots, genre: trip.foodGenre,
+    // 食べられないもの。ここが抜けていると、選んでも何も変わりません。
+    diet: trip.diet,
   });
+  // 制約があるなら、旅程に断り書きを添えます。
+  // **「対応店です」とは言いません。** 変えたのは地図を探す言葉だけで、
+  // その店が条件に合うかは確かめられません。
+  const dn = dietNote(trip.diet);
+  if (dn) itin.warnings = [...(itin.warnings ?? []), dn];
+  // 8.5 移動そのものを、旅の一部にする。
+  //
+  //     車で来ている人は、走ること自体を目的にしています。電車でも
+  //     同じで、五能線の日本海沿いは乗ることが目的になります。
+  //     これまで移動は「あいだの時間」でしかありませんでした。
+  //
+  //     時刻も費用も経路も変えません。**説明だけ**を足します。
+  itin.scenicCount = attachScenic(itin, { transport: trip.transport });
   // 9. その時期ならではのこと、荷物、旅の意味づけ。
   //    どれも数えれば決まるので、AIには書かせません
   //    （同じ旅程で毎回違う説明が出ると、説明として成立しません）。
@@ -1356,6 +1376,16 @@ async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
       try {
         const part = await routeChain(g.points, {
           mode: g.mode, departAt: g.times[0], departTimes: g.times,
+          // **選ばれた乗り物を、そのまま下まで渡します。**
+          //
+          // ここで落ちていたので、時刻表への問い合わせは画面の選択と
+          // 無関係に「全部の乗り物・速い順」でした。「フェリーで」を
+          // 選んでも陸の経路が返り、「飛行機で」を選んでも
+          // 33時間の新幹線＋船が返っていました。
+          //
+          // 区間ごとに乗るものが変わる旅（電車＋現地の車）では、
+          // 車の区間は Yahoo!に聞かないので、渡しても使われません。
+          transport: g.mode === "DRIVE" ? "car" : trip.transport,
         });
         if (!part?.legs?.length) { failed = true; break; }
         // どの手段で調べた区間なのかを、区間そのものに書いておきます。

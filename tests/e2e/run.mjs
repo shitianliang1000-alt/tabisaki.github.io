@@ -588,8 +588,39 @@ await check("一覧から、もう一度つくれる", async () => {
   assert(title.length > 0, "押しても旅程が出ません");
 });
 
+await check("まとめて消す前に、確認する", async () => {
+  // **押した瞬間に消していました。** 履歴は端末にしか無いので、
+  // 消したら戻せません（サーバーにも控えはありません）。取り消せない
+  // 操作には、色と確認の両方が要ります（ガイドライン: destructive）。
+  const before = await page.$$eval(".recent-row", (e) => e.length);
+  assert(before > 0, "消す対象がありません");
+
+  // 赤で示されていること（色だけには頼りませんが、色は要ります）。
+  const red = await page.$eval("#recent-clear", (e) =>
+    e.classList.contains("linkish--danger"));
+  assert(red, "取り消せない操作が、ふつうのリンクと同じ見た目です");
+
+  await page.click("#recent-clear");
+  const dlg = await page.$("#confirm-dialog[open]");
+  assert(dlg, "確認せずに消そうとしています");
+  // 何件消えるのかが書かれていること。
+  const detail = await page.$eval("#confirm-detail", (e) => e.textContent);
+  assert(detail.includes(String(before)), `件数が書かれていません: ${detail}`);
+  assert(/戻せ(ない|ません)/.test(detail), `戻せないことが書かれていません: ${detail}`);
+
+  // 「やめる」を押したら、消えないこと。
+  await page.click("#confirm-no");
+  await until(page, () => !document.querySelector("#confirm-dialog[open]"),
+             { timeout: 5000 });
+  const kept = await page.$$eval(".recent-row", (e) => e.length);
+  assert(kept === before, `やめたのに ${before} → ${kept} 件になりました`);
+});
+
 await check("一覧をまとめて消せる", async () => {
   await page.click("#recent-clear");
+  await page.click("#confirm-yes");
+  await until(page, () => !document.querySelector("#confirm-dialog[open]"),
+             { timeout: 5000 });
   const left = await page.$$eval(".recent-row", (e) => e.length);
   assert(left === 0, "消しても残っています");
   const hidden = await page.$eval("#recent", (e) => e.hidden);
@@ -887,6 +918,187 @@ await check("書けなかったところが、null のまま出ていない", as
   });
   assert(found.length === 0, `画面に出ています: ${found.join(" / ")}`);
   await page.setViewportSize({ width: 1280, height: 1000 });
+});
+
+// 字を大きくしたら、本当に大きくなること。
+//
+// ここは Apple の表の値を px で書いていました。「表を使っている」
+// ことにはなりますが、Dynamic Type の中身は表ではなく**利用者の設定に
+// 追従すること**です。px で書いた字は、iOS の「文字を大きく」でも
+// Android の文字サイズでもブラウザの拡大でも、1pxも動きません。
+//
+// rem に直して、根の大きさを倍率から出すようにしました。ここでは
+// 「倍率を上げたら、実際に描かれる字が大きくなる」ことを測ります
+// （変数の値を見るだけでは、どこかで px に上書きされていても通ります）。
+await check("字を大きくすると、実際に大きくなる", async () => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const read = () => page.evaluate(() => {
+    const px = (sel) => {
+      const e = document.querySelector(sel);
+      return e ? parseFloat(getComputedStyle(e).fontSize) : 0;
+    };
+    return {
+      root: parseFloat(getComputedStyle(document.documentElement).fontSize),
+      title: px(".step-title"),
+      help: px(".md-field-help"),
+      button: px(".md-fab-extended"),
+      // 当たり判定は指の大きさで決まるので、**動かないこと**を見ます。
+      touch: parseFloat(getComputedStyle(
+        document.querySelector(".md-btn")).minHeight),
+      scrollW: document.documentElement.scrollWidth,
+      innerW: window.innerWidth,
+      // どこが溢れているのか。数だけだと直せません。
+      wide: (() => {
+        const W = window.innerWidth;
+        const out = [];
+        for (const e of document.querySelectorAll("body *")) {
+          const r = e.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue;
+          if (r.right <= W + 1 && r.left >= -1) continue;
+          if ([...e.children].some((c) => {
+            const cr = c.getBoundingClientRect();
+            return cr.right > W + 1 || cr.left < -1;
+          })) continue;
+          // 横に流す入れもの（中身が溢れて当然のもの）は除きます。
+          let sc = e.parentElement;
+          let inScroller = false;
+          while (sc && sc !== document.body) {
+            const ov = getComputedStyle(sc).overflowX;
+            if (ov === "auto" || ov === "scroll") { inScroller = true; break; }
+            sc = sc.parentElement;
+          }
+          if (inScroller) continue;
+          out.push(`${e.tagName}.${String(e.className).slice(0, 30)}`
+            + `[${Math.round(r.left)}..${Math.round(r.right)}]`);
+          if (out.length >= 6) break;
+        }
+        return out;
+      })(),
+    };
+  });
+  // 幅を変えた直後は、まだ組み直しが終わっていません。
+  await page.waitForTimeout(400);
+  const before = await read();
+  await page.evaluate(() =>
+    document.documentElement.style.setProperty("--hig-type-scale", "1.5"));
+  await page.waitForTimeout(150);
+  const after = await read();
+
+  assert(after.root > before.root * 1.4,
+    `根の字が ${before.root} から ${after.root} しか変わりません`);
+  for (const k of ["title", "help", "button"]) {
+    assert(before[k] > 0, `${k} が見つかりません`);
+    assert(after[k] > before[k] * 1.4,
+      `${k} が ${before[k]}px から ${after[k]}px しか変わりません（px 固定では？）`);
+  }
+  // 44pt は指の大きさです。字を大きくしても指は大きくなりません。
+  assert(after.touch === before.touch,
+    `当たり判定が ${before.touch} から ${after.touch} に動きました`);
+  // 大きくしても、横にはみ出さないこと。
+  //
+  // 溢れると、読むために横へスクロールすることになります。字を
+  // 大きくする人は、まさにそれができない人です。
+  assert(after.wide.length === 0,
+    `字を大きくすると横に溢れます（${after.scrollW}px / 画面 ${after.innerW}px）`
+    + `: ${after.wide.join(" / ")}`);
+
+  await page.evaluate(() =>
+    document.documentElement.style.removeProperty("--hig-type-scale"));
+  await page.setViewportSize({ width: 1280, height: 1000 });
+});
+
+// 指で押せる大きさになっていること（44×44pt）。
+//
+// ガイドラインの Minimum hit region は 44×44pt です。ところが
+//
+//   歯車・地図の拡大（.md-icon-btn）      36×36
+//   例・日付の近道のチップ                min-height: 32px
+//   半分の高さの切り替え（.sheet-toggle） 30px
+//   つまみ（.md-slider）                  高さ 28px
+//   地図のピン                            30×30
+//
+// が下回っていました。しかもチップは `.note-examples .md-chip` の
+// ように詳細度の高い書きかたで、@media (pointer: coarse) の 44px 指定を
+// **上書きしていました**（0,2,0 対 0,1,0）。指定はあるのに効かない、
+// という状態です。
+//
+// 見た目を変えずに直すには、透明な当たり判定を重ねるのが確かです。
+// ここでは「押せる範囲」を測ります（見た目の大きさではありません）。
+await check("指で押せる大きさになっている（44pt）", async () => {
+  const phone = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true, isMobile: true, serviceWorkers: "block",
+  });
+  const pg = await phone.newPage();
+  try {
+    await pg.goto(`${BASE}/index.html`, { waitUntil: "domcontentloaded" });
+    const until = Date.now() + 90_000;
+    while (await pg.$eval("#make-plan", (e) => e.disabled)) {
+      if (Date.now() > until) throw new Error("知識ベースの読み込みが終わりません");
+      await pg.waitForTimeout(200);
+    }
+    await pg.click("#tune > summary").catch(() => {});
+    await pg.waitForTimeout(300);
+    const out = await pg.evaluate(() => {
+      const coarse = matchMedia("(pointer: coarse)").matches;
+      const sels = [".md-icon-btn", ".note-examples .md-chip",
+                    ".date-presets .md-chip", ".md-chip", ".md-btn",
+                    ".md-slider", ".linkish", ".md-fab-extended"];
+      const bad = [];
+      for (const sel of sels) {
+        const e = document.querySelector(sel);
+        if (!e) continue;
+        const r = e.getBoundingClientRect();
+        // 透明な当たり判定（::after）も押せる範囲です。
+        const a = getComputedStyle(e, "::after");
+        const w = Math.max(r.width, parseFloat(a.minWidth) || 0);
+        const h = Math.max(r.height, parseFloat(a.minHeight) || 0);
+        if (w < 43.5 || h < 43.5) {
+          bad.push(`${sel} ${Math.round(w)}x${Math.round(h)}`);
+        }
+      }
+      return { coarse, bad };
+    });
+    assert(out.coarse === true, "指の端末として開けていません");
+    assert(out.bad.length === 0, `44pt を下回ります: ${out.bad.join(" / ")}`);
+  } finally {
+    await phone.close();
+  }
+});
+
+// 指で押したあと、触った跡が残らないこと。
+//
+// :hover の指定に @media (hover: hover) の囲いがありませんでした。
+// 指で押すと、iOS も Android も**指を離したあとまで :hover を当てた
+// まま**にします。押したものが薄くなったり浮いたままになり、
+// 「選択済み」に見えます。実際に選ばれているものと見分けがつかない
+// ので、押し間違いに気づけません。
+await check("指で押した跡が、残らない", async () => {
+  const css = await (await fetch(`${BASE}/css/app.css`)).text();
+  const hig = await (await fetch(`${BASE}/css/hig.css`)).text();
+  for (const [name, text] of [["app.css", css], ["hig.css", hig]]) {
+    // コメントを先に落とします。**行ごとに落とすのでは足りません**
+    // （このファイルの説明はどれも複数行にまたがっていて、その中に
+    // 「:hover」という字が出てきます。実際それで誤検知しました）。
+    // 行の数は保ちたいので、改行だけ残して消します。
+    const code = text.replace(/\/\*[\s\S]*?\*\//g,
+      (m) => m.replace(/[^\n]/g, " "));
+    let depth = 0;
+    let inHover = false;
+    let hoverDepth = 0;
+    const bad = [];
+    for (const [i, line] of code.split("\n").entries()) {
+      if (/@media \(hover/.test(line)) { inHover = true; hoverDepth = depth; }
+      if (/:hover/.test(line) && !inHover) {
+        bad.push(`${name}:${i + 1} ${line.trim().slice(0, 60)}`);
+      }
+      depth += (line.match(/\{/g) ?? []).length
+             - (line.match(/\}/g) ?? []).length;
+      if (inHover && depth <= hoverDepth) inHover = false;
+    }
+    assert(bad.length === 0,
+      `@media (hover: hover) の外に :hover があります: ${bad.join(" / ")}`);
+  }
 });
 
 await check("ページの例外が出ていない", () => {

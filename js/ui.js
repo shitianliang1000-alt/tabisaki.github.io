@@ -15,13 +15,15 @@ import { qualityOf, spotFit, tripFit } from "./fit.js";
 import { currentStep } from "./today.js";
 import { photoFor } from "./photos.js";
 import { estimatedTravel } from "./reliability.js";
-import { isTouring, longDriveNote } from "./touring.js";
+import { isTouring, longDriveNote, restSlots } from "./touring.js";
 import { itineraryText } from "./share.js";
 import { icsFilename, toIcs } from "./ical.js";
 
 const ICON = {
   transit: "🚃", spot: "📍", meal: "🍽", lodging: "🛏", free: "☕",
   luggage: "🧳",
+  // 日をまたいで着いた朝の目印（夜行・長距離フェリー・深夜便）。
+  arrive: "🚉",
 };
 
 /** 行の先頭の絵。乗り物は、乗るものによって変えます。 */
@@ -37,6 +39,34 @@ function iconFor(item, itin) {
     if (isTouring(itin)) return "🚗";
   }
   return ICON[item.kind] ?? "•";
+}
+
+/**
+ * 「動きを減らす」設定にしているか。
+ *
+ * CSS は prefers-reduced-motion に対応していますが、**JS が起こす
+ * 動きには効きません。** スクロールの behavior:"smooth"、地図の
+ * setView、シートの絵の視差——どれも設定に関わらず動いていました。
+ *
+ * 毎回読み直します。設定はページを開いたままでも変えられます。
+ */
+export function prefersReducedMotion() {
+  try {
+    return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")
+      ?.matches === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * スクロールの動きかた。
+ *
+ * 動きを減らす設定なら "auto"（ぱっと移る）にします。**行く先は
+ * 同じです。** 滑らかに動かないだけで、できることは減りません。
+ */
+export function scrollBehavior() {
+  return prefersReducedMotion() ? "auto" : "smooth";
 }
 
 export const $ = (sel) => document.querySelector(sel);
@@ -298,8 +328,12 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
         nights > 0
           ? stat(fmtDuration(sightseeingMinutes(itin)), "見学の合計")
           : stat(fmtDuration(tripMinutes(itin)), "所要"),
+        // 何人ぶんの金額なのかを書きます。人数を選べるようにしたので、
+        // 「¥34,000」とだけ出すと、ひとりぶんか合計か分かりません。
         itin.cost
-          ? stat(`¥${itin.cost.total.toLocaleString()}`, "概算費用")
+          ? stat(`¥${itin.cost.total.toLocaleString()}`,
+                 (itin.people ?? 1) > 1
+                   ? `概算費用（${itin.people}人ぶん）` : "概算費用")
           : stat(itin.usedRoutesApi ? "実経路" : "推定", "移動時間"),
         // 歩く量は、行けるかどうかを左右します。「約8,400円」と同じ
         // 高さに置かないと、当日になって気づくことになります。
@@ -551,7 +585,19 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       el("p", { class: "fine" },
         "交通費は距離からの概算、宿泊費は分類ごとの目安です。"
         + "実際の運賃・宿泊費とは差が出ます。予算を決めるときは、"
-        + "少し多めに見ておいてください。")));
+        + "少し多めに見ておいてください。"
+        + ((itin.people ?? 1) > 1
+          ? `この合計は${itin.people}人ぶんです。`
+            + (itin.cost.cars > 1
+              ? `車は${itin.cost.cars}台で数えています。` : "")
+          : "")),
+      // 数えていないものを、**数えたふりをしません**。
+      // 「予算内です」と言われたのに現地で足りない、がいちばん困ります。
+      itin.cost.missing?.length
+        ? el("p", { class: "fine" },
+            `${itin.cost.missing.join("・")}は含んでいません`
+            + "（場所ごとに無料と有料が入り混じり、料金を持っていません）。")
+        : null));
   }
 
   // 希望に応えられたかどうか（応えられていれば何も出さない）
@@ -966,6 +1012,18 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       ? el("button", { type: "button", class: "md-btn md-btn--outlined md-state",
                        onClick: handlers.onShare },
           el("span", {}, "条件のリンクを共有"))
+      : null,
+    // **いま画面に出ているとおりの旅程**を、ファイルで渡します。
+    //
+    // 条件のリンクは条件だけを運びます。受け取った人が開くと、その場で
+    // 組み直されるので時刻が変わり、同行者と同じ時刻で回れません。
+    // 文字のコピーは固定ですが、地図もリンクも失われ、読み込み直すことも
+    // できません。凍結した旅程そのものを渡せば、その人の端末で同じ時刻の
+    // 旅程が開きます。控えとしても使えます。
+    handlers.onExport
+      ? el("button", { type: "button", class: "md-btn md-btn--outlined md-state",
+                       onClick: handlers.onExport },
+          el("span", {}, "この旅程をファイルで渡す"))
       : null)].filter(Boolean));
 }
 
@@ -1622,6 +1680,38 @@ function renderItem(item, index, itin, handlers, sunNote) {
           el("span", { "aria-hidden": "true" }, "☕"),
           el("span", {}, note)));
       }
+      // 休憩の枠。「2時間ごとに休憩を」と書くだけでは、旅程は
+      // その時間を数えていません。何時ごろ・何分見ておくかを出します。
+      // **どこで休むかは言いません**（店名も道の駅名も作りません）。
+      const rest = restSlots(item, itin.slack?.minutes ?? null);
+      if (rest) {
+        info.append(el("p",
+          { class: `sun rest${rest.fits === false ? " tight" : ""}` },
+          el("span", { "aria-hidden": "true" }, "⏸"),
+          el("span", {},
+            `休憩の目安: ${rest.times.join("ごろ・")}ごろ`
+            + `（1回15分・合計${rest.minutes}分）。${rest.note}`)));
+      }
+    }
+    // 移動そのものの楽しみ（js/scenic.js）。
+    //
+    // 走る道と乗る路線では、**確かさが違います**。路線は調べた結果に
+    // 名前が書いてあるので言い切れますが、どの道を通るかは分かりません。
+    // 言いかたを分けます。
+    if (item.scenic?.kind === "line") {
+      info.append(el("p", { class: "sun scenic" },
+        el("span", { "aria-hidden": "true" }, "🌄"),
+        el("span", {},
+          `${item.scenic.name}。${item.scenic.what}`)));
+    } else if (item.scenic?.kind === "road") {
+      for (const r of item.scenic.roads) {
+        info.append(el("p", { class: "sun scenic" },
+          el("span", { "aria-hidden": "true" }, "🛣"),
+          el("span", {},
+            `この辺り（約${r.km}km）に${r.name}があります。${r.what}`
+            + (r.note ? ` ${r.note}` : "")
+            + "（この旅程の経路には入れていません）")));
+      }
     }
   }
 
@@ -1829,7 +1919,10 @@ export function openSheet(item, { onClose, describe }) {
   const art = cardArt(spot, { tall: true });
   sheet.append(art);
   sheet.addEventListener("scroll", () => {
-    art.style.backgroundPositionY = `${sheet.scrollTop * 0.35}px`;
+    // 視差（絵が本文よりゆっくり動く）は、動きを減らす設定では
+    // やめます。画面の中で2つの速さが動くのが、いちばん酔う形です。
+    art.style.backgroundPositionY = prefersReducedMotion()
+      ? "0px" : `${sheet.scrollTop * 0.35}px`;
   }, { passive: true });
 
   const body = el("div", { class: "sheet-body" });

@@ -8,6 +8,30 @@
 
 const DEFAULT_CENTER = [35.681236, 139.767125];
 
+/**
+ * 「動きを減らす」設定にしているか。
+ *
+ * CSS の側は prefers-reduced-motion に対応済みでした。ところが
+ * **地図の動きは JS が起こしています。** Leaflet の setView は
+ * { animate: true } で滑らかに寄っていくので、設定に関わらず画面が
+ * 流れます。旅程の行に触れるたびに地図が滑るのは、その設定にして
+ * いる人にはいちばん困る動きです（酔う人がいます）。
+ *
+ * 毎回読み直します。設定はページを開いたままでも変えられるので、
+ * 起動時に1回だけ見ると、変えたのに効かないことになります。
+ *
+ * @returns {boolean}
+ */
+function reduceMotion() {
+  try {
+    return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")
+      ?.matches === true;
+  } catch {
+    // matchMedia が無い場（試験、古い環境）。動かして構いません。
+    return false;
+  }
+}
+
 export class TripMap {
   constructor(elementId) {
     this.el = document.getElementById(elementId);
@@ -110,7 +134,8 @@ export class TripMap {
     // 渡します（そちらは本物の経路を持っています）。
 
     const bounds = L.latLngBounds(latlngs);
-    this.map.fitBounds(bounds, { padding: [32, 32], maxZoom: 14 });
+    this.map.fitBounds(bounds,
+      { padding: [32, 32], maxZoom: 14, animate: !reduceMotion() });
   }
 
   icon(point, index) {
@@ -145,7 +170,9 @@ export class TripMap {
   /** 指定の地点へ寄る（旅程からタップされたとき）。 */
   focus(lat, lng, zoom = 15) {
     if (!this.ensure()) return;
-    this.map.setView([lat, lng], zoom, { animate: true });
+    // 動きを減らす設定なら、滑らずにそのまま移ります。**行く先は
+    // 同じです。** 動きをやめるだけで、できることは減りません。
+    this.map.setView([lat, lng], zoom, { animate: !reduceMotion() });
   }
 
   invalidate() {
@@ -216,5 +243,6 @@ TripMap.prototype.showDay = function showDay(dayIndex) {
   const target = pts.length ? pts : this.points;
   if (!window.L || !this.map) return;
   const bounds = window.L.latLngBounds(target.map((p) => [p.lat, p.lng]));
-  this.map.fitBounds(bounds, { padding: [32, 32], maxZoom: 14 });
+  this.map.fitBounds(bounds,
+    { padding: [32, 32], maxZoom: 14, animate: !reduceMotion() });
 };
