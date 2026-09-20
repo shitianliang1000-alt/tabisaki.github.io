@@ -24,3 +24,7 @@
 **Vulnerability:** The central `el()` DOM helper in `js/ui.js` and `admin/admin.js` protected against `javascript:` and `vbscript:` URI XSS, but lacked validation for dangerous `data:` URIs (e.g. `data:text/html`). Attackers could exploit this to inject malicious code using `href`, `src`, or `action` attributes.
 **Learning:** `data:` URIs can act as a vector for XSS in addition to `javascript:` and `vbscript:`. Allowing arbitrary `data:` URIs, especially those containing text or HTML, presents a security risk. However, completely blocking `data:` URIs breaks legitimate use cases like inline `data:image/` URIs.
 **Prevention:** Added check for dangerous `data:` URIs in the `el()` function (excluding `data:image/`) to neutralize them in `href`, `src`, or `action` attributes by replacing them with `about:blank`.
+## 2026-09-20 - Prevent XSS via formaction attribute
+**Vulnerability:** The central `el()` DOM helper in `js/ui.js` and `admin/admin.js` sanitized `href`, `src`, and `action` against XSS vectors, but failed to sanitize `formaction`, which could execute `javascript:` or dangerous `data:` URIs on submission.
+**Learning:** Checking common execution vectors like `href`, `src`, and `action` is not comprehensive enough; HTML5 introduced `formaction` which can override a form's action on specific inputs/buttons and acts as an equally potent vector.
+**Prevention:** Ensured `formaction` is included in the list of attributes that are sanitized for `javascript:`, `vbscript:`, and `data:` URIs in element creation utilities.
