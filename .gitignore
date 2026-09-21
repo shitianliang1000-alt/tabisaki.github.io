@@ -17,3 +17,9 @@ Thumbs.db
 # ローカルで生成するもの
 /tmp/
 /dist/
+
+# ウィキペディアから落とした素データ。**収録そのものではありません。**
+# tools/fetch_wikipedia_lists.py が落とし、tools/import_wikipedia_lists.py が
+# data/spots-wp*.json に直します。収録に入るのは直したあとのほうです。
+# 素データは30MBを超え、走らせ直せばまた作れます。
+/data/wikipedia/
