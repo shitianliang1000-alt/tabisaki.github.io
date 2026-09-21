@@ -44,6 +44,7 @@
     python3 tools/fetch_wikipedia_lists.py 日本の山一覧  1つだけ
     python3 tools/fetch_wikipedia_lists.py --list      一覧の名前を出す
 """
+import glob
 import json
 import os
 import subprocess
@@ -136,7 +137,15 @@ def call(params):
             break
         sys.stderr.write(f"    {code.strip()} … {wait}秒待ちます\n")
         time.sleep(wait)
-    raise SystemExit(f"API に届きませんでした（{url[:90]}…）")
+    # 429（多すぎ）が続くときは、**こちらの速さの問題とは限りません**。
+    # 共用の回線から叩いていると、同じ出口を使うほかの人のぶんも合わせて
+    # 数えられ、1秒に1回でも断られることがあります。待っても通らない
+    # ときは、そう言って止めます（叩き続けても迷惑なだけです）。
+    raise SystemExit(
+        f"ウィキペディアの API に届きませんでした（{code.strip()}）。\n"
+        "  429 が続くときは、この回線からの問い合わせが多すぎます。\n"
+        "  時間をおいてもう一度走らせてください。\n"
+        "  **聞いたぶんは data/wikipedia/ に残っているので、続きから進みます。**")
 
 
 def links_of(title):
@@ -231,22 +240,41 @@ def slug(title):
     return title.replace("/", "_").replace("・", "_")
 
 
-def fetch(title, category, cache):
-    path = os.path.join(OUT, f"wp-{slug(title)}.json")
+def links_path(title):
+    return os.path.join(OUT, f"links-{slug(title)}.json")
+
+
+def fetch_links(title, category):
+    """その一覧の**リンクだけ**を取って、すぐ保存します。
+
+    座標を引くのは、そのあとでまとめてやります。リンクを数えるのは
+    1〜2回の問い合わせで済むので、**先に全部の一覧ぶんを押さえて**
+    おけば、途中で断られても「どの一覧に何が載っているか」は残ります。
+    """
+    path = links_path(title)
     if os.path.exists(path):
-        sys.stderr.write(f"  {title}: もうあります\n")
         return
     sys.stderr.write(f"  {title}: リンクを数えています…\n")
     titles = links_of(title)
     if not titles:
         return
-    sys.stderr.write(f"    リンク {len(titles)}件\n")
-    rows = places_of(titles, cache)
     os.makedirs(OUT, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump({"list": title, "category": category, "places": rows},
+        json.dump({"list": title, "category": category, "titles": titles},
                   f, ensure_ascii=False)
-    sys.stderr.write(f"    → {len(rows)}件 保存しました\n")
+    sys.stderr.write(f"    リンク {len(titles)}件\n")
+    time.sleep(PAUSE_SEC)
+
+
+def all_titles():
+    """保存した一覧ぜんぶの、題の union。重なりは1つに数えます。"""
+    seen = {}
+    for path in sorted(glob.glob(os.path.join(OUT, "links-*.json"))):
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+        for t in doc.get("titles", []):
+            seen[t] = True
+    return list(seen)
 
 
 def main(argv):
@@ -258,19 +286,21 @@ def main(argv):
     todo = {t: c for t, c in LISTS.items() if not want or t in want}
     if want and not todo:
         raise SystemExit(f"知らない一覧です: {' '.join(want)}")
-    cache = load_cache()
-    sys.stderr.write(f"{len(todo)}件の一覧を見ます"
-                     f"（控えに {len(cache)}件）\n")
+
+    # 1. まず、どの一覧に何が載っているかを押さえます（安い）。
+    sys.stderr.write(f"{len(todo)}件の一覧の、リンクを集めます\n")
     for title, category in todo.items():
-        try:
-            fetch(title, category, cache)
-        except SystemExit as e:
-            # 途中で断られても、控えは残っています。もう一度走らせれば
-            # 続きから進みます。
-            sys.stderr.write(f"  {title}: 中断しました（{e}）\n")
-            save_cache(cache)
-            raise
-        time.sleep(PAUSE_SEC)
+        fetch_links(title, category)
+
+    # 2. そのあと、題をまとめて座標に直します（高い）。
+    cache = load_cache()
+    titles = all_titles()
+    todo_n = sum(1 for t in titles if t not in cache)
+    sys.stderr.write(f"題 {len(titles)}件（控えに {len(cache)}件 /"
+                     f" これから {todo_n}件）\n")
+    places_of(titles, cache)
+    have = sum(1 for t in titles if cache.get(t))
+    sys.stderr.write(f"座標のあるもの {have}件\n")
 
 
 if __name__ == "__main__":

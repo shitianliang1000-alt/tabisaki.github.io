@@ -63,3 +63,26 @@ test("雰囲気チップにも、それらしい絵がある", () => {
   assert.match(a.css, /gradient/);
   assert.equal(moodArt("温泉でゆっくり").css, a.css, "毎回変わっています");
 });
+
+// --- 分類と記号の取りこぼし -------------------------------------------------
+//
+// 記号の無い分類は、黙って「ピン」になります。画面は壊れないので、
+// **取りこぼしていても誰も気づきません**。実際、収録にある44分類のうち
+// 9つ（島・峠・海水浴場・ダム・名勝・天然記念物・岬・遊園地・道の駅）が
+// ピンのままでした。収録を足すたびに増えるので、機械に見張らせます。
+
+test("収録にある分類には、ぜんぶ記号がある", async () => {
+  const fs = await import("node:fs");
+  const root = new URL("../", import.meta.url);
+  const cats = new Set();
+  for (const f of fs.readdirSync(new URL("kb/", root))) {
+    if (!f.startsWith("spots-") || !f.endsWith(".json")) continue;
+    const doc = JSON.parse(fs.readFileSync(new URL(`kb/${f}`, root), "utf8"));
+    for (const s of doc.spots ?? []) if (s.category) cats.add(s.category);
+  }
+  assert.ok(cats.size > 20, `分類が ${cats.size} 種類しかありません`);
+  const missing = [...cats].filter((c) => artFor({ category: c }).icon === "spot"
+    && c !== "観光名所");
+  assert.deepEqual(missing, [],
+    `記号の無い分類があります（ピンのままです）: ${missing.join(" / ")}`);
+});
