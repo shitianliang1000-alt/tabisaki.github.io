@@ -27,7 +27,7 @@ function el(tag, attrs = {}, ...kids) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === "class") node.className = v;
-    else if (["href", "src", "action"].includes(k) && typeof v === "string") {
+    else if (["href", "src", "action", "formaction"].includes(k) && typeof v === "string") {
       const sanitized = v.replace(/[\x00-\x20]/g, "").toLowerCase();
       const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
       if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
