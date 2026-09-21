@@ -127,8 +127,44 @@ test("同じ題を、二度聞かない", () => {
 
 test("本文を解析しない（リンクと座標だけを見る）", () => {
   // 表の書き方は記事ごとにばらばらで、解析すると記事が直されるたびに
-  // 壊れます。
+  // 壊れます。組み上がった HTML をもらっても、見るのはリンクだけです。
   assert.match(fetcher, /本文を解析しません/);
-  assert.match(fetcher, /"prop": "links"/);
+  assert.match(fetcher, /rel="mw:WikiLink"/);
   assert.match(fetcher, /"prop": "coordinates\|extracts"/);
+  // 表の中身に手を出していないこと。ウィキテキストの記法が出てきたら、
+  // それは表を読もうとしている印です。
+  assert.ok(!/\{\{|\|-|\|\}/.test(fetcher),
+    "表（ウィキテキスト）を読もうとしています");
+});
+
+test("一覧の中身は REST からもらう（action API の prop=links は通らない）", () => {
+  // 一覧記事のリンクは1本で1800件を超えます。ウィキメディアはこの
+  // 「高い」問い合わせに厳しい上限をかけていて、共用の回線からだと
+  // 1回目から 429 が返りました。8秒あけても15秒あけても同じでした。
+  // REST（api.wikimedia.org）は記事1本ぶんが1回で返り、通ります。
+  assert.match(fetcher, /api\.wikimedia\.org\/core\/v1\/wikipedia\/ja/);
+  assert.ok(!/"prop": "links"/.test(fetcher),
+    "prop=links に戻っています（429 で止まります）");
+  // なぜそうしたかが、書いてあること。次に読む人が戻さないように。
+  assert.match(fetcher, /429/);
+});
+
+test("名前空間つきのリンクは、場所として数えない", () => {
+  // 組み上がった HTML には Category: や ファイル: へのリンクも混じり
+  // ます。題に座標が無いので落ちはしますが、そのぶん余計に問い合わせる
+  // ことになります。先に落とします。
+  assert.match(fetcher, /NAMESPACES/);
+  for (const ns of ["Category", "ファイル", "Template", "Wikipedia"]) {
+    assert.ok(fetcher.includes(`"${ns}"`), `名前空間 ${ns} が抜けています`);
+  }
+});
+
+test("取れなかった一覧と、リンクが0件の一覧を、取り違えない", () => {
+  // 取れなかったときに空文字を返すと、「リンクが1件も無い一覧」と
+  // 同じ形になります。そうなると空のファイルが保存され、**次に走らせた
+  // ときも「もう取った」と見なして飛ばします**。取れないなら None です。
+  assert.match(fetcher, /空文字を返すと/);
+  assert.match(fetcher, /return None/);
+  // 空の結果はファイルに書かないこと。
+  assert.match(fetcher, /if not titles:\n {8}return/);
 });

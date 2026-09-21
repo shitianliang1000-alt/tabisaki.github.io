@@ -47,6 +47,7 @@
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -57,6 +58,14 @@ WEB = os.path.dirname(HERE)
 OUT = os.path.join(WEB, "data", "wikipedia")
 
 API = "https://ja.wikipedia.org/w/api.php"
+# 一覧記事の中身は、こちらからもらいます（理由は links_of に書きました）。
+REST = "https://api.wikimedia.org/core/v1/wikipedia/ja"
+# 名前空間の頭。日本語版は英語の頭も通るので、両方並べます。
+NAMESPACES = {
+    "Category", "カテゴリ", "File", "ファイル", "Template", "Template talk",
+    "Help", "Portal", "Wikipedia", "WP", "Special", "特別", "Talk", "ノート",
+    "利用者", "User", "プロジェクト", "Module", "モジュール", "Image",
+}
 UA = ("tabisaki-kb/1.0 (https://github.com/shitianliang1000-alt/"
       "tabisaki.github.io; kb build)")
 
@@ -148,27 +157,59 @@ def call(params):
         "  **聞いたぶんは data/wikipedia/ に残っているので、続きから進みます。**")
 
 
+def get(url):
+    """URL を1本取って、中身をそのまま返します。429 は待ってやり直します。
+
+    call() は JSON を返す API 用です。こちらは REST から HTML を
+    もらうので、別にしています。取れなければ None を返します——
+    **空文字を返すと「リンクが1件も無い一覧」と見分けが付きません。**
+    """
+    for wait in RETRIES + [None]:
+        r = subprocess.run(
+            ["curl", "-s", "-m", "120", "-A", UA, "-w", "\n%{http_code}", url],
+            capture_output=True, text=True)
+        body, _, code = r.stdout.rpartition("\n")
+        if code.strip() == "200":
+            return body
+        if wait is None:
+            break
+        sys.stderr.write(f"    {code.strip()} … {wait}秒待ちます\n")
+        time.sleep(wait)
+    return None
+
+
 def links_of(title):
-    """その一覧記事が、本文から張っているリンク（名前空間0）。"""
-    out = []
-    params = {
-        "action": "query", "format": "json", "titles": title,
-        "prop": "links", "plnamespace": "0", "pllimit": "max",
-        "redirects": "1",
-    }
-    while True:
-        doc = call(params)
-        for page in doc.get("query", {}).get("pages", {}).values():
-            if "missing" in page:
-                sys.stderr.write(f"  （{title} は見つかりません）\n")
-                return []
-            for link in page.get("links", []):
-                out.append(link["title"])
-        cont = doc.get("continue")
-        if not cont:
-            return out
-        params.update(cont)
-        time.sleep(PAUSE_SEC)
+    """その一覧記事が、本文から張っているリンク（名前空間0）。
+
+    **action API の prop=links は使えません。** 一覧記事のリンクは1本で
+    1800件を超えることがあり、ウィキメディアはこの「高い」問い合わせに
+    厳しい上限をかけています。共用の回線から叩くと、1回目から 429 が
+    返り、待っても通りません（8秒あけても、15秒あけても同じでした）。
+
+    代わりに REST（api.wikimedia.org）から**組み上がった HTML** を
+    もらいます。こちらは記事1本ぶんが1回で返り、通ります。
+
+    HTML からは <a rel="mw:WikiLink"> の href だけを拾います。
+    **表は読みません。** 一覧記事の表の書き方は記事ごとにばらばらで、
+    列の意味を読もうとすると、記事が直されるたびに壊れます。リンクなら
+    書き方が変わっても、指している先は変わりません。
+    """
+    url = (REST + "/page/" + urllib.parse.quote(title, safe="") + "/html")
+    html = get(url)
+    if html is None:
+        sys.stderr.write(f"  （{title} は取れませんでした）\n")
+        return []
+    out, seen = [], set()
+    for href in re.findall(r'rel="mw:WikiLink"[^>]*href="\./([^"#]+)"', html):
+        name = urllib.parse.unquote(href).replace("_", " ")
+        # 名前空間つき（Category: や ファイル: など）は場所ではありません。
+        if ":" in name and name.split(":", 1)[0] in NAMESPACES:
+            continue
+        if name in seen:
+            continue
+        seen.add(name)
+        out.append(name)
+    return out
 
 
 def load_cache():
