@@ -742,12 +742,50 @@ p, li { text-wrap: pretty; }
 }
 /* 待っているあいだの絵（js/sketch.js）。札の上いっぱいに置きます。 */
 .sketch {
+  position: relative;
   margin: -32px -28px 18px; padding: 0;
   border-radius: var(--hig-r-xl) var(--hig-r-xl) 0 0;
   background: var(--hig-fill);
   overflow: hidden;
 }
-.sketch canvas { display: block; width: 100%; }
+/* 地の形。絵の下に敷きます。
+   ------------------------------------------------------------------
+   星は本物の座標で打っていますが、**地の形が無いとただの点の散らばり**
+   でした。どこを探しているのかが読めません。海岸線と街の並びが出ると、
+   一目で分かります。
+
+   触れません（待っているあいだの絵で、動かすものではありません）。
+   点と線は、この上の canvas が描きます。 */
+/* 地図と絵を重ねる舞台。下の一言は、この外に置きます。 */
+.sketch-stage { position: relative; }
+.sketch-map {
+  position: absolute; inset: 0;
+  background: var(--hig-fill);
+  /* 地図は下地なので、少し落ち着かせます。上に打つ点（teal・indigo）
+     のほうが目に入るように。 */
+  filter: saturate(.55) contrast(.92);
+  opacity: .85;
+  pointer-events: none;
+}
+/* 暗い配色では、地図のほうを暗く落とします。
+   **色を反転させません。** 反転させると海が白く、山が紫になり、
+   どこを見ているのか分からない絵になります（試して、やめました）。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .sketch-map {
+    filter: saturate(.5) contrast(.9) brightness(.62);
+  }
+}
+:root[data-theme="dark"] .sketch-map {
+  filter: saturate(.5) contrast(.9) brightness(.62);
+}
+/* 出どころ（OpenStreetMap）は、小さくても必ず出します。 */
+.sketch-map .leaflet-control-attribution {
+  /* px で書かない（字を大きくする設定についてこなくなります）。
+     Leaflet の既定は 11px ですが、ここは token に寄せます。 */
+  font-size: var(--hig-t-caption2);
+  background: rgba(255, 255, 255, .6);
+}
+.sketch canvas { position: relative; display: block; width: 100%; }
 /* 収録の説明文から取った一言。読み終わる前に変えません（5秒）。 */
 .sketch-caption {
   margin: 0; padding: 10px 16px 12px; min-height: 2.6em;

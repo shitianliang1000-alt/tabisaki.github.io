@@ -2099,6 +2099,7 @@ async function run(override) {
     if (!state.kb) {
       renderProgress(progress, 0, "旅先のデータを読んでいます", {
         trip, stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+        tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
       });
       state.kb = await state.kbPromise;
     }
@@ -2140,6 +2141,8 @@ async function buildPlans(trip, progress) {
   const onProgress = (step, note, extra) => renderProgress(progress, step, note, {
     trip,
     stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+    // 待っているあいだの絵に、地の形を敷きます（js/sketch.js）。
+    tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
     ...(extra ?? {}),
   });
   const variants = tripsFor(trip);
@@ -2284,6 +2287,7 @@ async function switchVariant(key) {
       (step, note, extra) => renderProgress(progress, step, note, {
         trip: state.chosenTrip ?? state.trip,
         stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+        tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
         ...(extra ?? {}),
       }));
     showRoutesUsage();

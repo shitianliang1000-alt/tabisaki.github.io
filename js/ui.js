@@ -224,7 +224,13 @@ export function renderProgress(container, step, detail = "", extra = null) {
     // 止まる」作法で動くので、置く前に載せると最初の1コマで自分から
     // 止まります（実際そうなって、何も描かれませんでした）。
     if (extra?.trip) {
-      card.__sketch = mountSketch(card, { trip: extra.trip });
+      card.__sketch = mountSketch(card, {
+        trip: extra.trip,
+        // 地の形。点だけでは「どこを探しているのか」が読めません。
+        // 地図が読めない環境では、これまでどおり点と線だけになります。
+        tileUrl: extra.tileUrl ?? null,
+        attribution: extra.attribution ?? "",
+      });
     }
   }
 

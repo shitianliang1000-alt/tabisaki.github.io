@@ -1204,7 +1204,19 @@ await check("旅の当日は、次の一手が大きく出る", async () => {
   }, 500);
 
   try {
+    // **画面の時計を、きょうの10時に合わせます。**
+    //
+    // ここは「いまから45分後に出発」にしていました。ところがこの試験を
+    // 夜に回すと、45分後は**翌日**になり、旅の初日が明日になります。
+    // 「今日の旅」は出ず、待ち続けて落ちました（23:22 に回して、そう
+    // なりました）。1日のうち何時に回しても同じ結果になるよう、
+    // 画面の時計そのものを決め打ちにします。時計は止めません（止めると
+    // 経過時間も止まり、旅程づくりの内部も動かなくなります）。
+    const tenAm = new Date();
+    tenAm.setHours(10, 0, 0, 0);
+    await day.clock.install({ time: tenAm });
     await day.goto(`${BASE}/index.html`, { waitUntil: "domcontentloaded" });
+    await day.clock.resume();
     await until(day, () => !document.getElementById("make-plan")?.disabled,
                { timeout: 90_000 });
 
@@ -1212,16 +1224,13 @@ await check("旅の当日は、次の一手が大きく出る", async () => {
     // change が飛ばず、画面の文が前の日のままになります。実際そう
     // なりました）。
     await day.click('[data-day-preset="today"]');
-    // 時刻は、いまより後ろへ。既定は 9:00〜19:00 なので、夕方以降に
-    // この試験を回すと「今日の予定はここまでです」になり、次の一手が
-    // 出ません（そう落ちました）。時計に依らない試験にします。
+    // 時刻は、その日のうちに収まる幅にします。
     await day.evaluate(() => {
       const p = (n) => String(n).padStart(2, "0");
       const iso = (d) => `${d.getFullYear()}-${p(d.getMonth() + 1)}`
         + `-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-      const now = new Date();
-      const dep = new Date(now.getTime() + 45 * 60000);
-      const arr = new Date(dep.getTime() + 7 * 3600000);
+      const dep = new Date(); dep.setHours(10, 30, 0, 0);
+      const arr = new Date(); arr.setHours(18, 0, 0, 0);
       for (const [id, v] of [["depart-at", iso(dep)], ["arrive-by", iso(arr)]]) {
         const e = document.getElementById(id);
         e.value = v;
