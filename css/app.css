@@ -2421,6 +2421,26 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* 畳まれた「選んだ理由」は、紙では三角の付いた空行になるだけです。 */
   .tl details, .transit-steps { display: none !important; }
 
+  /* 地図（タイル）は刷れませんが、順路の図は刷れます。
+     これまでは印刷すると地図の場所がそのまま消えていました。 */
+  .map-print { display: block !important; margin: 0 0 6mm; }
+  .map-print .rm-head {
+    font-size: 12pt; margin: 0 0 2mm; color: #000;
+  }
+  .map-print .rm-limits { font-size: 7.5pt; color: #333; margin-top: 1mm; }
+  .map-print .rm-day { font-size: 9pt; color: #000; margin: 3mm 0 1mm; }
+  /* 日ごとの図が、途中で紙をまたがないように。 */
+  .map-print .rm-day, .map-print .routemap { break-inside: avoid; }
+  .map-print .routemap { max-height: 78mm; }
+  /* 紙では色が出ないことがあります。線と字は黒で刷ります。 */
+  .map-print .rm-leg { stroke: #000; }
+  .map-print .rm-dot { fill: #000; }
+  .map-print .rm-origin, .map-print .rm-end { fill: #fff; stroke: #000; }
+  .map-print .rm-no { fill: #fff; }
+  .map-print .rm-name { fill: #000; }
+  .map-print .rm-axis, .map-print .rm-scale { stroke: #000; }
+  .map-print .rm-axis-t { fill: #000; }
+
   .layout { display: block; }
   .pane, .pane-result { overflow: visible !important; height: auto !important; }
   .itin { padding: 0; }
@@ -2485,3 +2505,59 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   a[href]::after { content: ""; }
   a { color: #000; text-decoration: none; }
 }
+
+/* --- 圏外のときの順路の図（js/routemap.js） -------------------------------
+   地図のタイルが読めないところで、旅程の座標から点と線だけを描きます。
+   **これは地図ではありません**ので、見た目も地図に寄せません。線は細く、
+   色は1色です。地図に似せると、道が描かれていると読まれます。 */
+.map.map-offline, .home-map.map-offline {
+  height: auto; display: block; padding: 12px;
+  align-items: stretch; justify-content: flex-start; text-align: left;
+}
+.routemap-fig { margin: 0; }
+.routemap-fig .rm-head {
+  margin: 0 0 4px; font-size: var(--hig-t-headline);
+  color: var(--md-sys-color-on-surface);
+}
+.routemap-fig .rm-why,
+.routemap-fig .rm-limits {
+  margin: 4px 0 0; font-size: var(--hig-t-footnote); line-height: 1.7;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.routemap-fig .rm-day {
+  margin: 10px 0 2px; font-size: var(--hig-t-subhead); font-weight: 600;
+  color: var(--md-sys-color-on-surface);
+}
+.routemap {
+  display: block; width: 100%; height: auto;
+  /* 図の中の字は、枠の大きさではなく設定の文字サイズに付いてきます。
+     viewBox の中で px を書くと「文字を大きく」が効きません。 */
+  font-size: var(--hig-t-caption2);
+}
+.rm-leg {
+  fill: none; stroke: var(--md-sys-color-primary); stroke-width: 1.6;
+  stroke-linejoin: round;
+  /* 破線にします。**実線は道に見えます。** ここに描いてあるのは
+     「次にここへ行く」という順番で、道ではありません。 */
+  stroke-dasharray: 5 4;
+}
+.rm-dot { fill: var(--md-sys-color-primary); }
+.rm-origin, .rm-end {
+  fill: var(--md-sys-color-surface);
+  stroke: var(--md-sys-color-primary); stroke-width: 2;
+}
+.rm-no {
+  fill: var(--md-sys-color-on-primary); font-size: 0.72em; font-weight: 600;
+}
+.rm-name { fill: var(--md-sys-color-on-surface); font-size: 1em; }
+.rm-axis, .rm-scale {
+  fill: none; stroke: var(--md-sys-color-on-surface-variant);
+  stroke-width: 1.2;
+}
+.rm-axis-t {
+  fill: var(--md-sys-color-on-surface-variant); font-size: 0.86em;
+}
+
+/* 紙用の図は、画面では隠します。地図が出ているのに同じものが2つ並ぶと、
+   どちらを見ればよいのか分かりません。 */
+.map-print { display: none; }

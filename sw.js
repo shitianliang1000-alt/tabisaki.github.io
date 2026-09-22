@@ -102,6 +102,7 @@ const SHELL_FILES = [
   "./js/reliability.js",
   "./js/replan.js",
   "./js/romaji.js",
+  "./js/routemap.js",
   "./js/routes.js",
   "./js/sample-data.js",
   "./js/scenic.js",
