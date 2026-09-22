@@ -316,7 +316,12 @@ def main(write):
         gx, gy = round(r["lat"] / 0.05), round(r["lng"] / 0.05)
         near = [x for dx in (-1, 0, 1) for dy in (-1, 0, 1)
                 for x in grid[(gx + dx, gy + dy)]]
-        if any(same_place(probe, s) for s in near):
+        # 距離も渡します。**渡さないと、あだ名の判定が効きません**
+        # （「京王高尾山温泉 極楽湯」と「京王高尾山温泉」が別物に
+        # なります）。逆に渡しすぎても困るので、判定の側が距離で
+        # 線を引いています（dedupe_spots.NICKNAME_KM）。
+        if any(same_place(probe, s, km(probe["lat"], probe["lng"],
+                                       s["lat"], s["lng"])) for s in near):
             skip.append(r["title"])
             continue
         region = pick_region(regions["regions"], r["lat"], r["lng"], "")

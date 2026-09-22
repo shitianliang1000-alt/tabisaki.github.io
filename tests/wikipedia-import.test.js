@@ -81,7 +81,10 @@ test("場所でないものを足さない", () => {
 test("すでに収録にあるものを、二重に足さない", () => {
   // 同じ場所が1つの旅程に2回出ます。
   assert.match(importer, /from dedupe_spots import same_place/);
-  assert.match(importer, /same_place\(probe, s\)/);
+  assert.match(importer, /same_place\(probe, s,/);
+  // **距離も渡すこと。** 渡さないと、あだ名の判定（「京王高尾山温泉
+  // 極楽湯」と「京王高尾山温泉」）が効きません。
+  assert.match(importer, /km\(probe\["lat"\], probe\["lng"\]/);
   // 座標が離れていても、同じエリアに同じ名前があるものも足しません。
   assert.match(importer, /\(region\["id"\], r\["title"\]\) in named/);
 });
@@ -278,4 +281,42 @@ test("取れなかった一覧と、リンクが0件の一覧を、取り違え�
   assert.match(fetcher, /def save_links/);
   assert.match(fetcher, /if not titles:\n {8}return False/);
   assert.match(fetcher, /取れませんでした/);
+});
+
+test("あだ名で同じ場所とみなすのは、近いときだけ", () => {
+  const dedupe = read("tools/dedupe_spots.py");
+  // 空白の後ろに付くものは、同じ場所のあだ名のこともあれば、その中の
+  // 特定の場所のこともあります。名前の形は同じで、意味が逆です。
+  //
+  //   京王高尾山温泉 極楽湯 ／ 京王高尾山温泉   同じ
+  //   羽黒山 五重塔        ／ 羽黒山          別（塔は塔）
+  //   富士山 吉田ルート登山道 ／ 富士山         別（道は道）
+  //
+  // 分けられるのは距離だけでした。
+  assert.match(dedupe, /NICKNAME_KM = 0\.25/);
+  assert.match(dedupe, /km_apart <= NICKNAME_KM/);
+  assert.match(dedupe, /km_apart is None:\n {8}return False/);
+  // なぜ距離が要るのかが、書いてあること。
+  assert.match(dedupe, /羽黒山/);
+  assert.match(dedupe, /富士山/);
+});
+
+test("手で確かめた組は、名前で持つ（id では戻ってくる）", () => {
+  const dedupe = read("tools/dedupe_spots.py");
+  // id の組で持つと、取り込みを走らせるたびに id が変わるので効きません。
+  // まとめた直後の再取り込みで、実際に復活しました。
+  assert.match(dedupe, /SAME_PLACE_NAMES/);
+  assert.match(dedupe, /frozenset/);
+  assert.ok(!/\("takao-5", "wd-/.test(dedupe),
+    "手で確かめた組を id で持っています（取り込みで戻ります）");
+  assert.match(dedupe, /また入り\n# ます/);
+});
+
+test("「町」「村」を、行政の頭と読み違えない", () => {
+  const dedupe = read("tools/dedupe_spots.py");
+  // 「休暇村大久野島」の「村」を行政の頭と読むと、島とホテルが同じ
+  // ものになりました。
+  assert.match(dedupe, /休暇村大久野島/);
+  assert.ok(!/\[市町村区県府都道\]\)/.test(dedupe),
+    "頭の「町」「村」を拾っています（休暇村が村になります）");
 });
