@@ -70,6 +70,9 @@ const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
                 // そのときの上限。条件を組み直しても残します（残さないと、
                 // 外したはずの枠を別の場所が埋めて、押しても減りません）。
                 removedIds: [], spotCap: null,
+                // 「外す」を押す直前の旅程。戻すときにそのまま返します。
+                // 組み直して返すと、**行き先ごと変わることがあります**。
+                beforeRemove: null, keepBeforeRemove: false,
                 // 3案とおすすめ。案を選び直すときに使い回します。
                 plans: [], recommendKey: "", recommendWhy: "",
                 chosenTrip: null,
@@ -1877,6 +1880,18 @@ async function editPlan(text, itin, trip) {
 function editSpot({ id, name, action }, trip, itin) {
   if (!id) return;
   const remove = action === "remove";
+  // 「外す」の直前を、そのまま取っておきます。
+  //
+  // **戻すときに組み直すと、元の旅程は返ってきません。** 組み直しは
+  // そのときの手元のデータで走るので、行き先ごと変わることがあります
+  // （5か所の草津が、2か所の別の旅になりました）。
+  //
+  // 押し間違えて「戻す」を押した人が欲しいのは、新しい旅程ではなく
+  // **さっきまで見ていた旅程**です。取っておいて、そのまま返します。
+  if (remove) {
+    state.beforeRemove = { id, trip, itin };
+    state.keepBeforeRemove = true;
+  }
   const next = applyEdit({
     remove: [id],
     removeCount: remove ? [id] : [],
@@ -1973,6 +1988,17 @@ function tuneDwell({ id, name, minutes }, trip) {
  */
 function restoreSpot({ id, name }, trip) {
   if (!id) return;
+  // 直前に外したものを戻すなら、取っておいた旅程をそのまま返します。
+  // 組み直しません（組み直すと、別の旅になって返ってきます）。
+  const kept = state.beforeRemove;
+  if (kept && kept.id === id && kept.itin && kept.trip) {
+    state.beforeRemove = null;
+    syncFormTo(kept.trip);
+    state.trip = kept.trip;
+    state.editNote = `「${name}」を戻しました（外す前の旅程です）。`;
+    show(kept.itin, kept.trip);
+    return;
+  }
   const removed = (trip.must?.removedSpotIds ?? []).filter((x) => x !== id);
   const wasRemoved = (trip.must?.removedSpotIds ?? []).includes(id);
   const cap = trip.must?.spotCap;
@@ -2077,6 +2103,12 @@ async function run(override) {
   const errors = validateTrip(trip);
   if (errors.length) { showError(errors.join(" / ")); return; }
   state.trip = trip;
+  // 組み直したら、取っておいた「外す前」は古くなります。**残すと、
+  // 何度も組み直したあとの「戻す」が、ずっと前の旅程を返します。**
+  // 外した直後の1回ぶんだけを取っておくのが editSpot の役目なので、
+  // そこで入れ直されます。
+  if (!state.keepBeforeRemove) state.beforeRemove = null;
+  state.keepBeforeRemove = false;
   // 携帯では、ここから結果の画面に移ります（css の data-view）。
   // 条件のページに留まったままだと、旅程ができても自分でスクロール
   // して探すことになります。
