@@ -172,6 +172,21 @@ test("日本の外の記事を、日本の行き先にしない", () => {
   assert.match(coords, /lo_lat <= lat <= hi_lat/);
 });
 
+test("1点にならない広さのものを、行き先にしない", () => {
+  const importer = read("tools/import_wikipedia_lists.py");
+  // 国立公園を落としているのと同じ理屈です。東京湾はふちが数百km、
+  // 飛騨山脈は100km以上、五島列島は島が150ほどあります。座標は
+  // 付いていますが、それは代表点です。「東京湾 45分」と旅程に出しても、
+  // どこへ行けばいいのか分かりません。
+  for (const suf of ["山地", "山脈", "半島", "諸島", "列島", "海峡",
+                     "湾", "平野", "盆地", "水系"]) {
+    assert.ok(importer.includes(`"${suf}"`),
+      `${suf} で終わる名前が落ちていません`);
+  }
+  // なぜ小さな湾まで落とすのかが、書いてあること。
+  assert.match(importer, /記事名からは\n#\s*分かりません/);
+});
+
 test("2回目の --write で、前回のぶんが消えない", () => {
   const importer = read("tools/import_wikipedia_lists.py");
   // 説明をあとから足す（--extracts のあともう一度 --write する）のは
