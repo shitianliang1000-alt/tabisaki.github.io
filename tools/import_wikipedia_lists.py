@@ -207,7 +207,21 @@ def main(write):
     print(f"ウィキペディアの一覧から {len(rows)}件（座標あり・場所らしいもの）")
 
     shards = load_shards()
-    existing = [s for doc in shards.values() for s in doc["spots"]]
+    # **前回ここが書いたぶんは、「すでにある」に数えません。**
+    #
+    # 数えると、2回目の --write は全部を重複として弾き、spots-wp*.json が
+    # 空になります。説明をあとから足す（--extracts のあと、もう一度
+    # --write する）のがふつうの使い方なので、これは必ず起きます。
+    #
+    # spots-wp*.json は毎回いちから書き直すので、前回のぶんを外して
+    # 考えるのが正しい形です。外したうえで、新しいぶんどうしの重なりは
+    # 下の grid で見ます。
+    existing = [s for doc in shards.values() for s in doc["spots"]
+                if s.get("src") != SRC]
+    mine = sum(1 for doc in shards.values() for s in doc["spots"]
+               if s.get("src") == SRC)
+    if mine:
+        print(f"  （前回ここが入れた {mine}件 は、数え直します）")
     with open(os.path.join(WEB, "kb", "regions.json"), encoding="utf-8") as f:
         regions = json.load(f)
 
@@ -278,6 +292,13 @@ def main(write):
     if not write:
         print("\n--write を付けると書き戻します。")
         return
+
+    # 古い spots-wp*.json を先に消します。**残すと、件数が減ったときに
+    # 前回のぶんが取り残されます**（spots-wp03.json だけ古い、という形に
+    # なり、どこから来た数字なのか分からなくなります）。
+    for path in glob.glob(os.path.join(WEB, "kb", "spots-wp*.json")):
+        os.remove(path)
+        shards.pop(path, None)
 
     per_file = 2500
     chunks = [add[i:i + per_file] for i in range(0, len(add), per_file)]

@@ -172,6 +172,18 @@ test("日本の外の記事を、日本の行き先にしない", () => {
   assert.match(coords, /lo_lat <= lat <= hi_lat/);
 });
 
+test("2回目の --write で、前回のぶんが消えない", () => {
+  const importer = read("tools/import_wikipedia_lists.py");
+  // 説明をあとから足す（--extracts のあともう一度 --write する）のは
+  // ふつうの手順です。そのとき前回のぶんを「すでにある」と数えると、
+  // 全部が重複として弾かれ、spots-wp*.json が空になります。
+  assert.match(importer, /s\.get\("src"\) != SRC/);
+  assert.match(importer, /数え直します/);
+  // 件数が減ったとき、古いシャードが取り残されないこと。
+  assert.match(importer, /spots-wp\*\.json/);
+  assert.match(importer, /os\.remove\(path\)/);
+});
+
 test("説明は20件ずつ聞く（50件で聞くと、黙って落ちる）", () => {
   // extracts は1回20件までです。50件で聞いても**断られません**——
   // 多いぶんが黙って落ちるだけで、その題は「説明の無い記事」と
