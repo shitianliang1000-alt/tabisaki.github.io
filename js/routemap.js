@@ -377,7 +377,18 @@ export function routeDiagram(points, opts = {}) {
   if (!pts.length) return null;
 
   const kids = [];
-  if (opts.heading) kids.push(el("h3", { class: "rm-head" }, opts.heading));
+  if (opts.heading) {
+    // 見出しの段は、置かれる場所で決まります。
+    //
+    // はじめは h3 で決め打ちにしていました。地図は旅程の h2 より**前**に
+    // あるので、画面の見出しは h1 → h3 と飛びます。axe が拾いました
+    // （heading-order）。読み上げで見出しを辿る人は、そこで1段抜けた
+    // ように聞こえます。
+    //
+    // 既定は h2 です。別の深さに置くなら、置く側が指定します。
+    kids.push(el(opts.headingLevel ?? "h2", { class: "rm-head" },
+                 opts.heading));
+  }
   if (opts.note) kids.push(el("p", { class: "rm-why" }, opts.note));
 
   // 日ごとに分けて描きます。

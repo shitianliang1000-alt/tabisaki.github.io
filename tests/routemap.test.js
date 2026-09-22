@@ -328,3 +328,21 @@ test("幅をもらえなかったときも、640 で決め打ちしない", () =
   assert.match(map, /function boxWidth/);
   assert.match(map, /width: boxWidth\(this\.el\)/);
 });
+
+test("見出しの段を飛ばさない", () => withDom(() => {
+  // 地図は旅程の h2 より**前**にあります。h3 で決め打ちにしていたら、
+  // 画面の見出しが h1 → h3 と飛び、axe（heading-order）が拾いました。
+  // 読み上げで見出しを辿る人は、そこで1段抜けたように聞こえます。
+  const fig = routeDiagram([
+    { lat: 35, lng: 139, label: "A", kind: "spot", order: 1 },
+    { lat: 35.1, lng: 139.1, label: "B", kind: "spot", order: 2 },
+  ], { el, heading: "順路" });
+  const head = fig.kids.find((k) => k?.attrs?.class === "rm-head");
+  assert.equal(head.tag, "h2", `見出しが ${head.tag} で出ています`);
+  // 置く側が深さを選べること。
+  const deep = routeDiagram([
+    { lat: 35, lng: 139, label: "A", kind: "spot", order: 1 },
+    { lat: 35.1, lng: 139.1, label: "B", kind: "spot", order: 2 },
+  ], { el, heading: "順路", headingLevel: "h3" });
+  assert.equal(deep.kids.find((k) => k?.attrs?.class === "rm-head").tag, "h3");
+}));
