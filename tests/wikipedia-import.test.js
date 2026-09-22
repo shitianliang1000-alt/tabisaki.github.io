@@ -197,6 +197,13 @@ test("2回目の --write で、前回のぶんが消えない", () => {
   // 件数が減ったとき、古いシャードが取り残されないこと。
   assert.match(importer, /spots-wp\*\.json/);
   assert.match(importer, /os\.remove\(path\)/);
+  // **ファイルの名前ではなく、印（src）で消すこと。**
+  // reshard_kb.py が県ごとに並べ直すと、入れたものは spots-wp*.json
+  // から spots-jp01-hokkaido.json へ移ります。ファイル名で消していた
+  // ら、2回目で 6,547件が二重に入りました（36,253 → 42,641）。
+  assert.match(importer, /x\.get\("src"\) != SRC/);
+  assert.match(importer, /前回のぶん .*件 を取り除きました|前回のぶん/);
+  assert.match(importer, /県のファイルへ移り/);
 });
 
 test("説明は20件ずつ聞く（50件で聞くと、黙って落ちる）", () => {

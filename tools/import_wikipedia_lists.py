@@ -128,12 +128,72 @@ BAD_SUFFIX = ("一覧", "国立公園", "国定公園", "自然公園", "空港"
               "諸島", "列島", "地域", "海峡", "湾", "流域", "水系")
 BAD_PART = ("遺産群", "の一覧", "Category:", "Template:", "Portal:")
 
+# 施設ではあるけれど、行き先にはならないもの。
+#
+# 一覧記事は、本題のついでに近所のものへも大量にリンクします。渓谷の
+# 一覧から中学校へ、植物園の一覧から大学へ。座標も分類も付いてしまうので
+# 名前で落とします。書き出したものを無作為に見て、見つけたぶんです。
+#
+#   松山大学            → 公園
+#   宇和島市立宇和海中学校 → 渓谷
+#   西条市立周桑病院      → 渓谷
+#
+# 「旧」で始まるものは残します（旧岩谷堂共立病院のように、保存された
+# 建物が別の名前を持たないまま載っていることがあります）。
+NOT_A_DESTINATION = ("大学", "大学校", "高等学校", "高校", "中学校",
+                     "小学校", "専門学校", "病院", "銀行", "放送局",
+                     "株式会社", "信用金庫")
+
+# 場所ではなく、催しの名前。
+#
+# 「岩国行波の神舞」「木幡の幡祭り」。観光地の一覧には、その土地の祭りが
+# 当たり前に並びます。座標（神社）も付きます。けれど**旅程に入れられる
+# ものではありません**——開かれるのは年に1日か2日で、日付は毎年変わり、
+# この収録はその日付を持っていません。
+#
+# js/events.js でも同じ判断をしています（個別の催しの日程は持たない）。
+# 持てば必ず古くなり、古い日程を自信ありげに出すのは、何も言わないより
+# 悪いためです。
+AN_EVENT = ("舞", "祭", "祭り", "まつり", "踊り", "行事", "神事")
+
+# 名前から分かる分類の直し。
+#
+# 分類は「その場所が載っていた一覧」から採ります。ところが一覧どうしは
+# 重なるので、**橋が島の一覧から拾われる**ことがありました（呼子大橋は
+# 加部島の記事から張られています）。64件ありました。
+#
+#   呼子大橋 → 島
+#   音戸大橋 → 島
+#
+# 橋は橋です。名前で分かるものは、名前を先に見ます。
+BY_NAME = ((("橋", "大橋"), "建築"),)
+
+
+def category_of(name, from_list):
+    """名前から分かる分類を、一覧より先に採ります。
+
+    分類は「その場所が載っていた一覧」から採るのが基本です。ところが
+    一覧どうしは重なるので、**橋が島の一覧から拾われました**（呼子大橋は
+    加部島の記事から張られています）。橋は橋です。
+    """
+    for suffixes, cat in BY_NAME:
+        if name.endswith(suffixes):
+            return cat
+    return from_list
+
 
 def looks_unusable(name, lat, lng):
     name = (name or "").strip()
     if not name or len(name) < 2 or name in TOO_BIG:
         return True
     if name.endswith(BAD_SUFFIX) or any(b in name for b in BAD_PART):
+        return True
+    # 施設ではあるけれど、行き先にはならないもの。「旧」で始まるものは
+    # 保存された建物のことがあるので残します。
+    if name.endswith(NOT_A_DESTINATION) and not name.startswith("旧"):
+        return True
+    # 催しの名前。この収録は日付を持っていないので、旅程に入れられません。
+    if name.endswith(AN_EVENT):
         return True
     # 曖昧さ回避や、年・分野の記事。
     if re.search(r"[（(](曖昧さ回避|人名|企業)[)）]", name):
@@ -271,7 +331,7 @@ def main(write):
             "id": spot_id(r["title"]),
             "regionId": region["id"],
             "name": r["title"],
-            "category": r["category"],
+            "category": category_of(r["title"], r["category"]),
             "lat": round(r["lat"], 5),
             "lng": round(r["lng"], 5),
             "fame_tier": tier(r["lists"]),
@@ -313,9 +373,29 @@ def main(write):
         print("\n--write を付けると書き戻します。")
         return
 
-    # 古い spots-wp*.json を先に消します。**残すと、件数が減ったときに
-    # 前回のぶんが取り残されます**（spots-wp03.json だけ古い、という形に
-    # なり、どこから来た数字なのか分からなくなります）。
+    # 前回入れたぶんを、**収録ぜんぶから**取り除いてから書きます。
+    #
+    # はじめは spots-wp*.json を消すだけにしていました。それで足りると
+    # 思っていましたが、**tools/reshard_kb.py が県ごとに並べ直すと、
+    # 入れたものは spots-jp01-hokkaido.json のような県のファイルへ移り
+    # ます**。消すファイルには、もう入っていません。
+    #
+    # 気づいたのは2回目を走らせたあとです。収録が 36,253 → 42,641 に
+    # なりました。6,547件が二重に入っています。名前も座標も同じものが
+    # 2つ並ぶので、旅程は同じ場所へ2回行きます。
+    #
+    # ファイルの名前ではなく、**印（src）で消します**。どこへ移されて
+    # いても効きます。
+    removed = 0
+    for path, doc in shards.items():
+        keep = [x for x in doc["spots"] if x.get("src") != SRC]
+        removed += len(doc["spots"]) - len(keep)
+        if len(keep) != len(doc["spots"]):
+            doc["spots"] = keep
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(doc, f, ensure_ascii=False, separators=(",", ":"))
+    if removed:
+        print(f"  前回のぶん {removed}件 を取り除きました")
     for path in glob.glob(os.path.join(WEB, "kb", "spots-wp*.json")):
         os.remove(path)
         shards.pop(path, None)
