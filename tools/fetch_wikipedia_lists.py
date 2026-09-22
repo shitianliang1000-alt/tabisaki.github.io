@@ -127,7 +127,11 @@ for _p in PREFECTURES:
 # 8秒まで落とすと通ります。全部で1時間ほどかかりますが、相手に
 # 迷惑をかけてまで速く終わらせる理由はありません。
 PAUSE_SEC = 8.0
-BATCH = 50          # 座標を聞くときの、1回あたりの件数（APIの上限）
+BATCH = 50          # 題をまとめて聞くときの、1回あたりの件数
+# 説明（extracts）だけは、1回20件までです。**50件で聞いても断られません**
+# ——多いぶんが黙って落ちるだけです。落ちたことは応答からは分かりません
+# （その題は「説明の無い記事」と見分けが付きません）。20で聞きます。
+EXTRACT_BATCH = 20
 RETRIES = [15, 45, 120, 300, 600]
 
 
@@ -326,13 +330,13 @@ def fetch_extracts(titles, cache):
         return 0
     sys.stderr.write(f"  説明を {len(todo)}件 聞きます\n")
     got = 0
-    for i in range(0, len(todo), BATCH):
-        chunk = todo[i:i + BATCH]
+    for i in range(0, len(todo), EXTRACT_BATCH):
+        chunk = todo[i:i + EXTRACT_BATCH]
         doc = call({
             "action": "query", "format": "json",
             "titles": "|".join(chunk),
             "prop": "extracts", "exintro": "1", "explaintext": "1",
-            "exsentences": "2", "redirects": "1",
+            "exsentences": "2", "exlimit": "max", "redirects": "1",
         })
         back = {}
         for page in doc.get("query", {}).get("pages", {}).values():
@@ -345,7 +349,14 @@ def fetch_extracts(titles, cache):
                 cache[t]["extract"] = text
                 got += 1
         save_cache(cache)
-        sys.stderr.write(f"    {min(i + BATCH, len(todo))}/{len(todo)}"
+        # 応答が短すぎたら、そう言います。**黙って進むと、説明の無い
+        # 記事と、上限で落とされた記事が、区別できなくなります。**
+        back_n = sum(1 for t in chunk if back.get(t))
+        if back_n * 2 < len(chunk):
+            sys.stderr.write(
+                f"    ⚠ {len(chunk)}件 聞いて {back_n}件 しか返りません"
+                f"でした（上限に当たっているかもしれません）\n")
+        sys.stderr.write(f"    {min(i + EXTRACT_BATCH, len(todo))}/{len(todo)}"
                          f"  説明あり {got}件\n")
         time.sleep(PAUSE_SEC)
     return got

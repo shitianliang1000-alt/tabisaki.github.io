@@ -167,6 +167,17 @@ test("日本の外の記事を、日本の行き先にしない", () => {
   assert.match(coords, /lo_lat <= lat <= hi_lat/);
 });
 
+test("説明は20件ずつ聞く（50件で聞くと、黙って落ちる）", () => {
+  // extracts は1回20件までです。50件で聞いても**断られません**——
+  // 多いぶんが黙って落ちるだけで、その題は「説明の無い記事」と
+  // 見分けが付かなくなります。
+  assert.match(fetcher, /EXTRACT_BATCH = 20/);
+  assert.match(fetcher, /"exlimit": "max"/);
+  assert.match(fetcher, /range\(0, len\(todo\), EXTRACT_BATCH\)/);
+  // 短い応答は、黙って飲み込まないこと。
+  assert.match(fetcher, /上限に当たっているかもしれません/);
+});
+
 test("説明を聞くのは、収録に入ると決まったものだけ", () => {
   const importer = read("tools/import_wikipedia_lists.py");
   // 説明は配布ファイルから取れないので API で聞きます。ただし3万件を
