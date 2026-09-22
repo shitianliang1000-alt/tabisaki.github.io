@@ -120,7 +120,7 @@ test("同じ題を、二度聞かない", () => {
   // 一覧どうしは重なります（「京都府の観光地」と「日本の観光地一覧」に
   // 同じ寺が出ます）。控えを1つ持って、全部の一覧で使い回します。
   assert.match(fetcher, /def load_cache/);
-  assert.match(fetcher, /t for t in titles if t not in cache/);
+  assert.match(fetcher, /not cache\[t\]\.get\("extract"\)/);
   // 途中で断られても、聞いたぶんは残ること。
   assert.match(fetcher, /save_cache\(cache\)/);
 });
@@ -130,11 +130,52 @@ test("本文を解析しない（リンクと座標だけを見る）", () => {
   // 壊れます。組み上がった HTML をもらっても、見るのはリンクだけです。
   assert.match(fetcher, /本文を解析しません/);
   assert.match(fetcher, /rel="mw:WikiLink"/);
-  assert.match(fetcher, /"prop": "coordinates\|extracts"/);
   // 表の中身に手を出していないこと。ウィキテキストの記法が出てきたら、
   // それは表を読もうとしている印です。
   assert.ok(!/\{\{|\|-|\|\}/.test(fetcher),
     "表（ウィキテキスト）を読もうとしています");
+});
+
+test("座標は配布ファイルから取る（API で3万件は聞かない）", () => {
+  const coords = read("tools/wikipedia_coords.py");
+  // 座標を API で聞くと50件ずつ＝3万件で600回になり、途中から 429 で
+  // 断られました（待ち時間が 600秒まで伸びました）。ウィキメディア自身の
+  // 案内が「まとめて欲しいなら配布ファイルを」なので、そうしました。
+  assert.match(coords, /dumps\.wikimedia\.org/);
+  assert.match(coords, /geo_tags/);
+  assert.match(fetcher, /def from_dump/);
+  assert.ok(!/"prop": "coordinates/.test(fetcher),
+    "座標をまた API で聞いています（3万件は通りません）");
+});
+
+test("配布ファイルを半分だけ読んで、そのまま保存しない", () => {
+  const coords = read("tools/wikipedia_coords.py");
+  // 落とし損ねたファイルや、形の変わったファイルを読むと、**一部の記事
+  // だけ座標を持つ表**ができます。どの記事が欠けたのかは、できた表から
+  // は分かりません。少なすぎたら、書かずに止めます。
+  assert.match(coords, /if len\(table\) < 10000:/);
+  assert.match(coords, /raise SystemExit/);
+  // 途中で切れた落としものを、残さないこと。
+  assert.match(coords, /\.part/);
+  assert.match(coords, /os\.replace\(tmp, path\)/);
+});
+
+test("日本の外の記事を、日本の行き先にしない", () => {
+  const coords = read("tools/wikipedia_coords.py");
+  // 日本語版にはパリのノートルダムの記事もあり、座標も付いています。
+  assert.match(coords, /BBOX/);
+  assert.match(coords, /lo_lat <= lat <= hi_lat/);
+});
+
+test("説明を聞くのは、収録に入ると決まったものだけ", () => {
+  const importer = read("tools/import_wikipedia_lists.py");
+  // 説明は配布ファイルから取れないので API で聞きます。ただし3万件を
+  // 聞けば結局600回です。足すと決まったものだけにします。
+  assert.match(importer, /want-extracts\.json/);
+  assert.match(fetcher, /def fetch_extracts/);
+  assert.match(fetcher, /def wanted_titles/);
+  // 聞けなかったものは、説明なしで出ること（作らないこと）。
+  assert.match(fetcher, /説明が無いスポットは、説明なしで/);
 });
 
 test("一覧の中身は REST からもらう（action API の prop=links は通らない）", () => {

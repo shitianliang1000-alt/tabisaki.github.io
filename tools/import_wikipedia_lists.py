@@ -260,6 +260,21 @@ def main(write):
     for cat, n in by_cat.most_common():
         print(f"  {cat} {n}件")
 
+    # 説明をどの題に聞けばいいかを、書き出しておきます。
+    #
+    # 説明（冒頭2文）は配布ファイルからは取れないので API で聞きますが、
+    # **足すと決まったものだけ**にします。3万件ぜんぶ聞くと600回になり、
+    # 429 で断られ始めます。足すのが千件なら、20回で済みます。
+    want = os.path.join(RAW, "want-extracts.json")
+    os.makedirs(RAW, exist_ok=True)
+    with open(want, "w", encoding="utf-8") as f:
+        json.dump([s["name"] for s in add], f, ensure_ascii=False)
+    missing = sum(1 for s in add if not s.get("description"))
+    if missing:
+        print(f"\n説明の無いものが {missing}件 あります。"
+              f"\n  python3 tools/fetch_wikipedia_lists.py --extracts"
+              f"\n  を走らせてから、もう一度ここへ戻ってきてください。")
+
     if not write:
         print("\n--write を付けると書き戻します。")
         return

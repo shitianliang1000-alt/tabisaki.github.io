@@ -53,6 +53,8 @@ import sys
 import time
 import urllib.parse
 
+import wikipedia_coords as coords
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.dirname(HERE)
 OUT = os.path.join(WEB, "data", "wikipedia")
@@ -201,6 +203,13 @@ def links_of(title):
         return []
     out, seen = [], set()
     for href in re.findall(r'rel="mw:WikiLink"[^>]*href="\./([^"#]+)"', html):
+        # まだ書かれていない記事へのリンクは
+        # `名坂峠?action=edit&amp;redlink=1` の形で出ます。**このまま
+        # 題として扱うと**、座標表にも当たらず、記事も無いのに
+        # 「座標の無い場所」として数えられます。?から先を落とします。
+        href = href.split("?", 1)[0]
+        if not href:
+            continue
         name = urllib.parse.unquote(href).replace("_", " ")
         # 名前空間つき（Category: や ファイル: など）は場所ではありません。
         if ":" in name and name.split(":", 1)[0] in NAMESPACES:
@@ -225,55 +234,6 @@ def save_cache(cache):
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, "places.json"), "w", encoding="utf-8") as f:
         json.dump(cache, f, ensure_ascii=False)
-
-
-def places_of(titles, cache):
-    """題から、座標と冒頭2文を引きます。
-
-    **一度聞いた題は、二度聞きません。** 一覧は互いに重なります
-    （「京都府の観光地」と「日本の観光地一覧」に同じ寺が出ます）。
-    控えを1つ持って、全部の一覧で使い回します。座標の無いものも
-    「無い」と覚えます（覚えないと、毎回聞き直すことになります）。
-    """
-    todo = [t for t in titles if t not in cache]
-    for i in range(0, len(todo), BATCH):
-        chunk = todo[i:i + BATCH]
-        doc = call({
-            "action": "query", "format": "json",
-            "titles": "|".join(chunk),
-            "prop": "coordinates|extracts",
-            "coprop": "type|name", "coprimary": "primary",
-            "exintro": "1", "explaintext": "1", "exsentences": "2",
-            "redirects": "1",
-        })
-        # 転送（リダイレクト）は、元の題でも引けるようにしておきます。
-        alias = {r["from"]: r["to"]
-                 for r in doc.get("query", {}).get("redirects", [])}
-        seen = set()
-        for page in doc.get("query", {}).get("pages", {}).values():
-            title = page.get("title", "")
-            seen.add(title)
-            coords = page.get("coordinates") or []
-            c = coords[0] if coords else None
-            if not c or c.get("globe", "earth") != "earth":
-                cache[title] = None
-                continue
-            cache[title] = {
-                "title": title, "lat": c["lat"], "lng": c["lon"],
-                "extract": (page.get("extract") or "").strip(),
-            }
-        for src, dst in alias.items():
-            cache[src] = cache.get(dst)
-        # 返ってこなかった題も「無い」として覚えます。
-        for t in chunk:
-            if t not in cache:
-                cache[t] = None
-        save_cache(cache)
-        got = sum(1 for t in titles if cache.get(t))
-        sys.stderr.write(f"    {min(i + BATCH, len(todo))}/{len(todo)}"
-                         f"  座標あり {got}件\n")
-        time.sleep(PAUSE_SEC)
-    return [cache[t] for t in titles if cache.get(t)]
 
 
 def slug(title):
@@ -318,30 +278,122 @@ def all_titles():
     return list(seen)
 
 
+def from_dump(titles, cache):
+    """配布ファイルの表から、座標を入れます。**API を叩きません。**
+
+    座標は API でも引けますが、50件ずつしか聞けないので3万件で600回に
+    なります。途中から 429 で断られ始め、待ち時間が 600秒まで伸びました。
+    ウィキメディア自身が「まとめて欲しいなら配布ファイルを」と案内して
+    いるので、そちらにしました（tools/wikipedia_coords.py）。
+
+    説明（冒頭2文）はここでは入れません。全部の題に説明を付けようと
+    すると、結局その回数だけ聞くことになります。**収録に入るものだけ**
+    あとから聞きます（--extracts）。説明が無いスポットは、説明なしで
+    出ます。無い説明を作るよりましです。
+    """
+    table = coords.load()
+    sys.stderr.write(f"  配布ファイルの表 {len(table)}件\n")
+    hit = 0
+    for t in titles:
+        pos = table.get(t)
+        if pos is None:
+            # 「座標が無い」も覚えます。覚えないと毎回引き直します。
+            if t not in cache:
+                cache[t] = None
+            continue
+        old = cache.get(t) or {}
+        cache[t] = {
+            "title": t, "lat": pos[0], "lng": pos[1],
+            # すでに聞いてある説明は捨てません。
+            "extract": old.get("extract", ""),
+        }
+        hit += 1
+    save_cache(cache)
+    return hit
+
+
+def fetch_extracts(titles, cache):
+    """**収録に入る題だけ**、冒頭2文を聞きます。
+
+    座標と違って、説明は配布ファイルからは取れません（本文がまるごと
+    必要になり、4GB あります）。API で聞きますが、聞くのは収録に入ると
+    決まったものだけです。数百〜数千件で済みます。
+    """
+    todo = [t for t in titles
+            if cache.get(t) and not cache[t].get("extract")]
+    if not todo:
+        sys.stderr.write("  説明は、すべて控えにあります\n")
+        return 0
+    sys.stderr.write(f"  説明を {len(todo)}件 聞きます\n")
+    got = 0
+    for i in range(0, len(todo), BATCH):
+        chunk = todo[i:i + BATCH]
+        doc = call({
+            "action": "query", "format": "json",
+            "titles": "|".join(chunk),
+            "prop": "extracts", "exintro": "1", "explaintext": "1",
+            "exsentences": "2", "redirects": "1",
+        })
+        back = {}
+        for page in doc.get("query", {}).get("pages", {}).values():
+            back[page.get("title", "")] = (page.get("extract") or "").strip()
+        for r in doc.get("query", {}).get("redirects", []):
+            back[r["from"]] = back.get(r["to"], "")
+        for t in chunk:
+            text = back.get(t, "")
+            if text and cache.get(t):
+                cache[t]["extract"] = text
+                got += 1
+        save_cache(cache)
+        sys.stderr.write(f"    {min(i + BATCH, len(todo))}/{len(todo)}"
+                         f"  説明あり {got}件\n")
+        time.sleep(PAUSE_SEC)
+    return got
+
+
+def wanted_titles():
+    """収録に入ると import が決めた題。無ければ空。"""
+    path = os.path.join(OUT, "want-extracts.json")
+    if not os.path.exists(path):
+        raise SystemExit(
+            "どの題の説明が要るのか、分かりません。\n"
+            "  先に python3 tools/import_wikipedia_lists.py --check を"
+            "走らせてください。")
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
 def main(argv):
     if "--list" in argv:
         for t, c in LISTS.items():
             print(f"{t}\t{c}")
+        return
+    if "--extracts" in argv:
+        cache = load_cache()
+        got = fetch_extracts(wanted_titles(), cache)
+        sys.stderr.write(f"説明を {got}件 足しました\n")
         return
     want = [a for a in argv if not a.startswith("--")]
     todo = {t: c for t, c in LISTS.items() if not want or t in want}
     if want and not todo:
         raise SystemExit(f"知らない一覧です: {' '.join(want)}")
 
-    # 1. まず、どの一覧に何が載っているかを押さえます（安い）。
+    # 1. まず、どの一覧に何が載っているかを押さえます（REST から1本ずつ）。
     sys.stderr.write(f"{len(todo)}件の一覧の、リンクを集めます\n")
     for title, category in todo.items():
         fetch_links(title, category)
 
-    # 2. そのあと、題をまとめて座標に直します（高い）。
+    # 2. そのあと、題を座標に直します（配布ファイルから。API は叩きません）。
     cache = load_cache()
     titles = all_titles()
-    todo_n = sum(1 for t in titles if t not in cache)
-    sys.stderr.write(f"題 {len(titles)}件（控えに {len(cache)}件 /"
-                     f" これから {todo_n}件）\n")
-    places_of(titles, cache)
-    have = sum(1 for t in titles if cache.get(t))
+    sys.stderr.write(f"題 {len(titles)}件\n")
+    have = from_dump(titles, cache)
     sys.stderr.write(f"座標のあるもの {have}件\n")
+    sys.stderr.write(
+        "\n次は:\n"
+        "  python3 tools/import_wikipedia_lists.py --check   足すものを決める\n"
+        "  python3 tools/fetch_wikipedia_lists.py --extracts 説明だけ聞く\n"
+        "  python3 tools/import_wikipedia_lists.py --write   書き戻す\n")
 
 
 if __name__ == "__main__":
