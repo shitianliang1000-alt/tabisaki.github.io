@@ -14,8 +14,13 @@
 </head>
 <body>
 <div id="progress" class="planning"></div>
+<!-- 地図（Leaflet）。本番の画面と同じものを読みます。
+     ここが読めないと、絵は点と線だけになります（それでも出ます）。 -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module">
 import { renderProgress } from "../../../js/ui.js";
+import { TILE_ATTRIBUTION, TILE_URL } from "../../../js/config.js";
 const box = document.getElementById("progress");
 const trip = { origin: { name: "東京駅", lat: 35.6812, lng: 139.7671 }, note: "鎌倉" };
 // 収録の代わり。鎌倉のあたりに星をまき、候補と順を渡します。
@@ -32,7 +37,8 @@ const picks = [
   { name: "報国寺", lat: 35.3210, lng: 139.5720, description: "竹の庭で知られる寺。" },
 ];
 window.__go = (step) => {
-  const extra = { trip, stars: () => stars };
+  const extra = { trip, stars: () => stars,
+                  tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION };
   if (step >= 2) extra.picks = picks;
   if (step >= 4) extra.route = [picks[0], picks[4], picks[1], picks[2], picks[3]];
   renderProgress(box, step, "", extra);

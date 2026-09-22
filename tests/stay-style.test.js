@@ -108,3 +108,48 @@ test("条件に、宿の取りかたが入る", () => {
   assert.equal(makeTrip({ stayStyle: "base" }).stayStyle, "base");
   assert.equal(makeTrip({ stayStyle: "hotel" }).stayStyle, "auto");
 });
+
+// --- エリア名の重なり -------------------------------------------------------
+//
+// 収録のエリア名は、出どころによって粒度が違います。そのまま並べると
+// 旅の題が「京都・東山・京都市」になり、同じ名前が2回並んでいるように
+// しか見えませんでした。
+
+test("同じ土地を指す名前は、1つにまとめる", async () => {
+  const { dedupeAreaNames, joinAreaNames } = await import("../js/stays.js");
+  assert.deepEqual(dedupeAreaNames(["京都", "東山", "京都市"]), ["京都", "東山"]);
+  assert.equal(joinAreaNames(["京都", "東山", "京都市"]), "京都・東山");
+  assert.equal(joinAreaNames(["出雲", "出雲市"]), "出雲");
+  // 呼び名つきが先に来ても、短いほうを残します（題は短いほうが読めます）。
+  assert.equal(joinAreaNames(["京都市", "京都"]), "京都");
+});
+
+test("末尾の呼び名だけを落とす（途中の字は残す）", async () => {
+  const { joinAreaNames } = await import("../js/stays.js");
+  // 「市川」の「市」を落とすと、別の土地になります。
+  assert.equal(joinAreaNames(["市川", "市川市"]), "市川");
+  assert.equal(joinAreaNames(["市川", "川崎"]), "市川・川崎");
+});
+
+test("中に入っているだけの名前は、まとめない", async () => {
+  const { joinAreaNames } = await import("../js/stays.js");
+  // 「出雲」と「出雲大社」は別のものです。ここまで寄せると、行き先が
+  // 消えます。
+  assert.equal(joinAreaNames(["出雲", "出雲大社"]), "出雲・出雲大社");
+});
+
+test("まとめたあとで数え直す（4つ以上は省略）", async () => {
+  const { joinAreaNames } = await import("../js/stays.js");
+  // まとめる前は4つでも、まとめて3つなら全部書けます。
+  assert.equal(joinAreaNames(["京都", "東山", "嵐山", "京都市"]),
+    "京都・東山・嵐山");
+  assert.equal(joinAreaNames(["A", "B", "C", "D"]), "A〜Dほか4エリア");
+});
+
+test("空や壊れた名前でも落ちない", async () => {
+  const { dedupeAreaNames, joinAreaNames } = await import("../js/stays.js");
+  assert.deepEqual(dedupeAreaNames(null), []);
+  assert.deepEqual(dedupeAreaNames(["", null, undefined, "市"]), []);
+  assert.equal(joinAreaNames([]), "");
+  assert.equal(joinAreaNames(null), "");
+});

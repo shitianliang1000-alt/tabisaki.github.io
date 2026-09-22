@@ -269,11 +269,55 @@ export function regionOfDay(stays, dayIndex) {
 }
 
 /**
+ * 同じ土地を指す名前かどうか。
+ *
+ * 収録のエリア名は、出どころによって粒度が違います。
+ *
+ *   京都・東山・京都市    ← 「京都」と「京都市」は同じ土地です
+ *   出雲・出雲市          ← 同じ
+ *
+ * これがそのまま旅の題になり、「京都・東山・京都市」と出ていました。
+ * 同じ名前が2回並んでいるようにしか見えません。
+ *
+ * **市区町村の呼び名を落として突き合わせます。** 落としてなお違うもの
+ * （東山と京都）は、別のエリアとして残します。中に入っているかどうか
+ * まで見にいくと、「出雲」と「出雲大社」のような別物まで混ざります。
+ */
+function areaKey(name) {
+  return String(name ?? "")
+    .normalize("NFKC")
+    .replace(/[\s　]+/g, "")
+    // 末尾の市区町村・郡だけを落とします。頭や途中の字は残します
+    //（「市川」の「市」を落とすと別の土地になります）。
+    .replace(/(市|区|町|村|郡)$/, "");
+}
+
+/**
+ * 同じ土地を指す名前を、1つにまとめます。
+ *
+ * 残すのは**先に出てきたほう**です。並びの先頭は、いちばん長く
+ * 泊まるエリアだからです（stays の順）。ただし「京都」と「京都市」の
+ * ように片方が呼び名つきなら、**短いほう**を残します（題は短いほうが
+ * 読めます）。
+ */
+export function dedupeAreaNames(names) {
+  const out = [];
+  for (const name of (names ?? []).filter(Boolean)) {
+    const key = areaKey(name);
+    if (!key) continue;
+    const at = out.findIndex((n) => areaKey(n) === key);
+    if (at < 0) { out.push(name); continue; }
+    if (name.length < out[at].length) out[at] = name;
+  }
+  return out;
+}
+
+/**
  * エリア名の並びを、見出しに使える短さにまとめます。
  * 4エリアを「・」で全部つなぐと、見出しが説明文になってしまいます。
  */
 export function joinAreaNames(names) {
-  const list = [...new Set(names.filter(Boolean))];
+  const list = dedupeAreaNames([...new Set((names ?? []).filter(Boolean))]);
   if (list.length <= 3) return list.join("・");
   return `${list[0]}〜${list.at(-1)}ほか${list.length}エリア`;
 }

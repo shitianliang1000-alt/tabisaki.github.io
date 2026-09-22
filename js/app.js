@@ -27,7 +27,7 @@ import { TripMap, pointsFromItinerary } from "./map.js";
 import { planTrip } from "./pipeline.js";
 import { haversineKm } from "./feasibility.js";
 import { configureQuota, describeUsage, quota } from "./quota.js";
-import { artFor, moodArt } from "./art.js";
+import { artFor } from "./art.js";
 import { icon } from "./icons.js";
 import { mixTargets } from "./mix.js";
 import { photoFor } from "./photos.js";
@@ -70,6 +70,9 @@ const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
                 // そのときの上限。条件を組み直しても残します（残さないと、
                 // 外したはずの枠を別の場所が埋めて、押しても減りません）。
                 removedIds: [], spotCap: null,
+                // 「外す」を押す直前の旅程。戻すときにそのまま返します。
+                // 組み直して返すと、**行き先ごと変わることがあります**。
+                beforeRemove: null, keepBeforeRemove: false,
                 // 3案とおすすめ。案を選び直すときに使い回します。
                 plans: [], recommendKey: "", recommendWhy: "",
                 chosenTrip: null,
@@ -111,7 +114,6 @@ async function boot() {
 
   fillPlaces();
   setDefaultDates();
-  fillMoodRail();
   wireForm();
   wireKeyPanel();
   wireChrome();
@@ -917,71 +919,12 @@ function moveBackgroundMap(lat, lng, zoom = 10) {
 }
 
 // --- 雰囲気チップ -----------------------------------------------------------
-// 文字だけのボタンを並べると、どれも同じに見えて読み飛ばされます。
-// 色の面をつけると、読む前に「温泉っぽい」「海っぽい」で選べます。
-
-// 旅の入口に並べるもの。**6枚まで**にしています。
+// 旅のきっかけは、記述欄の下の札にまとめました。
 //
-// 9枚あったときは、選ぶ前にスクロールが要りました。入口で迷わせては
-// 意味がありません。「富士山に登りたい」「オーロラが見たい」のような
-// 行き先の名指しは、カードではなく自由入力の例に回しました
-// （選択肢としてではなく、「こういうことも書ける」の見本として）。
-const MOODS = [
-  "温泉でゆっくり癒されたい",
-  "歴史ある街を歩いて、美味しいものを食べたい",
-  "人が少ない静かな場所で自然を感じたい",
-  "絶景が見たい。写真をたくさん撮りたい",
-  "海の見えるところでのんびりしたい",
-  "美術館と建築をめぐりたい",
-];
-
-const MOOD_LABEL = {
-  "温泉でゆっくり癒されたい": "温泉でゆっくり",
-  "歴史ある街を歩いて、美味しいものを食べたい": "歴史ある街歩き",
-  "人が少ない静かな場所で自然を感じたい": "静かな自然",
-  "絶景が見たい。写真をたくさん撮りたい": "絶景・写真",
-  "海の見えるところでのんびりしたい": "海でのんびり",
-  "美術館と建築をめぐりたい": "アートと建築",
-};
-
-function moodChip(label, full, onPick) {
-  const art = moodArt(full);
-  const btn = el("button", { type: "button", class: "mood",
-                             "aria-pressed": "false",
-                             style: `background-image:${art.css}` });
-  btn.append(
-    icon(art.icon, { class: "m-ic" }),
-    el("span", { class: "m-tx" }, label));
-  btn.addEventListener("click", () => onPick(full, btn));
-  return btn;
-}
-
-function fillMoodRail() {
-  const rail = $("#mood-rail");
-  if (!rail) return;
-  for (const m of MOODS) {
-    rail.append(moodChip(MOOD_LABEL[m] ?? m, m, (text, btn) => {
-      // 押したら、その希望文をそのまま条件にします。
-      // 自由入力の欄は畳んだままで構いません。開かなくても
-      // 「これを選んだ」と分かるように、カード側に印を付けます。
-      $("#note").value = text;
-      saveConditions();
-      for (const other of rail.querySelectorAll(".mood")) {
-        other.classList.toggle("is-selected", other === btn);
-        other.setAttribute("aria-pressed", String(other === btn));
-      }
-    }));
-  }
-
-  // 自由入力を触ったら、カードの印は外します。
-  // 選んだ文と、書いてある文が違う状態を残さないためです。
-  $("#note")?.addEventListener("input", () => {
-    for (const other of rail.querySelectorAll(".mood")) {
-      other.classList.remove("is-selected");
-      other.setAttribute("aria-pressed", "false");
-    }
-  });
-}
+// ここには以前、色の面のカード（温泉・歴史・自然…）を6枚、別に並べて
+// いました。同じ「書く言葉のきっかけ」が2か所に分かれていて、画面の
+// 1枚目がカードで埋まっていました。**同じ役目のものは1か所にまとめます。**
+// 札（index.html の data-example）に寄せたので、ここは要りません。
 
 // --- 穴場の度合いを、星の粒で見せる -----------------------------------------
 // 「40%」と書かれても、それがどれくらいかは伝わりません。
@@ -1937,6 +1880,18 @@ async function editPlan(text, itin, trip) {
 function editSpot({ id, name, action }, trip, itin) {
   if (!id) return;
   const remove = action === "remove";
+  // 「外す」の直前を、そのまま取っておきます。
+  //
+  // **戻すときに組み直すと、元の旅程は返ってきません。** 組み直しは
+  // そのときの手元のデータで走るので、行き先ごと変わることがあります
+  // （5か所の草津が、2か所の別の旅になりました）。
+  //
+  // 押し間違えて「戻す」を押した人が欲しいのは、新しい旅程ではなく
+  // **さっきまで見ていた旅程**です。取っておいて、そのまま返します。
+  if (remove) {
+    state.beforeRemove = { id, trip, itin };
+    state.keepBeforeRemove = true;
+  }
   const next = applyEdit({
     remove: [id],
     removeCount: remove ? [id] : [],
@@ -2033,6 +1988,17 @@ function tuneDwell({ id, name, minutes }, trip) {
  */
 function restoreSpot({ id, name }, trip) {
   if (!id) return;
+  // 直前に外したものを戻すなら、取っておいた旅程をそのまま返します。
+  // 組み直しません（組み直すと、別の旅になって返ってきます）。
+  const kept = state.beforeRemove;
+  if (kept && kept.id === id && kept.itin && kept.trip) {
+    state.beforeRemove = null;
+    syncFormTo(kept.trip);
+    state.trip = kept.trip;
+    state.editNote = `「${name}」を戻しました（外す前の旅程です）。`;
+    show(kept.itin, kept.trip);
+    return;
+  }
   const removed = (trip.must?.removedSpotIds ?? []).filter((x) => x !== id);
   const wasRemoved = (trip.must?.removedSpotIds ?? []).includes(id);
   const cap = trip.must?.spotCap;
@@ -2137,6 +2103,12 @@ async function run(override) {
   const errors = validateTrip(trip);
   if (errors.length) { showError(errors.join(" / ")); return; }
   state.trip = trip;
+  // 組み直したら、取っておいた「外す前」は古くなります。**残すと、
+  // 何度も組み直したあとの「戻す」が、ずっと前の旅程を返します。**
+  // 外した直後の1回ぶんだけを取っておくのが editSpot の役目なので、
+  // そこで入れ直されます。
+  if (!state.keepBeforeRemove) state.beforeRemove = null;
+  state.keepBeforeRemove = false;
   // 携帯では、ここから結果の画面に移ります（css の data-view）。
   // 条件のページに留まったままだと、旅程ができても自分でスクロール
   // して探すことになります。
@@ -2159,6 +2131,7 @@ async function run(override) {
     if (!state.kb) {
       renderProgress(progress, 0, "旅先のデータを読んでいます", {
         trip, stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+        tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
       });
       state.kb = await state.kbPromise;
     }
@@ -2200,6 +2173,8 @@ async function buildPlans(trip, progress) {
   const onProgress = (step, note, extra) => renderProgress(progress, step, note, {
     trip,
     stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+    // 待っているあいだの絵に、地の形を敷きます（js/sketch.js）。
+    tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
     ...(extra ?? {}),
   });
   const variants = tripsFor(trip);
@@ -2344,6 +2319,7 @@ async function switchVariant(key) {
       (step, note, extra) => renderProgress(progress, step, note, {
         trip: state.chosenTrip ?? state.trip,
         stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+        tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
         ...(extra ?? {}),
       }));
     showRoutesUsage();

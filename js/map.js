@@ -6,6 +6,8 @@
 //
 // Leaflet は CDN から読み込み、window.L として使います。
 
+import { routeDiagram } from "./routemap.js";
+
 const DEFAULT_CENTER = [35.681236, 139.767125];
 
 /**
@@ -79,17 +81,53 @@ export class TripMap {
    */
   render(points) {
     if (!points.length) return;
+    // 紙のときだけ出る順路の図。**地図が出ていても作ります。**
+    //
+    // 紙にタイルは刷れません（@media print で .map を落としています）。
+    // これまでは、印刷すると地図の場所がそのまま消えていました。旅程の
+    // 座標から描く図なら刷れるので、刷れるほうを置きます。
+    //
+    // 紙は電池も電波も要りません。端末が濡れても、落としても、充電が
+    // 切れても残ります。最後の受け皿です。
+    this.renderPrint(points);
     if (!window.L) {
-      // 地図ライブラリを読み込めない環境（オフラインや CDN 遮断）では、
-      // 灰色の四角を黙って出すのではなく理由を書きます。旅程自体は
-      // 地図なしでも成立します。
+      // 地図が出せないときに、理由を書くだけで済ませていました。
+      //
+      //   「地図を読み込めませんでした（インターネット接続を確認して
+      //     ください）。旅程はこのままご利用いただけます。」
+      //
+      // 正しいのですが、**いちばん地図が要るときに出る一文**です。
+      // 山の中、島、地下、機内。組んだのは家で、見るのは現地なら、
+      // 現地はたいてい電波が細い側です。
+      //
+      // 座標は手元にあります。旅程の中に入っています。タイルが無くても
+      // 点と線だけなら描けるので、描きます（js/routemap.js）。
+      // 図が作れなければ、これまでどおり一文にします。
       this.el.classList.add("map-fallback");
+      this.el.textContent = "";
+      const fig = routeDiagram(points, {
+        // 箱の幅で描かせます。**渡さないと、携帯で字が6pxになります**
+        // （viewBox の中の字は、枠の縮小と一緒に縮みます）。
+        width: boxWidth(this.el),
+        heading: "順路（電波が無くても見られます）",
+        note: "地図（タイル）を読み込めなかったので、"
+          + "旅程の座標から順路だけを描いています。",
+      });
+      if (fig) {
+        this.el.classList.add("map-offline");
+        this.el.append(fig);
+        this.points = points;
+        return;
+      }
       this.el.textContent =
         "地図を読み込めませんでした（インターネット接続を確認してください）。"
         + "旅程はこのままご利用いただけます。";
       return;
     }
-    this.el.classList.remove("map-fallback");
+    this.el.classList.remove("map-fallback", "map-offline");
+    // 圏内に戻って描き直すときは、図を片付けます。残すと Leaflet が
+    // その上に地図を敷き、**順路の図が地図の下でずっと生きています**。
+    this.el.querySelector?.(".routemap-fig")?.remove();
     this.points = points;
     if (!this.ensure()) return;
     const L = window.L;
@@ -182,6 +220,34 @@ export class TripMap {
 
 
 
+
+
+/** その箱に実際に描ける幅。まだ measure できないときは既定に任せます。 */
+function boxWidth(node) {
+  const w = node?.clientWidth;
+  if (!Number.isFinite(w) || w <= 0) return undefined;
+  return Math.round(Math.max(280, Math.min(880, w - 24)));
+}
+
+/**
+ * 紙用の順路の図を、画面の外の箱に作っておきます。
+ *
+ * 画面では隠します（css の .map-print）。地図が出ているのに同じものが
+ * 2つ並ぶと、どちらを見ればよいのか分かりません。
+ */
+TripMap.prototype.renderPrint = function renderPrint(points) {
+  const box = document.getElementById("map-print");
+  if (!box) return;
+  box.textContent = "";
+  const fig = routeDiagram(points, {
+    // 紙の刷り幅（A4 の左右余白を引いたぶん）。
+    width: 700,
+    heading: "順路",
+    // 紙には「電波が無くても」は書きません。紙はそもそも電波と
+    // 関係がありません。
+  });
+  if (fig) box.append(fig);
+};
 
 /** 旅程から、地図に落とす点の並びを作ります。 */
 export function pointsFromItinerary(itin, trip, opts = {}) {

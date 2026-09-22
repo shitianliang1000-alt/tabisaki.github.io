@@ -12,7 +12,7 @@ import { addMinutes, atHour, estimateMinutes, haversineKm, profileOf }
   from "./feasibility.js";
 import { describeHours, hoursFor } from "./hours.js";
 import { pickLodging } from "./lodging.js";
-import { joinAreaNames, regionOfDay } from "./stays.js";
+import { dedupeAreaNames, joinAreaNames, regionOfDay } from "./stays.js";
 import { END_MODES, dayEnd, nightsOf, returnsToStart } from "./trip.js";
 
 let seq = 0;
@@ -558,7 +558,11 @@ export function buildItinerary(input) {
     warnings.push("一部スポットの営業時間・料金は分類ごとの目安です。訪問前に公式情報をご確認ください。");
   }
 
-  const regionName = stays.map((s) => s.region.name).join("・");
+  // 同じ土地を指す名前は、1つにまとめます。収録のエリア名は出どころで
+  // 粒度が違い、「京都・東山・京都市」のように同じ名前が2回並んで
+  // いました（js/stays.js の dedupeAreaNames）。
+  const regionName = dedupeAreaNames(stays.map((s) => s.region.name))
+    .join("・");
   return {
     regionId: firstRegion.id, regionName,
     title: joinAreaNames(stays.map((s) => s.region.name)),

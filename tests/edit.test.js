@@ -11,6 +11,7 @@
 // 読み取れるぶんは、こちらで読み取ります。
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 
 import { applyEdit, describeEdit, parseEdit, parseEditLocally }
@@ -278,4 +279,67 @@ test("言葉で「外して」と言われても、上限は付けない", () =>
   const next = applyEdit(p, TRIP());
   assert.deepEqual(next.must.avoidSpotIds, ["s1"]);
   assert.equal(next.must.spotCap, null);
+});
+
+// --- 「外す」を押し間違えたときに、戻せること ------------------------------
+//
+// 試験の名前は「戻せる」ですが、確かめたいのは**何が戻るか**です。
+//
+// これまで「戻す」は組み直していました。条件は正しく元へ戻るので、
+// 組み直せば同じものが出る——はずでした。ところが組み直しはそのときの
+// 手元のデータで走ります。収録は県ごとに遅れて読み込まれ、経路の控えも
+// 増えていきます。同じ条件でも、2回目は別の答えになり得ます。
+//
+// 画面の試験で実際に出ました。**5か所の旅が、戻したら2か所の別の旅に
+// なりました。** 押し間違えた人が欲しいのは新しい旅程ではありません。
+// さっきまで見ていた旅程です。
+
+test("外して戻すと、条件が元どおりになる", () => {
+  const trip = {
+    note: "", interests: ["onsen"], pace: "balanced", hiddenBias: 0.4,
+    departAt: new Date("2026-10-01T09:00"), arriveBy: new Date("2026-10-01T18:00"),
+    must: { spotIds: [], avoidSpotIds: [], removedSpotIds: [], spotCap: null },
+  };
+  // 「外す」が渡すものと同じ形です（js/app.js の editSpot）。
+  const removed = applyEdit({
+    remove: ["a"], removeCount: ["a"], spotCap: 4,
+  }, trip);
+  assert.deepEqual(removed.must.avoidSpotIds, ["a"]);
+  assert.deepEqual(removed.must.removedSpotIds, ["a"]);
+  assert.equal(removed.must.spotCap, 4);
+
+  // 「戻す」が組み立てるものと同じ形です（restoreSpot）。
+  const back = {
+    ...removed,
+    must: {
+      ...removed.must,
+      avoidSpotIds: removed.must.avoidSpotIds.filter((x) => x !== "a"),
+      removedSpotIds: removed.must.removedSpotIds.filter((x) => x !== "a"),
+      spotCap: null,
+    },
+  };
+  assert.deepEqual(back.must.avoidSpotIds, [], "外した記録が残っています");
+  assert.deepEqual(back.must.removedSpotIds, []);
+  assert.equal(back.must.spotCap, null, "上限だけ残ると件数が戻りません");
+});
+
+test("「戻す」は組み直さず、外す前の旅程をそのまま返す", () => {
+  const app = fs.readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  // 外す直前を取っておくこと。
+  assert.match(app, /state\.beforeRemove = \{ id, trip, itin \}/);
+  // 戻すときは、それをそのまま画面に出すこと（run ではなく show）。
+  assert.match(app, /state\.beforeRemove = null;\n {4}syncFormTo\(kept\.trip\)/);
+  assert.match(app, /show\(kept\.itin, kept\.trip\)/);
+  // なぜ組み直さないのかが、書いてあること。
+  assert.match(app, /元の旅程は返ってきません/);
+  // 何が返ったのかを、画面に書くこと（黙って別のものを出さない）。
+  assert.match(app, /外す前の旅程です/);
+});
+
+test("何度も組み直したあとの「戻す」が、ずっと前の旅程を返さない", () => {
+  const app = fs.readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  // 取っておいたものは、次の組み直しで古くなります。残すと、別の条件で
+  // 組み直したあとに「戻す」を押した人へ、前の旅程が返ります。
+  assert.match(app, /if \(!state\.keepBeforeRemove\) state\.beforeRemove = null/);
+  assert.match(app, /state\.keepBeforeRemove = true/);
 });

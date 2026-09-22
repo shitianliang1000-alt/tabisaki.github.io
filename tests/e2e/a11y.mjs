@@ -72,7 +72,9 @@ async function audit(name, { dark = false, plan = false, width = 1280,
   }
 
   if (plan) {
-    await page.click(".mood");
+    // 旅のきっかけは、記述欄の下の札にまとまりました（以前はここで
+    // 色の面のカードを押していました）。
+    await page.click(".note-examples .md-chip");
     // 旅の当日として組みます。欄に直に書かず、画面の「今日」を押します。
     if (today) await page.click('[data-day-preset="today"]');
     await page.click("#make-plan");

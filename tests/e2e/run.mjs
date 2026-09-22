@@ -150,14 +150,29 @@ await check("入力は段に分かれている", async () => {
   assert(steps.length >= 2, `段が足りません: ${steps.join(" / ")}`);
 });
 
-await check("自分の言葉が先、きっかけのカードはその次", async () => {
-  // カードは「思いつかないとき」のきっかけであって、こちらが用意した
-  // 6通りに寄せるためのものではありません。自分の言葉を先に置きます。
+await check("自分の言葉が先、書きかたの見本はその次", async () => {
+  // 札は「書きかたの見本」であって、こちらが用意した分だけに
+  // 寄せるためのものではありません。自分の言葉を先に置きます。
   const noteTop = await page.$eval("#note", (e) => e.getBoundingClientRect().top);
-  const cardTop = await page.$eval(".mood", (e) => e.getBoundingClientRect().top);
-  assert(noteTop < cardTop, "カードが自由入力より上にあります");
+  const chipTop = await page.$eval(".note-examples .md-chip",
+    (e) => e.getBoundingClientRect().top);
+  assert(noteTop < chipTop, "見本が自由入力より上にあります");
+  // きっかけは1か所にまとまっていること。以前は札とカードの2か所に
+  // 分かれていて、画面の1枚目がカードで埋まっていました。
+  const chips = await page.$$eval("[data-example]", (els) => els.length);
+  assert(chips >= 8, `書きかたの見本が ${chips} 個しかありません`);
   const cards = await page.$$eval(".mood", (els) => els.length);
-  assert(cards >= 4 && cards <= 8, `カードが ${cards} 枚です（多すぎ/少なすぎ）`);
+  assert(cards === 0, `きっかけが2か所に分かれています（カード ${cards} 枚）`);
+  // 押したら、欄がその文で埋まること（下の別の確認と合わせて二重に
+  // 見ています。ここは「まとめたあとも押せる」を見ます）。
+  const want = await page.$eval("[data-example]", (e) => e.dataset.example);
+  await page.click(".note-examples .md-chip");
+  const got = await page.$eval("#note", (e) => e.value);
+  assert(got === want, `札を押しても欄が埋まりません: ${got}`);
+  await page.$eval("#note", (e) => {
+    e.value = "";
+    e.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 });
 
 await check("旅の好みが、畳まれずに出ている", async () => {
@@ -327,11 +342,15 @@ await check("開いただけでは、現在地を聞かない", async () => {
   assert(btn, "「現在地から探す」のボタンがありません");
 });
 
-// カードを1枚選ぶだけで旅程が作れること。
+// 見本の札を1つ押すだけで旅程が作れること。
+//
+// 押すのは「温泉でゆっくり」です。**日帰りの札を押してはいけません。**
+// このあとの確認は泊まりの旅を前提にしています（宿・荷物・連泊）。
+// 以前ここで押していた色の面のカードの1枚目が、この文でした。
 await page.$eval("#day-start", (e) => { e.value = "09:00"; e.dispatchEvent(new Event("input")); });
 await page.$eval("#day-end", (e) => { e.value = "18:00"; e.dispatchEvent(new Event("input")); });
 await page.$eval("#hidden-bias", (e) => { e.value = 40; e.dispatchEvent(new Event("input")); });
-await page.click(".mood");
+await page.click('[data-example^="温泉でゆっくり"]');
 await page.click("#make-plan");
 
 await check("待っているあいだ、止まっていないことが分かる", async () => {
@@ -522,10 +541,27 @@ await check("立ち寄りを、その場で差し替えられる・外せる", a
   await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
   await until(page, () => {
     const o = document.querySelector(".talk-out");
-    return Boolean(o && !o.hidden && o.textContent.includes("戻して"));
+    // 「戻して、組み直しました」から「戻しました（外す前の旅程です）」に
+    // 変えたとき、ここが合わなくなって待ち続けました。語尾ではなく
+    // **何をしたか**で見ます。
+    return Boolean(o && !o.hidden && o.textContent.includes("戻し"));
   }, { timeout: 120_000 });
   const restored = await page.$$eval(".tl.spot", (els) => els.length);
   assert(restored >= before, `戻したのに ${restored}件（外す前は ${before}件）です`);
+  // **外す前と、そっくり同じものが返ること。**
+  //
+  // 以前は「戻す」で組み直していました。条件は元へ戻るので同じものが
+  // 出る——はずでしたが、組み直しはそのときの手元のデータで走ります。
+  // 5か所の草津の旅が、戻したら2か所の別の旅になっていました。
+  const names = await page.$$eval(".tl.spot",
+    (els) => els.map((e) => e.querySelector(".title .tx")?.textContent
+      ?.trim() ?? ""));
+  assert(restored === before,
+    `戻したのに件数が違います（${before} → ${restored}）`);
+  const said = await page.$eval(".talk-out", (e) => e.textContent);
+  assert(said.includes("外す前の旅程"),
+    `何を返したのかが書かれていません: ${said.slice(0, 60)}`);
+  assert(names.every((n) => n), "戻した旅程の立ち寄りに、名前がありません");
 });
 
 await check("言葉で直せる", async () => {
@@ -1185,7 +1221,19 @@ await check("旅の当日は、次の一手が大きく出る", async () => {
   }, 500);
 
   try {
+    // **画面の時計を、きょうの10時に合わせます。**
+    //
+    // ここは「いまから45分後に出発」にしていました。ところがこの試験を
+    // 夜に回すと、45分後は**翌日**になり、旅の初日が明日になります。
+    // 「今日の旅」は出ず、待ち続けて落ちました（23:22 に回して、そう
+    // なりました）。1日のうち何時に回しても同じ結果になるよう、
+    // 画面の時計そのものを決め打ちにします。時計は止めません（止めると
+    // 経過時間も止まり、旅程づくりの内部も動かなくなります）。
+    const tenAm = new Date();
+    tenAm.setHours(10, 0, 0, 0);
+    await day.clock.install({ time: tenAm });
     await day.goto(`${BASE}/index.html`, { waitUntil: "domcontentloaded" });
+    await day.clock.resume();
     await until(day, () => !document.getElementById("make-plan")?.disabled,
                { timeout: 90_000 });
 
@@ -1193,16 +1241,13 @@ await check("旅の当日は、次の一手が大きく出る", async () => {
     // change が飛ばず、画面の文が前の日のままになります。実際そう
     // なりました）。
     await day.click('[data-day-preset="today"]');
-    // 時刻は、いまより後ろへ。既定は 9:00〜19:00 なので、夕方以降に
-    // この試験を回すと「今日の予定はここまでです」になり、次の一手が
-    // 出ません（そう落ちました）。時計に依らない試験にします。
+    // 時刻は、その日のうちに収まる幅にします。
     await day.evaluate(() => {
       const p = (n) => String(n).padStart(2, "0");
       const iso = (d) => `${d.getFullYear()}-${p(d.getMonth() + 1)}`
         + `-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-      const now = new Date();
-      const dep = new Date(now.getTime() + 45 * 60000);
-      const arr = new Date(dep.getTime() + 7 * 3600000);
+      const dep = new Date(); dep.setHours(10, 30, 0, 0);
+      const arr = new Date(); arr.setHours(18, 0, 0, 0);
       for (const [id, v] of [["depart-at", iso(dep)], ["arrive-by", iso(arr)]]) {
         const e = document.getElementById(id);
         e.value = v;

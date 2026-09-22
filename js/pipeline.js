@@ -1334,7 +1334,7 @@ export function dropSamePlace(spots) {
  *   次の街の立ち寄り…
  *   帰り（最後の立ち寄り→終点）
  */
-function chainOf(visits, ctx, trip, stays) {
+export function chainOf(visits, ctx, trip, stays) {
   const points = [trip.origin, stays[0].station];
   const times = [new Date(trip.departAt)];
   // それぞれの点が何なのか（出発地・拠点・立ち寄り・終点）。
@@ -1345,9 +1345,27 @@ function chainOf(visits, ctx, trip, stays) {
     // 滞在が変わる日に入ったら、その朝の拠点移動を挟みます。
     while (stayIdx + 1 < stays.length
            && (v.day ?? 0) >= (stays[stayIdx + 1].dayFrom ?? Infinity)) {
+      // **前の拠点の駅から挟みます。**
+      //
+      // ここが抜けていました。連なりは
+      //
+      //   … → 前日最後の立ち寄り → 新しい拠点の駅 → …
+      //
+      // となっていて、調べた区間は「立ち寄り→駅」でした。ところが
+      // 旅程に出る行は「京都駅 → 祇園四条駅」（駅から駅）です。
+      // 聞いた組と出す組が違うので、**拠点を移す行だけが必ず「目安」**に
+      // なっていました。1日目は実測なのに2日目から目安になる、の
+      // もう一つの正体がこれです。
+      const prevStation = stays[stayIdx].station;
       stayIdx++;
-      times.push(dayTime(trip, stays[stayIdx].dayFrom,
-                         ctx.dayStartHour ?? TUNING.dayStartHour));
+      const at = dayTime(trip, stays[stayIdx].dayFrom,
+                         ctx.dayStartHour ?? TUNING.dayStartHour);
+      if (prevStation && points.at(-1) !== prevStation) {
+        times.push(at);
+        points.push(prevStation);
+        kinds.push("station");
+      }
+      times.push(at);
       points.push(stays[stayIdx].station);
       kinds.push("station");
     }

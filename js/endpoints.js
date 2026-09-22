@@ -94,7 +94,7 @@ function proxyBase(cfg) {
 /**
  * 投げ先のURL。
  *
- * @param {"gemini:generate"|"gemini:embed"|"routes"|"yahoo:transit"|"local:generate"} what
+ * @param {"gemini:generate"|"gemini:embed"|"gemini:models"|"routes"|"yahoo:transit"|"local:generate"} what
  * @param {{model?:string}} [args]
  * @param {{proxyUrl?:string, localBaseUrl?:string}} [cfg]
  */
@@ -103,6 +103,7 @@ export function endpointFor(what, args = {}, cfg = {}) {
   if (base) {
     return `${base}/${{ "gemini:generate": "gemini/generate",
                         "gemini:embed": "gemini/embed",
+                        "gemini:models": "gemini/models",
                         "local:generate": "local/generate",
                         "cf:generate": "cf/generate",
                         "routes": "routes",
@@ -122,6 +123,8 @@ export function endpointFor(what, args = {}, cfg = {}) {
     return `${GEMINI_ROOT}/models/`
       + `${encodeURIComponent(args.model ?? "")}:embedContent`;
   }
+  // 中継を使わない（キーをブラウザに置く）ときの、モデル一覧。
+  if (what === "gemini:models") return `${GEMINI_ROOT}/models?pageSize=200`;
   return ROUTES_URL;
 }
 

@@ -84,12 +84,31 @@ function seedOf(trip) {
 export function mountSketch(card, ctx = {}) {
   const wrap = document.createElement("div");
   wrap.className = "sketch";
+  // 地の形を、絵の下に敷きます。
+  //
+  // 星（収録スポット）は本物の座標で打っていますが、**地の形が無いと
+  // ただの点の散らばり**でした。「どこを探しているのか」が読めません。
+  // 地図を敷くと、点が海岸線や街の並びの上に乗り、探している土地が
+  // 一目で分かります。
+  //
+  // 地図は Leaflet に任せます。**投影を自分で近似しません。**
+  // 近似すると、拡大したときに点が地図から少しずつずれます
+  //（メルカトルと正距円筒の差です）。Leaflet の投影をそのまま使って
+  // 点を置けば、ずれようがありません。
+  const mapEl = document.createElement("div");
+  mapEl.className = "sketch-map";
+  mapEl.setAttribute("aria-hidden", "true");
   const canvas = document.createElement("canvas");
   canvas.setAttribute("aria-hidden", "true");
   const caption = document.createElement("p");
   caption.className = "sketch-caption";
   caption.setAttribute("aria-live", "off");
-  wrap.append(canvas, caption);
+  // 地図と絵は重ねますが、**下の一言は重ねません**。重ねると、
+  // 地図の上に字が乗り、出どころの表示とも噛み合いません。
+  const stage = document.createElement("div");
+  stage.className = "sketch-stage";
+  stage.append(mapEl, canvas);
+  wrap.append(stage, caption);
   card.prepend(wrap);
 
   const state = {
@@ -121,6 +140,34 @@ export function mountSketch(card, ctx = {}) {
   const gfx = canvas.getContext("2d");
   if (!gfx) return { update() {}, stop() {} };
 
+  // 地図。Leaflet が読めていないとき（圏外・古い端末）は作りません。
+  // そのときは、これまでどおり点と線だけが出ます。**地図が無いことで
+  // 絵が出なくなる、ということにはしません。**
+  let map = null;
+  let fitAt = 0;
+  let fitKey = "";
+  try {
+    const L = globalThis.L;
+    if (L && ctx.tileUrl) {
+      map = L.map(mapEl, {
+        // 触れません。待っているあいだの絵で、動かすものではありません。
+        zoomControl: false, attributionControl: true,
+        dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
+        boxZoom: false, keyboard: false, touchZoom: false,
+        // 「動きを減らす」設定のときは、寄せる動きも出しません。
+        fadeAnimation: !still, zoomAnimation: !still,
+      }).setView([36.2, 138.2], 5);
+      L.tileLayer(ctx.tileUrl, {
+        attribution: ctx.attribution ?? "", maxZoom: 17,
+      }).addTo(map);
+      // 押せるものではないので、読み上げにも操作にも出しません。
+      mapEl.setAttribute("tabindex", "-1");
+    }
+  } catch {
+    // 地図が作れなくても、絵は出します。
+    map = null;
+  }
+
   function size() {
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
     const w = wrap.clientWidth || 400;
@@ -148,9 +195,19 @@ export function mountSketch(card, ctx = {}) {
       minLng = Math.min(minLng, p.lng); maxLng = Math.max(maxLng, p.lng);
     }
     if (!Number.isFinite(minLat)) return null;
-    // 1点だけでも、ある程度の広さを持たせます。
-    const padLat = Math.max(0.05, (maxLat - minLat) * 0.18);
-    const padLng = Math.max(0.05, (maxLng - minLng) * 0.18);
+    // 余白は、広がりに対する割合で取ります。
+    //
+    // ここは「最低 0.05度」を下限にしていました。点だけの絵なら
+    // 気になりませんが、**地図を敷くと効きすぎます**。鎌倉の5か所
+    // （0.02度ほど）に 0.05度の余白を付けると、両側で6倍に広がり、
+    // 相模湾から横浜まで入った縮尺になります。探している場所が
+    // 豆粒になって、何を見ているのか分かりません。
+    //
+    // 下限は「1点しかない（広がりが無い）」ときだけにします。
+    const spanLat = maxLat - minLat;
+    const spanLng = maxLng - minLng;
+    const padLat = spanLat < 0.005 ? 0.02 : spanLat * 0.18;
+    const padLng = spanLng < 0.005 ? 0.02 : spanLng * 0.18;
     return { minLat: minLat - padLat, maxLat: maxLat + padLat,
              minLng: minLng - padLng, maxLng: maxLng + padLng };
   }
@@ -176,12 +233,51 @@ export function mountSketch(card, ctx = {}) {
     } catch { return fallback; }
   }
 
+  /**
+   * 地図を、いま描く範囲に合わせます。
+   *
+   * 毎コマ寄せ直すと、地図が震えて読めません。範囲が変わったときだけ、
+   * それも1.2秒に1回までにします。
+   */
+  function fitMap(b, now) {
+    if (!map) return;
+    // 札を置いた直後は、まだ高さが 0 です。そのまま寄せると世界地図の
+    // ままになり、**点が中央に固まって見えます**（実際そうなりました）。
+    // 大きさが取れるまで、寄せ直しを諦めません。
+    let sized = false;
+    try {
+      const sz = map.getSize();
+      sized = sz && sz.x > 0 && sz.y > 0;
+    } catch { sized = false; }
+    const key = [b.minLat, b.maxLat, b.minLng, b.maxLng]
+      .map((v) => v.toFixed(3)).join(",") + `|${Math.round(wrap.clientWidth)}`;
+    if (sized && key === fitKey) return;
+    if (now - fitAt < 400) return;
+    fitAt = now;
+    try {
+      map.invalidateSize({ animate: false });
+      const sz = map.getSize();
+      if (!sz || sz.x <= 0 || sz.y <= 0) return;   // まだ置かれていません
+      fitKey = key;
+      map.fitBounds([[b.minLat, b.minLng], [b.maxLat, b.maxLng]],
+        { animate: !still, padding: [8, 8], maxZoom: 15 });
+    } catch { /* 寄せられなくても、点は描けます */ }
+  }
+
   function draw(now) {
     const { w, h } = size();
     gfx.clearRect(0, 0, w, h);
     const b = bounds();
     if (!b) return;
-    const to = project(b, w, h);
+    fitMap(b, now);
+    // 点を置く場所は、**地図があるなら地図に聞きます**。自分で
+    // 投影を近似すると、拡大したときに地図と点がずれます。
+    const to = map
+      ? (p) => {
+        const q = map.latLngToContainerPoint([p.lat, p.lng]);
+        return { x: q.x, y: q.y };
+      }
+      : project(b, w, h);
     const ink = color("--tabi-indigo", "#0F4C81");
     const teal = color("--tabi-teal", "#157A82");
     const faint = color("--hig-label-4", "rgba(60,60,67,.18)");
@@ -353,6 +449,10 @@ export function mountSketch(card, ctx = {}) {
   function stop() {
     stopped = true;
     if (still) clearTimeout(frame); else cancelAnimationFrame(frame);
+    // 地図は自分で後片付けします。放っておくと、札が消えたあとも
+    // タイルを取りに行き続けます。
+    try { map?.remove(); } catch { /* もう消えています */ }
+    map = null;
   }
 
   function update(patch) {

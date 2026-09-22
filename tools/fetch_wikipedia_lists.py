@@ -1,0 +1,361 @@
+# -*- coding: utf-8 -*-
+"""日本語版ウィキペディアの「一覧」記事から、行き先の素データを落とす。
+
+出力は data/wikipedia/wp-<一覧名>.json（一覧ごとに1ファイル）です。
+取り込みは tools/import_wikipedia_lists.py がします。ここは取ってくる
+だけです。
+
+なぜ一覧記事なのか
+------------------
+収録はすでに Wikidata から3万件ほど入っています。ただし Wikidata は
+**分類（P31）が付いているものしか引けません**。日本の場所には、分類が
+付いていない・付いていても粗い記事が相当あります。
+
+    古墳        Wikidata の分類が付いているのは一部だけ
+    温泉地      「温泉」と「温泉街」と「温泉地」が混ざる
+    峠・渓谷    分類そのものが無いことが多い
+
+一方、日本語版ウィキペディアには**人が手で並べた一覧記事**があります。
+「日本の温泉地一覧」「日本の古墳一覧」のような記事は、その分野に
+詳しい人が「これは載せる」と判断した結果です。分類より粗いですが、
+**判断が入っている**ぶん、旅程に出して困らないものが並びます。
+
+やりかた
+--------
+  1. 一覧記事から、本文の中のリンク（名前空間0）をぜんぶ拾う
+  2. そのリンク先を50件ずつまとめて、座標と冒頭2文を聞く
+  3. 座標のあるものだけを残す（無いものは場所ではありません）
+
+1と2はどちらも MediaWiki の API です。**本文を解析しません。**
+表の書き方は記事ごとにばらばらで、解析すると記事が直されるたびに
+壊れます。リンクと座標だけを見ていれば、書き方が変わっても動きます。
+
+出典について
+------------
+ウィキペディアの文章は CC BY-SA です。収録に入れるのは
+
+    ・記事の題（＝場所の名前）
+    ・座標
+    ・冒頭の2文（説明）
+
+で、出典に「Wikipedia」と記事名を必ず持たせます（import 側）。
+
+    python3 tools/fetch_wikipedia_lists.py            ぜんぶ
+    python3 tools/fetch_wikipedia_lists.py 日本の山一覧  1つだけ
+    python3 tools/fetch_wikipedia_lists.py --list      一覧の名前を出す
+"""
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.parse
+
+import wikipedia_coords as coords
+import wikipedia_links as links
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+WEB = os.path.dirname(HERE)
+OUT = os.path.join(WEB, "data", "wikipedia")
+
+API = "https://ja.wikipedia.org/w/api.php"
+# 名乗ってから聞きます。断られたときに、誰が叩いているかが
+# 向こうから見えるようにしておきます。
+UA = ("tabisaki-kb/1.0 (https://github.com/shitianliang1000-alt/"
+      "tabisaki.github.io; kb build)")
+# 取ってくる一覧と、収録の分類。
+#
+# 分類は**収録側にすでにある名前**に寄せます。新しい名前を作ると、
+# 滞在時間もジャンルも既定値になり、どれも同じ扱いになります
+# （js/access.js・js/replan.js・js/arrive.js はどれも分類で動きます）。
+LISTS = {
+    "日本の温泉地一覧": "温泉",
+    "日本の古墳一覧": "史跡",
+    "日本の湖沼一覧": "湖",
+    "日本の山一覧": "山",
+    "日本の川一覧": "川",
+    "日本の寺院一覧": "寺院",
+    "日本の島の一覧": "島",
+    "日本の史跡一覧": "史跡",
+    "日本の国宝一覧": "建築",
+    "日本の人造湖一覧": "湖",
+    "日本の観光地一覧": "観光名所",
+    "日本の特別史跡一覧": "史跡",
+    "日本の特別名勝一覧": "庭園",
+    "日本の用水路一覧": "川",
+    "神社一覧": "神社",
+    "日本のスキー場一覧": "スキー場",
+    "日本の橋一覧": "建築",
+    "重要文化財一覧": "建築",
+    "日本の植物園一覧": "公園",
+    "日本の峡谷・渓谷一覧": "渓谷",
+    "日本国指定名勝の一覧": "庭園",
+    "日本の峠一覧": "峠",
+    "日本の鉱山の一覧": "史跡",
+    "日本の海水浴場一覧": "海水浴場",
+}
+
+# 都道府県ごとの「〇〇の観光地」。
+#
+# 全国の一覧は、載る基準が厳しくなりがちです（全国区の場所しか
+# 載りません）。県ごとの記事のほうが、その土地の人が行く場所まで
+# 拾えます。旅程に欲しいのは、まさにそちらです。
+PREFECTURES = [
+    "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+    "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
+    "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県",
+    "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県",
+    "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県",
+    "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県",
+    "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
+]
+for _p in PREFECTURES:
+    LISTS[f"{_p}の観光地"] = "観光名所"
+
+# 相手は寄付で動いている公共の百科事典です。急ぎません。
+#
+# 1.2秒で回したら 429（多すぎ）が続けて返り、3秒でもまだ返りました。
+# 共用の回線から名乗らずに叩いているので、こちらが遠慮する側です。
+# 8秒まで落とすと通ります。全部で1時間ほどかかりますが、相手に
+# 迷惑をかけてまで速く終わらせる理由はありません。
+PAUSE_SEC = 8.0
+BATCH = 50          # 題をまとめて聞くときの、1回あたりの件数
+# 説明（extracts）だけは、1回20件までです。**50件で聞いても断られません**
+# ——多いぶんが黙って落ちるだけです。落ちたことは応答からは分かりません
+# （その題は「説明の無い記事」と見分けが付きません）。20で聞きます。
+EXTRACT_BATCH = 20
+RETRIES = [15, 45, 120, 300, 600]
+
+
+def call(params):
+    """API を1回叩きます。429（多すぎ）は待ってやり直します。"""
+    url = API + "?" + urllib.parse.urlencode(params)
+    for wait in RETRIES + [None]:
+        r = subprocess.run(
+            ["curl", "-s", "-m", "60", "-A", UA, "-w", "\n%{http_code}", url],
+            capture_output=True, text=True)
+        body, _, code = r.stdout.rpartition("\n")
+        if code.strip() == "200":
+            try:
+                return json.loads(body)
+            except json.JSONDecodeError:
+                pass
+        if wait is None:
+            break
+        sys.stderr.write(f"    {code.strip()} … {wait}秒待ちます\n")
+        time.sleep(wait)
+    # 429（多すぎ）が続くときは、**こちらの速さの問題とは限りません**。
+    # 共用の回線から叩いていると、同じ出口を使うほかの人のぶんも合わせて
+    # 数えられ、1秒に1回でも断られることがあります。待っても通らない
+    # ときは、そう言って止めます（叩き続けても迷惑なだけです）。
+    raise SystemExit(
+        f"ウィキペディアの API に届きませんでした（{code.strip()}）。\n"
+        "  429 が続くときは、この回線からの問い合わせが多すぎます。\n"
+        "  時間をおいてもう一度走らせてください。\n"
+        "  **聞いたぶんは data/wikipedia/ に残っているので、続きから進みます。**")
+
+
+def load_cache():
+    """題 → 座標の控え。一覧どうしで同じ記事が何度も出てきます。"""
+    path = os.path.join(OUT, "places.json")
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_cache(cache):
+    os.makedirs(OUT, exist_ok=True)
+    with open(os.path.join(OUT, "places.json"), "w", encoding="utf-8") as f:
+        json.dump(cache, f, ensure_ascii=False)
+
+
+def slug(title):
+    """ファイル名。題をそのまま使うと、記号で困ることがあります。"""
+    return title.replace("/", "_").replace("・", "_")
+
+
+def links_path(title):
+    return os.path.join(OUT, f"links-{slug(title)}.json")
+
+
+def save_links(title, category, titles):
+    """一覧1本ぶんを保存します。**空なら書きません。**
+
+    空のファイルを書くと、次に走らせたときに「もう取った」と見なして
+    飛ばします。取れなかったのか、本当に0件なのかは、あとからは
+    分かりません。
+    """
+    if not titles:
+        return False
+    os.makedirs(OUT, exist_ok=True)
+    with open(links_path(title), "w", encoding="utf-8") as f:
+        json.dump({"list": title, "category": category, "titles": titles},
+                  f, ensure_ascii=False)
+    return True
+
+
+def fetch_links_all(todo):
+    """まだ無い一覧を、配布ファイルからまとめて読みます。
+
+    以前は REST から1本ずつ取っていました（links_of）。71本なら71回で
+    済む——はずでしたが、2時間ほどで断られ始め、55本で止まりました。
+    **回数ではなく、同じ出口から続けて叩いていること**が数えられます。
+
+    配布ファイルなら、何本読んでも読み込みは1回です。すでに取れて
+    いるぶんは、そのまま使います（読み直す理由がありません）。
+    """
+    want = {t: c for t, c in todo.items()
+            if not os.path.exists(links_path(t))}
+    if not want:
+        sys.stderr.write("  一覧は、すべて手元にあります\n")
+        return
+    sys.stderr.write(f"  {len(want)}本を配布ファイルから読みます\n")
+    got = links.fetch(list(want))
+    for title, category in want.items():
+        titles = got.get(title, [])
+        if save_links(title, category, titles):
+            sys.stderr.write(f"    {title}: リンク {len(titles)}件\n")
+        else:
+            sys.stderr.write(f"    {title}: 取れませんでした\n")
+
+
+def all_titles():
+    """保存した一覧ぜんぶの、題の union。重なりは1つに数えます。"""
+    seen = {}
+    for path in sorted(glob.glob(os.path.join(OUT, "links-*.json"))):
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+        for t in doc.get("titles", []):
+            seen[t] = True
+    return list(seen)
+
+
+def from_dump(titles, cache):
+    """配布ファイルの表から、座標を入れます。**API を叩きません。**
+
+    座標は API でも引けますが、50件ずつしか聞けないので3万件で600回に
+    なります。途中から 429 で断られ始め、待ち時間が 600秒まで伸びました。
+    ウィキメディア自身が「まとめて欲しいなら配布ファイルを」と案内して
+    いるので、そちらにしました（tools/wikipedia_coords.py）。
+
+    説明（冒頭2文）はここでは入れません。全部の題に説明を付けようと
+    すると、結局その回数だけ聞くことになります。**収録に入るものだけ**
+    あとから聞きます（--extracts）。説明が無いスポットは、説明なしで
+    出ます。無い説明を作るよりましです。
+    """
+    table = coords.load()
+    sys.stderr.write(f"  配布ファイルの表 {len(table)}件\n")
+    hit = 0
+    for t in titles:
+        pos = table.get(t)
+        if pos is None:
+            # 「座標が無い」も覚えます。覚えないと毎回引き直します。
+            if t not in cache:
+                cache[t] = None
+            continue
+        old = cache.get(t) or {}
+        cache[t] = {
+            "title": t, "lat": pos[0], "lng": pos[1],
+            # すでに聞いてある説明は捨てません。
+            "extract": old.get("extract", ""),
+        }
+        hit += 1
+    save_cache(cache)
+    return hit
+
+
+def fetch_extracts(titles, cache):
+    """**収録に入る題だけ**、冒頭2文を聞きます。
+
+    座標と違って、説明は配布ファイルからは取れません（本文がまるごと
+    必要になり、4GB あります）。API で聞きますが、聞くのは収録に入ると
+    決まったものだけです。数百〜数千件で済みます。
+    """
+    todo = [t for t in titles
+            if cache.get(t) and not cache[t].get("extract")]
+    if not todo:
+        sys.stderr.write("  説明は、すべて控えにあります\n")
+        return 0
+    sys.stderr.write(f"  説明を {len(todo)}件 聞きます\n")
+    got = 0
+    for i in range(0, len(todo), EXTRACT_BATCH):
+        chunk = todo[i:i + EXTRACT_BATCH]
+        doc = call({
+            "action": "query", "format": "json",
+            "titles": "|".join(chunk),
+            "prop": "extracts", "exintro": "1", "explaintext": "1",
+            "exsentences": "2", "exlimit": "max", "redirects": "1",
+        })
+        back = {}
+        for page in doc.get("query", {}).get("pages", {}).values():
+            back[page.get("title", "")] = (page.get("extract") or "").strip()
+        for r in doc.get("query", {}).get("redirects", []):
+            back[r["from"]] = back.get(r["to"], "")
+        for t in chunk:
+            text = back.get(t, "")
+            if text and cache.get(t):
+                cache[t]["extract"] = text
+                got += 1
+        save_cache(cache)
+        # 応答が短すぎたら、そう言います。**黙って進むと、説明の無い
+        # 記事と、上限で落とされた記事が、区別できなくなります。**
+        back_n = sum(1 for t in chunk if back.get(t))
+        if back_n * 2 < len(chunk):
+            sys.stderr.write(
+                f"    ⚠ {len(chunk)}件 聞いて {back_n}件 しか返りません"
+                f"でした（上限に当たっているかもしれません）\n")
+        sys.stderr.write(f"    {min(i + EXTRACT_BATCH, len(todo))}/{len(todo)}"
+                         f"  説明あり {got}件\n")
+        time.sleep(PAUSE_SEC)
+    return got
+
+
+def wanted_titles():
+    """収録に入ると import が決めた題。無ければ空。"""
+    path = os.path.join(OUT, "want-extracts.json")
+    if not os.path.exists(path):
+        raise SystemExit(
+            "どの題の説明が要るのか、分かりません。\n"
+            "  先に python3 tools/import_wikipedia_lists.py --check を"
+            "走らせてください。")
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def main(argv):
+    if "--list" in argv:
+        for t, c in LISTS.items():
+            print(f"{t}\t{c}")
+        return
+    if "--extracts" in argv:
+        cache = load_cache()
+        got = fetch_extracts(wanted_titles(), cache)
+        sys.stderr.write(f"説明を {got}件 足しました\n")
+        return
+    want = [a for a in argv if not a.startswith("--")]
+    todo = {t: c for t, c in LISTS.items() if not want or t in want}
+    if want and not todo:
+        raise SystemExit(f"知らない一覧です: {' '.join(want)}")
+
+    # 1. まず、どの一覧に何が載っているかを押さえます（配布ファイルから）。
+    sys.stderr.write(f"{len(todo)}件の一覧の、リンクを集めます\n")
+    fetch_links_all(todo)
+
+    # 2. そのあと、題を座標に直します（配布ファイルから。API は叩きません）。
+    cache = load_cache()
+    titles = all_titles()
+    sys.stderr.write(f"題 {len(titles)}件\n")
+    have = from_dump(titles, cache)
+    sys.stderr.write(f"座標のあるもの {have}件\n")
+    sys.stderr.write(
+        "\n次は:\n"
+        "  python3 tools/import_wikipedia_lists.py --check   足すものを決める\n"
+        "  python3 tools/fetch_wikipedia_lists.py --extracts 説明だけ聞く\n"
+        "  python3 tools/import_wikipedia_lists.py --write   書き戻す\n")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

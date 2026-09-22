@@ -41,6 +41,8 @@ const COST = {
   "/routes": 3,
   "/gemini/generate": 5,
   "/gemini/embed": 1,
+  // 使えるモデルの一覧。取りに行くだけで、生成はしません。
+  "/gemini/models": 1,
   "/cf/generate": 5,
 };
 
@@ -128,6 +130,7 @@ export default {
     try {
       if (path.endsWith("/gemini/generate")) return cors(await gemini(request, env, "generateContent"), origin, allow);
       if (path.endsWith("/gemini/embed")) return cors(await gemini(request, env, "embedContent"), origin, allow);
+      if (path.endsWith("/gemini/models")) return cors(await geminiModels(env), origin, allow);
       if (path.endsWith("/routes")) return cors(await routes(request, env), origin, allow);
       if (path.endsWith("/cf/generate")) return cors(await cfGenerate(request, env), origin, allow);
       if (path.endsWith("/yahoo/transit")) return cors(await yahooTransit(request), origin, allow);
@@ -273,6 +276,42 @@ async function gemini(request, env, method) {
     body: JSON.stringify(payload), signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
   return passthrough(res, "gemini");
+}
+
+/**
+ * このキーで使えるモデルの一覧。
+ *
+ * なぜ要るか
+ * ----------
+ * 設定したモデルが404で返ると、画面にはこう出ていました。
+ *
+ *   models/gemma-3-12b-it is not found for API version v1beta, or is
+ *   not supported for generateContent.
+ *
+ * 英語のうえ、**では何なら使えるのか**が書いてありません。Google 自身が
+ * 「ListModels を呼べ」と言っているので、呼びます。返すのは名前だけです
+ * （鍵も、説明も、割り当ても返しません）。
+ *
+ * 生成しないので、数えかたは1点です。
+ */
+async function geminiModels(env) {
+  const missing = missingSecret(env, "GEMINI_API_KEY");
+  if (missing) return missing;
+  const res = await fetch(`${GEMINI_ROOT}/models?pageSize=200`, {
+    headers: { "x-goog-api-key": env.GEMINI_API_KEY },
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+  });
+  if (!res.ok) return passthrough(res, "gemini");
+  const doc = await res.json().catch(() => null);
+  const list = Array.isArray(doc?.models) ? doc.models : [];
+  // 文を作れるものだけ。埋め込み専用のモデルを候補に出すと、
+  // 選んだ先でまた失敗します。
+  const names = list
+    .filter((m) => Array.isArray(m?.supportedGenerationMethods)
+      && m.supportedGenerationMethods.includes("generateContent"))
+    .map((m) => String(m?.name ?? "").replace(/^models\//, ""))
+    .filter(Boolean);
+  return json({ models: names });
 }
 
 async function yahooTransit(request) {
