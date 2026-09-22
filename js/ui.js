@@ -114,6 +114,9 @@ export function el(tag, attrs = {}, ...children) {
     // 無くなります。強調や改行が要るときは、要素を分けてください。
     else if (k.startsWith("on") && typeof v === "function") {
       node.addEventListener(k.slice(2).toLowerCase(), v);
+    } else if (k.startsWith("on") && typeof v === "string") {
+      // Neutralize inline event handlers passed as strings
+      // Do nothing to prevent the attribute from being added to the element entirely
     } else if (["href", "src", "action", "formaction"].includes(k) && typeof v === "string") {
       const sanitized = v.replace(/[\x00-\x20]/g, "").toLowerCase();
       const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
