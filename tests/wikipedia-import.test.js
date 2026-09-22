@@ -114,6 +114,7 @@ test("相手の回線を、急かさない", () => {
   // 名乗ってから聞くこと（誰が叩いているか分かるように）。
   assert.match(fetcher, /UA = \(/);
   assert.match(fetcher, /tabisaki-kb/);
+  assert.match(read("tools/wikipedia_coords.py"), /tabisaki-kb/);
 });
 
 test("同じ題を、二度聞かない", () => {
@@ -128,8 +129,12 @@ test("同じ題を、二度聞かない", () => {
 test("本文を解析しない（リンクと座標だけを見る）", () => {
   // 表の書き方は記事ごとにばらばらで、解析すると記事が直されるたびに
   // 壊れます。組み上がった HTML をもらっても、見るのはリンクだけです。
+  const linker = read("tools/wikipedia_links.py");
   assert.match(fetcher, /本文を解析しません/);
-  assert.match(fetcher, /rel="mw:WikiLink"/);
+  // リンクは pagelinks（ウィキメディアが数えた結果）から来ます。
+  assert.match(linker, /pagelinks/);
+  assert.ok(!/wikitext|action=raw/.test(linker),
+    "ウィキテキストを読もうとしています");
   // 表の中身に手を出していないこと。ウィキテキストの記法が出てきたら、
   // それは表を読もうとしている印です。
   assert.ok(!/\{\{|\|-|\|\}/.test(fetcher),
@@ -189,34 +194,54 @@ test("説明を聞くのは、収録に入ると決まったものだけ", () =>
   assert.match(fetcher, /説明が無いスポットは、説明なしで/);
 });
 
-test("一覧の中身は REST からもらう（action API の prop=links は通らない）", () => {
-  // 一覧記事のリンクは1本で1800件を超えます。ウィキメディアはこの
-  // 「高い」問い合わせに厳しい上限をかけていて、共用の回線からだと
-  // 1回目から 429 が返りました。8秒あけても15秒あけても同じでした。
-  // REST（api.wikimedia.org）は記事1本ぶんが1回で返り、通ります。
-  assert.match(fetcher, /api\.wikimedia\.org\/core\/v1\/wikipedia\/ja/);
+test("一覧の中身も、配布ファイルから読む（API は1本ずつでも通らない）", () => {
+  const linker = read("tools/wikipedia_links.py");
+  // action API の prop=links は、一覧1本で1800件を超えるため1回目から
+  // 429 でした。REST（api.wikimedia.org）に逃げても、2時間ほどで
+  // 断られ始め、71本のうち55本で止まりました。**回数ではなく、同じ
+  // 出口から続けて叩いていること**が数えられています。
+  assert.match(linker, /linktarget/);
+  assert.match(linker, /dumps\.wikimedia\.org|from wikipedia_coords import/);
+  assert.match(fetcher, /def fetch_links_all/);
+  assert.ok(!/api\.wikimedia\.org/.test(fetcher),
+    "また1本ずつ聞きに行っています（71本は通りません）");
   assert.ok(!/"prop": "links"/.test(fetcher),
     "prop=links に戻っています（429 で止まります）");
   // なぜそうしたかが、書いてあること。次に読む人が戻さないように。
   assert.match(fetcher, /429/);
 });
 
+test("3億行を、まるごと持たない", () => {
+  const linker = read("tools/wikipedia_links.py");
+  // pagelinks は日本語版で3億行あります。全部を辞書にすると、この
+  // 機械では持ちきれません。聞かれた一覧から出ている線だけ拾います。
+  assert.match(linker, /まるごと持ちません/);
+  assert.match(linker, /if pl_from not in want:/);
+});
+
+test("題の見つからない一覧を、0件として通さない", () => {
+  const linker = read("tools/wikipedia_links.py");
+  // 一覧が改名されていると、題では見つかりません。黙って0件にすると
+  // 「そういう一覧だった」ことにされます。
+  assert.match(linker, /黙って飛ばしません/);
+  assert.match(linker, /見つからない一覧/);
+});
+
 test("名前空間つきのリンクは、場所として数えない", () => {
-  // 組み上がった HTML には Category: や ファイル: へのリンクも混じり
-  // ます。題に座標が無いので落ちはしますが、そのぶん余計に問い合わせる
-  // ことになります。先に落とします。
-  assert.match(fetcher, /NAMESPACES/);
-  for (const ns of ["Category", "ファイル", "Template", "Wikipedia"]) {
-    assert.ok(fetcher.includes(`"${ns}"`), `名前空間 ${ns} が抜けています`);
-  }
+  const linker = read("tools/wikipedia_links.py");
+  // Category: や ファイル: へのリンクは場所ではありません。pagelinks は
+  // 名前空間を番号で持っているので、0 だけを通します。
+  assert.match(linker, /ns != 0/);
+  assert.match(linker, /標準名前空間だけ/);
 });
 
 test("取れなかった一覧と、リンクが0件の一覧を、取り違えない", () => {
   // 取れなかったときに空文字を返すと、「リンクが1件も無い一覧」と
   // 同じ形になります。そうなると空のファイルが保存され、**次に走らせた
   // ときも「もう取った」と見なして飛ばします**。取れないなら None です。
-  assert.match(fetcher, /空文字を返すと/);
-  assert.match(fetcher, /return None/);
-  // 空の結果はファイルに書かないこと。
-  assert.match(fetcher, /if not titles:\n {8}return/);
+  // 空のファイルを書くと、次に走らせたときに「もう取った」と見なして
+  // 飛ばします。取れなかったのか0件なのかは、あとからは分かりません。
+  assert.match(fetcher, /def save_links/);
+  assert.match(fetcher, /if not titles:\n {8}return False/);
+  assert.match(fetcher, /取れませんでした/);
 });

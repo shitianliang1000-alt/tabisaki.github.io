@@ -54,23 +54,17 @@ import time
 import urllib.parse
 
 import wikipedia_coords as coords
+import wikipedia_links as links
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.dirname(HERE)
 OUT = os.path.join(WEB, "data", "wikipedia")
 
 API = "https://ja.wikipedia.org/w/api.php"
-# 一覧記事の中身は、こちらからもらいます（理由は links_of に書きました）。
-REST = "https://api.wikimedia.org/core/v1/wikipedia/ja"
-# 名前空間の頭。日本語版は英語の頭も通るので、両方並べます。
-NAMESPACES = {
-    "Category", "カテゴリ", "File", "ファイル", "Template", "Template talk",
-    "Help", "Portal", "Wikipedia", "WP", "Special", "特別", "Talk", "ノート",
-    "利用者", "User", "プロジェクト", "Module", "モジュール", "Image",
-}
+# 名乗ってから聞きます。断られたときに、誰が叩いているかが
+# 向こうから見えるようにしておきます。
 UA = ("tabisaki-kb/1.0 (https://github.com/shitianliang1000-alt/"
       "tabisaki.github.io; kb build)")
-
 # 取ってくる一覧と、収録の分類。
 #
 # 分類は**収録側にすでにある名前**に寄せます。新しい名前を作ると、
@@ -163,68 +157,6 @@ def call(params):
         "  **聞いたぶんは data/wikipedia/ に残っているので、続きから進みます。**")
 
 
-def get(url):
-    """URL を1本取って、中身をそのまま返します。429 は待ってやり直します。
-
-    call() は JSON を返す API 用です。こちらは REST から HTML を
-    もらうので、別にしています。取れなければ None を返します——
-    **空文字を返すと「リンクが1件も無い一覧」と見分けが付きません。**
-    """
-    for wait in RETRIES + [None]:
-        r = subprocess.run(
-            ["curl", "-s", "-m", "120", "-A", UA, "-w", "\n%{http_code}", url],
-            capture_output=True, text=True)
-        body, _, code = r.stdout.rpartition("\n")
-        if code.strip() == "200":
-            return body
-        if wait is None:
-            break
-        sys.stderr.write(f"    {code.strip()} … {wait}秒待ちます\n")
-        time.sleep(wait)
-    return None
-
-
-def links_of(title):
-    """その一覧記事が、本文から張っているリンク（名前空間0）。
-
-    **action API の prop=links は使えません。** 一覧記事のリンクは1本で
-    1800件を超えることがあり、ウィキメディアはこの「高い」問い合わせに
-    厳しい上限をかけています。共用の回線から叩くと、1回目から 429 が
-    返り、待っても通りません（8秒あけても、15秒あけても同じでした）。
-
-    代わりに REST（api.wikimedia.org）から**組み上がった HTML** を
-    もらいます。こちらは記事1本ぶんが1回で返り、通ります。
-
-    HTML からは <a rel="mw:WikiLink"> の href だけを拾います。
-    **表は読みません。** 一覧記事の表の書き方は記事ごとにばらばらで、
-    列の意味を読もうとすると、記事が直されるたびに壊れます。リンクなら
-    書き方が変わっても、指している先は変わりません。
-    """
-    url = (REST + "/page/" + urllib.parse.quote(title, safe="") + "/html")
-    html = get(url)
-    if html is None:
-        sys.stderr.write(f"  （{title} は取れませんでした）\n")
-        return []
-    out, seen = [], set()
-    for href in re.findall(r'rel="mw:WikiLink"[^>]*href="\./([^"#]+)"', html):
-        # まだ書かれていない記事へのリンクは
-        # `名坂峠?action=edit&amp;redlink=1` の形で出ます。**このまま
-        # 題として扱うと**、座標表にも当たらず、記事も無いのに
-        # 「座標の無い場所」として数えられます。?から先を落とします。
-        href = href.split("?", 1)[0]
-        if not href:
-            continue
-        name = urllib.parse.unquote(href).replace("_", " ")
-        # 名前空間つき（Category: や ファイル: など）は場所ではありません。
-        if ":" in name and name.split(":", 1)[0] in NAMESPACES:
-            continue
-        if name in seen:
-            continue
-        seen.add(name)
-        out.append(name)
-    return out
-
-
 def load_cache():
     """題 → 座標の控え。一覧どうしで同じ記事が何度も出てきます。"""
     path = os.path.join(OUT, "places.json")
@@ -249,26 +181,45 @@ def links_path(title):
     return os.path.join(OUT, f"links-{slug(title)}.json")
 
 
-def fetch_links(title, category):
-    """その一覧の**リンクだけ**を取って、すぐ保存します。
+def save_links(title, category, titles):
+    """一覧1本ぶんを保存します。**空なら書きません。**
 
-    座標を引くのは、そのあとでまとめてやります。リンクを数えるのは
-    1〜2回の問い合わせで済むので、**先に全部の一覧ぶんを押さえて**
-    おけば、途中で断られても「どの一覧に何が載っているか」は残ります。
+    空のファイルを書くと、次に走らせたときに「もう取った」と見なして
+    飛ばします。取れなかったのか、本当に0件なのかは、あとからは
+    分かりません。
     """
-    path = links_path(title)
-    if os.path.exists(path):
-        return
-    sys.stderr.write(f"  {title}: リンクを数えています…\n")
-    titles = links_of(title)
     if not titles:
-        return
+        return False
     os.makedirs(OUT, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    with open(links_path(title), "w", encoding="utf-8") as f:
         json.dump({"list": title, "category": category, "titles": titles},
                   f, ensure_ascii=False)
-    sys.stderr.write(f"    リンク {len(titles)}件\n")
-    time.sleep(PAUSE_SEC)
+    return True
+
+
+def fetch_links_all(todo):
+    """まだ無い一覧を、配布ファイルからまとめて読みます。
+
+    以前は REST から1本ずつ取っていました（links_of）。71本なら71回で
+    済む——はずでしたが、2時間ほどで断られ始め、55本で止まりました。
+    **回数ではなく、同じ出口から続けて叩いていること**が数えられます。
+
+    配布ファイルなら、何本読んでも読み込みは1回です。すでに取れて
+    いるぶんは、そのまま使います（読み直す理由がありません）。
+    """
+    want = {t: c for t, c in todo.items()
+            if not os.path.exists(links_path(t))}
+    if not want:
+        sys.stderr.write("  一覧は、すべて手元にあります\n")
+        return
+    sys.stderr.write(f"  {len(want)}本を配布ファイルから読みます\n")
+    got = links.fetch(list(want))
+    for title, category in want.items():
+        titles = got.get(title, [])
+        if save_links(title, category, titles):
+            sys.stderr.write(f"    {title}: リンク {len(titles)}件\n")
+        else:
+            sys.stderr.write(f"    {title}: 取れませんでした\n")
 
 
 def all_titles():
@@ -389,10 +340,9 @@ def main(argv):
     if want and not todo:
         raise SystemExit(f"知らない一覧です: {' '.join(want)}")
 
-    # 1. まず、どの一覧に何が載っているかを押さえます（REST から1本ずつ）。
+    # 1. まず、どの一覧に何が載っているかを押さえます（配布ファイルから）。
     sys.stderr.write(f"{len(todo)}件の一覧の、リンクを集めます\n")
-    for title, category in todo.items():
-        fetch_links(title, category)
+    fetch_links_all(todo)
 
     # 2. そのあと、題を座標に直します（配布ファイルから。API は叩きません）。
     cache = load_cache()
