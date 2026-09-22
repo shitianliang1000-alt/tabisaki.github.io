@@ -541,10 +541,27 @@ await check("立ち寄りを、その場で差し替えられる・外せる", a
   await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
   await until(page, () => {
     const o = document.querySelector(".talk-out");
-    return Boolean(o && !o.hidden && o.textContent.includes("戻して"));
+    // 「戻して、組み直しました」から「戻しました（外す前の旅程です）」に
+    // 変えたとき、ここが合わなくなって待ち続けました。語尾ではなく
+    // **何をしたか**で見ます。
+    return Boolean(o && !o.hidden && o.textContent.includes("戻し"));
   }, { timeout: 120_000 });
   const restored = await page.$$eval(".tl.spot", (els) => els.length);
   assert(restored >= before, `戻したのに ${restored}件（外す前は ${before}件）です`);
+  // **外す前と、そっくり同じものが返ること。**
+  //
+  // 以前は「戻す」で組み直していました。条件は元へ戻るので同じものが
+  // 出る——はずでしたが、組み直しはそのときの手元のデータで走ります。
+  // 5か所の草津の旅が、戻したら2か所の別の旅になっていました。
+  const names = await page.$$eval(".tl.spot",
+    (els) => els.map((e) => e.querySelector(".title .tx")?.textContent
+      ?.trim() ?? ""));
+  assert(restored === before,
+    `戻したのに件数が違います（${before} → ${restored}）`);
+  const said = await page.$eval(".talk-out", (e) => e.textContent);
+  assert(said.includes("外す前の旅程"),
+    `何を返したのかが書かれていません: ${said.slice(0, 60)}`);
+  assert(names.every((n) => n), "戻した旅程の立ち寄りに、名前がありません");
 });
 
 await check("言葉で直せる", async () => {
