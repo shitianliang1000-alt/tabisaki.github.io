@@ -103,7 +103,8 @@ export function fmtDuration(min) {
 export function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
-    if (k === "class") node.className = v;
+    const lowerK = k.toLowerCase();
+    if (lowerK === "class") node.className = v;
     // html: の逃げ道は置きません。
     //
     // 一度でも innerHTML の入口を作ると、いつか誰かが AI の返答や
@@ -112,12 +113,12 @@ export function el(tag, attrs = {}, ...children) {
     //
     // テキストしか入らない作りにしておけば、その心配ごと自体が
     // 無くなります。強調や改行が要るときは、要素を分けてください。
-    else if (k.startsWith("on") && typeof v === "function") {
-      node.addEventListener(k.slice(2).toLowerCase(), v);
-    } else if (k.startsWith("on") && typeof v === "string") {
+    else if (lowerK.startsWith("on") && typeof v === "function") {
+      node.addEventListener(lowerK.slice(2), v);
+    } else if (lowerK.startsWith("on") && typeof v === "string") {
       // Neutralize inline event handlers passed as strings
       // Do nothing to prevent the attribute from being added to the element entirely
-    } else if (["href", "src", "action", "formaction"].includes(k) && typeof v === "string") {
+    } else if (["href", "src", "action", "formaction"].includes(lowerK) && typeof v === "string") {
       const sanitized = v.replace(/[\x00-\x20]/g, "").toLowerCase();
       const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
       if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
