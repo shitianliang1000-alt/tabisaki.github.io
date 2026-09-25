@@ -32,3 +32,7 @@
 **Vulnerability:** The central `el()` DOM helper in `js/ui.js` and `admin/admin.js` allowed `on*` inline event handlers to be passed as strings (e.g. `onclick="malicious_code()"`), which would be set as attributes via `setAttribute(k, v)`, potentially leading to XSS if an attacker could control both the attribute name and value.
 **Learning:** Checking for safe attributes should also cover the risk of dynamic attribute assignment allowing inline event handlers (`on*`). Event listeners should only be attached using `addEventListener` with safe function references, not string payloads.
 **Prevention:** Explicitly neutralize any `on*` attribute passed as a string by doing nothing and thus preventing it from being added to the element in both `el()` DOM helper functions.
+## 2026-10-18 - Prevent XSS via data attribute in object tags
+**Vulnerability:** The central `el()` DOM helper in `js/ui.js` and `admin/admin.js` sanitized several dangerous attributes (`href`, `src`, `action`, `formaction`) but missed the `data` attribute. This allowed XSS payloads such as `<object data="javascript:alert(1)">` to execute.
+**Learning:** We must consider all attributes that can cause the browser to execute a payload or fetch a dangerous resource. The `data` attribute on `<object>` tags is one such vector that must be sanitized just like `href` or `src`.
+**Prevention:** Added `data` to the list of sanitized attributes in both `el()` DOM helper functions to neutralize any malicious URIs by replacing them with `about:blank`.
