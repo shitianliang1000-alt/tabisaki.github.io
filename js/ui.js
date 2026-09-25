@@ -117,7 +117,7 @@ export function el(tag, attrs = {}, ...children) {
     } else if (k.startsWith("on") && typeof v === "string") {
       // Neutralize inline event handlers passed as strings
       // Do nothing to prevent the attribute from being added to the element entirely
-    } else if (["href", "src", "action", "formaction"].includes(k) && typeof v === "string") {
+    } else if (["href", "src", "action", "formaction", "data"].includes(k) && typeof v === "string") {
       const sanitized = v.replace(/[\x00-\x20]/g, "").toLowerCase();
       const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
       if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
