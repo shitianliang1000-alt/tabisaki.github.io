@@ -63,6 +63,7 @@ import place_match
 from place_match import select
 from import_tourism_list import (
     LODGING, PrefectureLocator, clean_name, n, variants, SUFFIX_CATEGORY,
+    is_ropeway, split_variants,
 )
 from import_wikipedia_lists import (
     NOT_A_DESTINATION, WIDE_BY_SUFFIX, km, load_shards, looks_unusable, register,
@@ -118,7 +119,17 @@ CATEGORY = {
     "ski_resort": "スキー場", "boat_tour": "乗り物",
     "winery": "酒蔵", "brewery": "酒蔵", "distillery": "酒蔵",
     "dairy_farm": "牧場", "farm": "牧場", "urban_farm": "牧場",
+    # キャンプ場・ゴルフ場は、名前が一覧の名前と一致したときだけ入ります
+    # （泊まる場所ではなく、行き先として一覧に載っているため）。
+    "campground": "観光名所", "golf_course": "観光名所",
+    "miniature_golf_course": "観光名所",
 }
+
+# ロープウェイは、地図では「駅」として載っていることが多い
+# （「函館山ロープウェイ 山頂駅」= travel_and_transportation）。
+# 一覧の名前がロープウェイ・ゴンドラ・ケーブルカーのときだけ、乗り場を採ります。
+TRANSIT = {"travel_and_transportation", "train_station", "transportation",
+           "public_transportation", "cable_car", "ski_resort", None}
 
 # 名前の終わりから決めるもの（Overture の種類が曖昧なとき）。
 AMBIGUOUS = {"religious_organization", "place_of_worship", "arts_and_entertainment",
@@ -149,6 +160,7 @@ NAME_FIRST = (
     (("寺", "院", "大師", "観音"), "寺院"),
     (("教会", "聖堂"), "教会"),
     (("渓", "渓谷", "峡"), "渓谷"),
+    (("ダム",), "ダム"),
 )
 WORSHIP = {"buddhist_place_of_worship", "shinto_place_of_worship",
            "christian_place_of_worship", "church_cathedral",
@@ -156,8 +168,11 @@ WORSHIP = {"buddhist_place_of_worship", "shinto_place_of_worship",
            "hiking_trail", "geographic_entities"}
 
 
-def category_of(cat, name):
+def category_of(cat, name, ropeway=False):
     """Overture の種類と名前から、収録の分類を決めます。入れないなら None。"""
+    if ropeway and cat in TRANSIT and re.search(
+            r"ロープウェ|ゴンドラ|ケーブルカー|リフト|索道", name):
+        return "ロープウェイ"
     if cat in WORSHIP or cat is None:
         for suffixes, c in NAME_FIRST:
             if name.endswith(suffixes):
@@ -181,12 +196,16 @@ def spot_id(pref, name):
     return f"ov-{h}"
 
 
-def load_candidates(wanted):
-    """Overture から、一覧の名前に一致する行を集めます。
+def load_candidates(wanted=None):
+    """Overture から、行き先の種類の行を集めます。
 
-    candidates[正規化した名前] = [{lat, lng, key, name, category0, ...}, ...]
+    candidates[正規化した名前] = [{lat, lng, key, name, cat0, ...}, ...]
     名前の正規化は Python 側で1度だけ行います（DuckDB に Python の関数を
     渡すには numpy が要り、依存が増えるためです）。
+
+    以前は「一覧の名前に一致する行」だけを集めていましたが、あいまい一致
+    （下の fuzzy）には**全体の名前の並び**が要るので、行き先の種類の行を
+    ぜんぶ持ちます（日本全体で数十万行。メモリは1GB未満）。
     """
     if not os.path.exists(OV):
         raise SystemExit(
@@ -194,23 +213,28 @@ def load_candidates(wanted):
             "  python3 tools/fetch_overture_places.py\n"
             "を走らせてください。")
     con = duckdb.connect()
-    rows = con.execute(
+    cur = con.execute(
         f"SELECT id, name, name_ja, lat, lng, confidence, operating_status, "
         f"category, dataset, license FROM read_parquet('{OV}') "
-        f"WHERE name IS NOT NULL").fetchall()
+        f"WHERE name IS NOT NULL")
     found = collections.defaultdict(list)
-    for oid, name, ja, lat, lng, conf, status, cat, dataset, lic in rows:
-        if status in ("permanently_closed", "temporarily_closed", "closed"):
-            continue          # 閉業と分かっているものは、入れない
-        keys = {n(x) for x in (name, ja) if x}
-        keys &= wanted
-        if not keys:
-            continue
-        cand = {"lat": lat, "lng": lng, "key": oid, "name": name or ja,
-                "name_ja": ja, "cat0": cat, "conf": conf or 0.0,
-                "dataset": dataset, "license": lic}
-        for k in keys:
-            found[k].append(cand)
+    while True:
+        rows = cur.fetchmany(200000)
+        if not rows:
+            break
+        for oid, name, ja, lat, lng, conf, status, cat, dataset, lic in rows:
+            if status in ("permanently_closed", "temporarily_closed", "closed"):
+                continue          # 閉業と分かっているものは、入れない
+            if (conf or 0.0) < MIN_CONFIDENCE:
+                continue
+            own = name or ja
+            if category_of(cat, own, is_ropeway(own)) is None:
+                continue          # 行き先の種類でないものは、持たない
+            cand = {"lat": lat, "lng": lng, "key": oid, "name": name or ja,
+                    "name_ja": ja, "cat0": cat, "conf": conf or 0.0,
+                    "dataset": dataset, "license": lic}
+            for k in {n(x) for x in (name, ja) if x}:
+                found[k].append(cand)
     return found
 
 
@@ -224,31 +248,108 @@ def display_name(cand, name):
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", x)).strip()
 
 
+# あいまい一致：名前の**前や後ろに足りない・余っている**ものを拾います。
+#
+#   一覧「木山城跡公園」  ↔  地図「木山城跡」    （後ろが余る）
+#   一覧「遠賀町民俗資料館」↔ 地図「遠賀町民俗資料館別館」（後ろが足りない）
+#
+# 取り違えを避けるため、**県が合う候補だけ**・4文字以上・長さの比が0.6以上・
+# 候補が1か所のときだけ採ります（決められなければ、決めません）。
+FUZZY_MIN = 4
+FUZZY_RATIO = 0.6
+
+# **余っている部分（尾）が、次のものだけのとき**に採ります。
+#
+# 実データで、尾を見ずに前方一致だけで採ったところ、別のものに当たりました。
+#
+#   明治温泉    → 明治温泉旅館      （宿）
+#   松の湯温泉  → 松の湯温泉 松渓館 （宿）
+#   ふじむら    → ふじむら農園      （店）
+#   笠戸大橋    → 笠戸大橋の下      （橋の下の別の場所）
+#
+# 尾が「同じ場所の別の呼び方」と言えるものだけを許します。
+LIST_TAIL = re.compile(
+    r"^(の(桜|梅|紅葉|藤|つつじ|ツツジ|あじさい|アジサイ|紫陽花|菜の花|"
+    r"ひまわり|コスモス|チューリップ|イチョウ|銀杏|ハス|蓮)|"
+    r"周辺.*|付近|展望所|展望台|本殿|拝殿|宮殿|境内|奥の院|跡|址|園群|群)$")
+CAND_TAIL = re.compile(
+    r"^(公園|跡|址|跡公園|史跡公園|城址公園|本殿|拝殿|境内|本堂|展望台|展望所)$")
+
+
+def fuzzy_candidates(nk, index, keys):
+    """nk の前方一致・後方一致の関係にある名前の候補。"""
+    import bisect
+    out = []
+    if len(nk) >= FUZZY_MIN:
+        # 地図の名前が、一覧の名前の前を切ったもの（一覧のほうが長い）。
+        for i in range(FUZZY_MIN, len(nk)):
+            if (nk[:i] in index and i / len(nk) >= FUZZY_RATIO
+                    and LIST_TAIL.match(nk[i:])):
+                out += index[nk[:i]]
+        # 地図の名前が、一覧の名前より長い（前方が一致）。
+        lo = bisect.bisect_left(keys, nk)
+        while lo < len(keys) and keys[lo].startswith(nk):
+            if (len(nk) / len(keys[lo]) >= FUZZY_RATIO and keys[lo] != nk
+                    and CAND_TAIL.match(keys[lo][len(nk):])):
+                out += index[keys[lo]]
+            lo += 1
+    return out
+
+
 def match(unplaced, found, locator):
     hits, why = [], collections.Counter()
+    keys = sorted(found)
     for pref, raw in unplaced:
         name = clean_name(raw)
         if not name:
             why["閉店・店・宿・体験・催し"] += 1
             continue
-        cands = []
+        ropeway = is_ropeway(name)
+        cands, fuzzy, weak = [], False, False
+        weak_set = set(split_variants(name)[1])
         for v in variants(name):
             for c in found.get(n(v), []):
-                if c["conf"] < MIN_CONFIDENCE:
-                    continue
-                cat = category_of(c["cat0"], display_name(c, name))
+                cat = category_of(c["cat0"], display_name(c, name), ropeway)
                 if cat is None:
                     continue
                 cands.append({**c, "category": cat})
             if cands:
+                weak = v in weak_set
                 break
-        chosen, reason, mismatch = select(cands, pref, locator)
+        chosen, reason, mismatch = place_match.select_for(
+            cands, pref, locator, weak)
+        if chosen is None and reason == "候補が無い":
+            # あいまい一致。**県が合うものだけ**、1か所に決まるときだけ。
+            fz = []
+            # 括弧・「」・空白で割った切れ端は使いません（元の名前と、括弧を
+            # 外した名前だけ）。切れ端は別の物に当たりました
+            # （「こもる 五所川原」→ 五所川原教会）。
+            strong = [name, re.sub(r"【[^】]*】\s*$", "",
+                                   re.sub(r"[（(][^）)]*[）)]", "", name)).strip()]
+            for v in dict.fromkeys(strong):
+                for c in fuzzy_candidates(n(v), found, keys):
+                    cat = category_of(c["cat0"], c["name"], ropeway)
+                    if cat is not None and locator.in_prefecture(
+                            c["lat"], c["lng"], pref)[0]:
+                        fz.append({**c, "category": cat})
+                if fz:
+                    break
+            groups = place_match.cluster(fz) if fz else []
+            if len(groups) == 1:
+                chosen, reason, mismatch = place_match.pick(groups[0]), "", False
+                fuzzy = True
+            elif len(groups) > 1:
+                reason = "同じ県に近い名前が複数（決められない）"
         if chosen is None:
             why["Overture に無い（行き先の種類で）" if reason == "候補が無い"
                 else reason] += 1
             continue
-        hits.append((pref, raw, {**chosen, "name": display_name(chosen, name),
-                                 "mismatch": mismatch}))
+        hit = {**chosen, "name": display_name(chosen, name),
+               "mismatch": mismatch}
+        if fuzzy:
+            hit["fuzzy"] = True
+            hit["name"] = chosen["name"]
+        hits.append((pref, raw, hit))
     return hits, why
 
 
@@ -274,8 +375,8 @@ def main(write):
         if name:
             wanted.update(n(v) for v in variants(name))
     print(f"座標が引けなかった名前 {len(unplaced)}件")
-    found = load_candidates(wanted)
-    print(f"  名前が一致した Overture の行 {sum(len(v) for v in found.values())}件")
+    found = load_candidates()
+    print(f"  行き先の種類の Overture の行 {len({c['key'] for v in found.values() for c in v})}件")
 
     with open(os.path.join(WEB, "kb", "regions.json"), encoding="utf-8") as f:
         regions_doc = json.load(f)
@@ -294,6 +395,7 @@ def main(write):
     for s in existing:
         grid[(round(s["lat"] / 0.05), round(s["lng"] / 0.05))].append(s)
 
+    named_here = {(s["regionId"], n(s["name"])) for s in existing}
     add, used = [], set()
     for pref, raw, c in hits:
         name = re.sub(r"\s*[（(][^）)]*[）)]\s*$", "", c["name"]).strip() or c["name"]
@@ -313,6 +415,13 @@ def main(write):
             why["すでに収録にある"] += 1
             continue
         region = locator.region_near(c["lat"], c["lng"])
+        # 同じエリアに同じ名前があるときは、足しません。座標が離れていても
+        # 同じ旅程に同じ名前が2回出るためです（別の段が、同じ一覧の名前に
+        # 別の場所を当てたことがありました：伊勢山公園、月屋山）。
+        if (region["id"], n(name)) in named_here:
+            why["同じエリアに同名がすでにある"] += 1
+            continue
+        named_here.add((region["id"], n(name)))
         if km(c["lat"], c["lng"], region["lat"], region["lng"]) > MAX_PLACE_KM:
             why["エリアから遠すぎて置けない"] += 1
             continue
@@ -332,12 +441,16 @@ def main(write):
         }
         if c.get("mismatch"):
             spot["listedIn"] = pref
+        if c.get("fuzzy"):
+            # あいまい一致で採ったもの。一覧の名前を残します（見直しのため）。
+            spot["listedAs"] = raw
         add.append(spot)
         used.add(c["key"])
         grid[(gx, gy)].append(spot)
 
     why["足す"] = len(add)
     why["  うち県の食い違い"] = sum(1 for x in add if x.get("listedIn"))
+    why["  うちあいまい一致"] = sum(1 for x in add if x.get("listedAs"))
     print("\n内訳:")
     for k, v in why.most_common():
         print(f"  {k}: {v}件")
@@ -350,6 +463,8 @@ def main(write):
         random.seed(int(os.environ.get("SEED", "3")))
         catf = os.environ.get("CAT")
         pool = [(p, r, c) for p, r, c in hits if not catf or c["category"] == catf]
+        if os.environ.get("FUZZY"):
+            pool = [x for x in pool if x[2].get("fuzzy")]
         print(f"\n無作為に30件{'（' + catf + '）' if catf else ''}"
               "（一覧の名前 → Overture の名前 / 分類 / 種類 / 信頼度 / 出どころ）:")
         for p, r, c in random.sample(pool, min(30, len(pool))):
