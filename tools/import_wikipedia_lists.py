@@ -300,7 +300,36 @@ def spot_id(title):
     return f"wp-{h}"
 
 
-def register(shards, regions):
+# 出典の旧い名前 → いまの名前。
+#
+# 画面の下には「データ: 〇〇 / 〇〇 / …」と、出典の名前がそのまま並びます
+# （js/app.js の renderAttribution）。ウィキペディアの出典が
+#
+#   Wikipedia（文化財・灯台・城・道の駅・滝の一覧）
+#   Wikipedia
+#
+# と2つ並んでいました。分けて書く理由は、利用する側にはありません。
+# **「Wikipedia」でまとめます。** どの一覧から取ったかは、収録の作り方
+# （この tools/）に残してあれば足ります。
+LEGACY_SOURCE_NAMES = {
+    "Wikipedia（文化財・灯台・城・道の駅・滝の一覧）": "Wikipedia",
+}
+
+
+def unify_sources(sources):
+    """旧い名前をいまの名前に直し、同じ名前を1つにします（並びは保ちます）。"""
+    out, seen = [], set()
+    for s in sources:
+        s = dict(s)
+        s["name"] = LEGACY_SOURCE_NAMES.get(s["name"], s["name"])
+        if s["name"] in seen:
+            continue
+        seen.add(s["name"])
+        out.append(s)
+    return out
+
+
+def register(shards, regions, extra_sources=()):
     """足した段を、索引とエリアの件数に登録します。**必ず呼びます。**
 
     reshard_kb.py は、ファイルを探すのではなく **index.json の段の一覧**
@@ -343,8 +372,8 @@ def register(shards, regions):
     if "counts" in index:
         index["counts"]["spots"] = total
     have = {s["name"] for s in index.get("sources", [])}
-    index["sources"] = index.get("sources", []) + [
-        s for s in SOURCE_LINKS if s["name"] not in have]
+    index["sources"] = unify_sources(index.get("sources", []) + [
+        s for s in [*SOURCE_LINKS, *extra_sources] if s["name"] not in have])
     with open(ipath, "w", encoding="utf-8") as f:
         json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
 

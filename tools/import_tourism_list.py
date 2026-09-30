@@ -72,6 +72,14 @@ RAW = os.path.join(WEB, "data", "wikipedia")
 # 同じ印にすると、あちらを走らせたときにこちらのぶんが消えます。
 SRC = "wikipedia-tourlist"
 
+# 出典に足す名前。**画面の下の「データ: …」にそのまま出ます。**
+#
+# 名前・座標・説明はウィキペディアの記事のものですが、「観光地として
+# 挙がっている」ことの確認に、各都道府県の公式観光サイトの一覧を使って
+# います。その旨を、利用する側にも見えるようにします（ご指示があり
+# ました）。個々のサイトの URL は、ファイルに書かれていないので空です。
+EXTRA_SOURCES = [{"name": "各都道府県の公式観光サイト", "url": ""}]
+
 # 閉まっている、という札。【閉店】【閉館】【休業】【営業終了】【廃止】…
 CLOSED = re.compile(r"[【\[（(][^】\]）)]*(閉店|閉館|閉園|閉鎖|休業|休館|休止|廃止|廃業|終了|移転|解体)[^】\]）)]*[】\]）)]")
 CLOSED_WORD = re.compile(r"^(閉店|閉館|閉園|閉鎖|休業|廃止)")
@@ -430,7 +438,7 @@ def main(path, write):
     # **索引に登録します。** reshard_kb.py は index.json の段の一覧から
     # 読むので、登録しないと並べ直しが読まずに消します（書いた2,020件が
     # 1件も残りませんでした）。
-    total = register(shards, regions_doc)
+    total = register(shards, regions_doc, EXTRA_SOURCES)
     print(f"\n収録 {total}件になりました。")
     print("このあと tools/reshard_kb.py を走らせて、県ごとに並べ直します。")
 

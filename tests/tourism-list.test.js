@@ -114,9 +114,9 @@ test("ウィキペディアの一覧の取り込みと、印を分けている",
 
 test("索引への登録を、2つの取り込みで共有している", () => {
   const wp = read("tools/import_wikipedia_lists.py");
-  assert.match(wp, /def register\(shards, regions\)/);
+  assert.match(wp, /def register\(shards, regions, extra_sources=\(\)\)/);
   assert.match(wp, /register\(shards, regions\)/);
-  assert.match(tool, /register\(shards, regions_doc\)/);
+  assert.match(tool, /register\(shards, regions_doc/);
   // 消したファイルの登録を残さない（並べ直しが無いファイルを読もうとする）。
   assert.match(wp, /os\.path\.exists\(os\.path\.join\(WEB, "kb", s\["file"\]\)\)/);
 });
@@ -167,4 +167,44 @@ print(json.dumps([clean_name(c) for c in cases], ensure_ascii=False))`;
     // 括弧の注は残す（突き合わせで外す）。NFKC で全角括弧が半角になる。
     "羊蹄山(蝦夷富士)",
   ]);
+});
+
+// --- 画面の下に出る「データ: …」の出典 ---------------------------------------
+//
+// 出典の名前は、そのまま画面に並びます（js/app.js の renderAttribution）。
+// ウィキペディアの出典が「Wikipedia（文化財・灯台・城・道の駅・滝の一覧）」と
+// 「Wikipedia」の2つ並んでいました。どの一覧から取ったかは、利用する側には
+// 関係がありません。「Wikipedia」でまとめます。
+
+test("出典に、Wikipedia が1つだけ出る", () => {
+  const names = (index.sources ?? []).map((x) => x.name);
+  const wiki = names.filter((n) => /wikipedia/i.test(n));
+  assert.deepEqual(wiki, ["Wikipedia"],
+    `Wikipedia の出典が ${JSON.stringify(wiki)} です（1つにまとめます）`);
+  // 同じ名前が2つ並ばないこと（画面にそのまま出ます）。
+  assert.equal(new Set(names).size, names.length,
+    `同じ名前の出典が並んでいます: ${names.join(" / ")}`);
+});
+
+test("各都道府県の公式観光サイトを、出典に入れている", () => {
+  // 一覧の出どころです。名前・座標・説明は写していませんが、「観光地
+  // として挙がっている」ことの確認に使っているので、利用する側にも
+  // 見えるようにします（ご指示がありました）。
+  const names = (index.sources ?? []).map((x) => x.name);
+  assert.ok(names.includes("各都道府県の公式観光サイト"),
+    `出典に入っていません: ${names.join(" / ")}`);
+  assert.match(tool, /EXTRA_SOURCES/);
+  assert.match(tool, /register\(shards, regions_doc, EXTRA_SOURCES\)/);
+});
+
+test("旧い出典の名前を、取り込みのたびに統合する", () => {
+  // 別の道具（import_csv.py）が書いた旧い名前が残っていても、
+  // register() が「Wikipedia」に直します。
+  const wp = read("tools/import_wikipedia_lists.py");
+  assert.match(wp, /LEGACY_SOURCE_NAMES/);
+  assert.match(wp, /def unify_sources/);
+  assert.match(wp, /unify_sources\(index\.get\("sources", \[\]\)/);
+  const csv = read("tools/import_csv.py");
+  assert.ok(!/Wikipedia（文化財/.test(csv.replace(/\/\/.*|#.*/g, "")
+    .replace(/LEGACY.*/g, "")), "import_csv.py が旧い名前を書いています");
 });
