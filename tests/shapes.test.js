@@ -133,3 +133,27 @@ test("停留所が引けなくても、案内は出る", async () => {
   assert.equal(itin.days[0].items[0].shape.kind, "trail");
   assert.equal(itin.days[0].items[0].shape.entryStop, null);
 });
+
+// --- 広い場所の名前を増やしたとき ---------------------------------------------
+
+test("山地・山脈・湾・海峡・平野・盆地・自然公園も、広い場所として扱う", () => {
+  // 収録に「飛騨山脈」「東京湾」「〇〇自然公園」を入れるようになりました
+  // （tools/import_wikipedia_lists.py の WIDE_BY_SUFFIX）。分類だけでは
+  // 「自然」や「海岸」に落ちて、広い場所の案内が付きません。
+  for (const name of ["飛騨山脈", "中国山地", "東京湾", "関門海峡", "関東平野",
+                      "甲府盆地", "阿蘇くじゅう国立公園", "秋吉台国定公園",
+                      "県立〇〇自然公園", "伊豆半島", "五島列島", "利根川水系"]) {
+    assert.equal(shapeOf({ name, category: "自然" }), "wide",
+      `${name} が広い場所になっていません`);
+  }
+});
+
+test("「湾」は語尾だけで見る（港湾・湾岸を巻き込まない）", () => {
+  // 「湾」を含むだけで広い場所にすると、「湾岸ドライブ」「港湾博物館」まで
+  // 「代表の1点で入口ではありません」と書かれます。
+  assert.equal(shapeOf({ name: "東京湾", category: "海岸" }), "wide");
+  for (const name of ["湾岸ドライブ", "港湾博物館", "横浜港湾ミュージアム"]) {
+    assert.notEqual(shapeOf({ name, category: "博物館" }), "wide",
+      `${name} が広い場所になっています`);
+  }
+});

@@ -74,6 +74,8 @@ import sys
 import unicodedata
 
 from dedupe_spots import same_place
+from place_match import CLUSTER_KM, cluster, pick, select
+import place_match
 from import_tourism_list import (
     LODGING, PrefectureLocator, clean_name, n, variants,
 )
@@ -96,8 +98,8 @@ OSM_SOURCE = {"name": "© OpenStreetMap contributors (ODbL)",
               "url": "https://www.openstreetmap.org/copyright"}
 PREF_SOURCE = {"name": "各都道府県の公式観光サイト", "url": ""}
 
-# 同じ場所と見なす距離。これ以内の候補は1つに数えます。
-CLUSTER_KM = 0.8
+# エリアの代表点からこれ以上離れた場所は、置きません。
+MAX_PLACE_KM = 100.0
 
 # 名前として拾うタグ。alt_name は「;」区切りで複数入ります。
 NAME_KEYS = ("name", "name:ja", "official_name", "alt_name")
@@ -262,7 +264,7 @@ def scan(path, wanted):
                 continue
             lat, lng = c
             osm = f"way/{o.id}"
-        cand = {"lat": lat, "lng": lng, "osm": osm, "tags": tags,
+        cand = {"lat": lat, "lng": lng, "osm": osm, "key": osm, "tags": tags,
                 "name": tags.get("name") or names_of(tags)[0]}
         for k in set(keys):
             found[k].append(cand)
@@ -282,7 +284,10 @@ def scan_cached(path, wanted):
     """
     st = os.stat(path)
     fp = hashlib.sha1("\n".join(sorted(wanted)).encode("utf-8")).hexdigest()
-    key = f"v2:{os.path.basename(path)}:{st.st_size}:{int(st.st_mtime)}:{fp}"
+    # 版：控えの形が変わったら上げます。**上げ忘れると、古い形の控えを新しい
+    # 規則が読んで落ちます**（候補に key が無く、実物のデータで初めて
+    # 落ちました。合成データの試験は控えを使わないので通っていました）。
+    key = f"v3:{os.path.basename(path)}:{st.st_size}:{int(st.st_mtime)}:{fp}"
     cache = os.path.join(OSM, ".scan-cache.json")
     if os.path.exists(cache):
         with open(cache, encoding="utf-8") as f:
@@ -321,37 +326,17 @@ def display_name(cand, name):
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", pick_)).strip()
 
 
-def cluster(cands):
-    """800m 以内の候補を1つの場所にまとめます。"""
-    groups = []
-    for c in cands:
-        for g in groups:
-            if km(c["lat"], c["lng"], g[0]["lat"], g[0]["lng"]) <= CLUSTER_KM:
-                g.append(c)
-                break
-        else:
-            groups.append([c])
-    return groups
-
-
-def pick(group):
-    """同じ場所の候補のうち、どれを採るか。点（node）を先にします。
-
-    面（way）の重心より、点のほうが「ここ」と指している場合が多いためです。
-    同じ種類なら番号の若いほう（古くからあるもの）で、走らせるたびに
-    変わらないようにします。
-    """
-    return sorted(group, key=lambda c: (c["osm"].startswith("way"),
-                                        int(c["osm"].split("/")[1])))[0]
-
-
 def spot_id(pref, name):
     h = hashlib.sha1(f"osm:{pref}/{name}".encode("utf-8")).hexdigest()[:10]
     return f"os-{h}"
 
 
 def match(unplaced, found, locator):
-    """一覧の名前ごとに、OSM の候補を県と数で絞って1つに決めます。
+    """一覧の名前ごとに、OSM の候補から1つに決めます（県の決め方は共通）。
+
+    候補は「行き先らしい」ものだけです（店・宿・ただの建物は採りません）。
+    県が合うものを先に、無ければ全国から（ご指示で、県の食い違いを許し
+    ます。決め方は tools/place_match.py の select に書きました）。
 
     返り値: (決まったもの, 内訳の数)
     """
@@ -364,82 +349,27 @@ def match(unplaced, found, locator):
         cands = []
         for v in variants(name):
             for c in found.get(n(v), []):
-                # 行き先らしいものだけ（店・宿・ただの建物は採らない）。
                 cat = category_of(c["tags"])
                 if cat is None:
                     continue
-                ok, _ = locator.in_prefecture(c["lat"], c["lng"], pref)
-                if ok:
-                    cands.append({**c, "category": cat})
+                cands.append({**c, "category": cat})
             if cands:
                 break
-        if not cands:
-            why["OSM に無い（または県が合わない）"] += 1
+        chosen, reason, mismatch = select(cands, pref, locator)
+        if chosen is None:
+            why["OSM に無い" if reason == "候補が無い" else reason] += 1
             continue
-        groups = cluster(cands)
-        if len(groups) > 1:
-            # 同じ県に、離れた同名の場所が2か所以上ある。**決めません。**
-            why["同じ県に同名が複数（決められない）"] += 1
-            continue
-        chosen = pick(groups[0])
-        hits.append((pref, raw,
-                     {**chosen, "name": display_name(chosen, name)}))
-        why["決まった"] += 1
+        hits.append((pref, raw, {**chosen, "name": display_name(chosen, name),
+                                 "mismatch": mismatch}))
+        why["決まった（県の食い違い）" if mismatch else "決まった"] += 1
     return hits, why
 
 
 def resolve_shared(hits):
-    """同じ OSM の物に、一覧の名前が複数当たったときの決め方。
-
-    実物で見つかりました。栃木県の一覧には、**別々の場所の**「城山公園」が
-    2つ載っています。
-
-        城山公園（祇園城跡）
-        城山公園（佐野城跡）
-
-    括弧の注を外して比べるので、どちらも OSM の1つの「城山公園」に当たります。
-    **片方は必ず誤り**で、どちらかは分かりません。
-
-    一方、注が季節や花のときは、同じ場所です。
-
-        渋川市総合公園
-        渋川市総合公園（アジサイ）
-
-    括弧の注が場所なのか花なのかは、名前からは分かりません。決め方は、
-    一覧の名前（括弧つき）が OSM の名前に**そのまま一致するか**です。
-
-      ・そのまま一致するものがある     → それだけを採る（注だけ違うものは外す）
-      ・どれも括弧を外さないと一致しない
-          名前の本体が同じ              → **決められないので、全部外す**
-          名前の本体が違う（別名どうし）  → 同じ場所の別名なので、最初を採る
-                                         （あずみの湯 と 綿帽子温泉）
-
-    返り値: (残すもの, 外した数)
-    """
-    groups = collections.defaultdict(list)
-    for h in hits:
-        groups[h[2]["osm"]].append(h)
-    keep, dropped = [], 0
-    for osm, hs in groups.items():
-        if len(hs) == 1:
-            keep.append(hs[0])
-            continue
-        osm_names = {n(x) for x in names_of(hs[0][2]["tags"])}
-        exact = [h for h in hs if n(clean_name(h[1]) or "") in osm_names]
-        if exact:
-            keep.append(exact[0])
-            dropped += len(hs) - 1
-            continue
-        bare = {n(re.sub(r"[（(][^）)]*[）)]", "", clean_name(h[1]) or ""))
-                for h in hs}
-        if len(bare) == 1:
-            dropped += len(hs)          # 同じ名前の別の場所かもしれない
-        else:
-            keep.append(hs[0])
-            dropped += len(hs) - 1
-    order = {id(h): i for i, h in enumerate(hits)}
-    keep.sort(key=lambda h: order[id(h)])       # 走らせるたびに同じ並び
-    return keep, dropped
+    """同じ OSM の物に一覧の名前が複数当たったときの決め方（共通の規則）。"""
+    return place_match.resolve_shared(
+        hits, lambda c: {n(x) for x in names_of(c["tags"])},
+        lambda raw: n(clean_name(raw) or ""))
 
 
 def main(write, only=None):
@@ -482,9 +412,12 @@ def main(write, only=None):
     locator = PrefectureLocator(regions)
 
     hits, why = match(unplaced, found, locator)
+    # 「足す」は、あとで足せたものを実際に数えて出します。引き算を積み重ねる
+    # と、外す理由が増えるたびに数が合わなくなります。
+    for k in [k for k in why if k.startswith("決まった")]:
+        del why[k]
     hits, shared = resolve_shared(hits)
     if shared:
-        why["決まった"] -= shared
         why["同じ OSM の物に複数の名前が当たった（決められない／注だけ違う）"] += shared
 
     shards = load_shards()
@@ -501,11 +434,9 @@ def main(write, only=None):
         # 表示する名前でも、行き先かを確かめます（括弧を外した後）。
         if (looks_unusable(name, c["lat"], c["lng"])
                 or name.endswith(NOT_A_DESTINATION) or LODGING.search(name)):
-            why["決まった"] -= 1
             why["行き先にならない名前"] += 1
             continue
         if c["osm"] in used:
-            why["決まった"] -= 1
             why["同じ OSM の物に2つの名前が当たった"] += 1
             continue
         gx, gy = round(c["lat"] / 0.05), round(c["lng"] / 0.05)
@@ -514,10 +445,15 @@ def main(write, only=None):
         probe = {"name": name, "lat": c["lat"], "lng": c["lng"]}
         if any(same_place(probe, s, km(c["lat"], c["lng"], s["lat"], s["lng"]))
                for s in near):
-            why["決まった"] -= 1
             why["すでに収録にある"] += 1
             continue
         region = locator.region_near(c["lat"], c["lng"])
+        # エリアから遠すぎる場所は置きません（県の食い違いは許しますが、どの
+        # エリアの近くでもない場所に、そのエリアの県を付けると、県の表示が
+        # 実際と食い違います）。
+        if km(c["lat"], c["lng"], region["lat"], region["lng"]) > MAX_PLACE_KM:
+            why["エリアから遠すぎて置けない"] += 1
+            continue
         spot = {
             "id": spot_id(pref, name),
             "regionId": region["id"],
@@ -530,10 +466,16 @@ def main(write, only=None):
             "osm": c["osm"],
             "src": SRC,
         }
+        if c.get("mismatch"):
+            # 一覧の県と、座標の県が違うもの。あとで数えたり、外したりできる
+            # ように、一覧の県を残します。
+            spot["listedIn"] = pref
         add.append(spot)
         used.add(c["osm"])
         grid[(gx, gy)].append(spot)
 
+    why["足す"] = len(add)
+    why["  うち県の食い違い"] = sum(1 for x in add if x.get("listedIn"))
     print("\n内訳:")
     for k, v in why.most_common():
         print(f"  {k}: {v}件")

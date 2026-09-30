@@ -62,15 +62,17 @@ test("座標を作っていない（出典の記事の座標だけ）", () => {
   assert.match(tool, /coords\.json/);
 });
 
-test("県が合っているものだけを入れる", () => {
+test("県が合うものを先に採り、食い違いは記録して入れる", () => {
   // 「氷川神社」「八幡宮」のような名前は、どの県にもあります。
-  // 名前が同じ記事があっても、別の県の記事なら別の場所です。
+  // 決め方は OSM・Overture と共通の place_match.select です。
+  //   ・県が合う記事があれば、それを採る（同じ県に複数なら決めない）
+  //   ・無ければ全国で1つ、複数なら一覧の県にいちばん近いもの
+  assert.match(tool, /from place_match import select/);
   assert.match(tool, /def in_prefecture/);
-  assert.match(tool, /r\["prefecture"\] == pref/);
-  // 同じ県に同名の記事が複数あるときは、どちらか決められない。
   assert.match(tool, /決められない/);
-  assert.match(tool, /len\(\{f\[0\] for f in found\}\) > 1/);
-  // 入れたものの座標が、エリアの近くにあること（県のずれを見つける）。
+  // 食い違いは、一覧の県を listedIn に残します（あとで見直せるように）。
+  assert.match(tool, /spot\["listedIn"\] = pref/);
+  // 入れたものの座標が、エリアの近くにあること（遠すぎるものは置かない）。
   const regions = JSON.parse(read("kb/regions.json")).regions;
   const byId = new Map(regions.map((r) => [r.id, r]));
   for (const s of mine.slice(0, 500)) {
@@ -78,7 +80,7 @@ test("県が合っているものだけを入れる", () => {
     assert.ok(r, `${s.name} のエリア ${s.regionId} がありません`);
     const km = Math.hypot((s.lat - r.lat) * 111,
       (s.lng - r.lng) * 111 * Math.cos((r.lat * Math.PI) / 180));
-    assert.ok(km <= 31, `${s.name} がエリア ${r.name} から ${km.toFixed(0)}km`);
+    assert.ok(km <= 100, `${s.name} がエリア ${r.name} から ${km.toFixed(0)}km`);
   }
 });
 

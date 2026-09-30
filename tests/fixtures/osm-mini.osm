@@ -58,4 +58,7 @@
   <node id="91" lat="43.0696" lon="141.3601"><tag k="name" v="渋谷試験公園"/><tag k="leisure" v="park"/></node>
   <!-- 16. 同じ場所の別名どうし（name に両方） -->
   <node id="92" lat="43.0697" lon="141.3602"><tag k="name" v="別名一試験;別名二試験"/><tag k="tourism" v="attraction"/></node>
+  <!-- 17. 一覧が別の県（東京都）になっている、北海道の1か所だけの神社。
+       県の食い違いを許すので、全国で1か所なら採る -->
+  <node id="100" lat="43.0698" lon="141.3603"><tag k="name" v="食い違い試験神社"/><tag k="amenity" v="place_of_worship"/><tag k="religion" v="shinto"/></node>
 </osm>
