@@ -218,8 +218,18 @@ def scan(path, wanted):
     import osmium
 
     found = collections.defaultdict(list)
+    # 場所の索引（線の重心を出すのに、点の座標が要ります）。
+    #
+    # 日本全体のファイル（約2.7GB）は、記憶に載せると数GBになります。
+    # 大きいものは、**ディスクに置く索引**にします（遅くなりますが、記憶を
+    # 食いません）。地域ごとの小さなファイルは、記憶のままで足ります。
+    idx = "flex_mem"
+    tmp = None
+    if os.path.getsize(path) > 1_000_000_000:
+        tmp = os.path.join(OSM, ".nodes.idx")
+        idx = f"sparse_file_array,{tmp}"
     proc = (osmium.FileProcessor(path, osmium.osm.NODE | osmium.osm.WAY)
-            .with_locations()
+            .with_locations(idx)
             .with_filter(osmium.filter.KeyFilter("name")))
     for o in proc:
         tags = {t.k: t.v for t in o.tags}
@@ -243,6 +253,8 @@ def scan(path, wanted):
                 "name": tags.get("name") or names_of(tags)[0]}
         for k in set(keys):
             found[k].append(cand)
+    if tmp and os.path.exists(tmp):
+        os.remove(tmp)      # 索引は使い捨てです（数GBあります）
     return found
 
 
