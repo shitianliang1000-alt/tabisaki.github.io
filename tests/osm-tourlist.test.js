@@ -174,6 +174,10 @@ test("落としきれなかったファイルを残さない", () => {
 test("収録の座標を作らない（OSM にあるものだけ）", () => {
   // 一覧の名前を、それらしい場所に置く道は、ありません。
   assert.match(tool, /OSM に無い（または県が合わない）/);
-  assert.ok(!/random|jitter|region\["lat"\], *region\["lng"\]/.test(tool),
-    "座標を作ろうとしています");
+  // 乱数（--show の無作為抽出に使います）は、座標には使わない。
+  // 座標の値が、乱数やエリアの代表点から作られていないこと。
+  assert.ok(!/jitter|random\.(uniform|gauss)|region\["lat"\], *region\["lng"\]/
+    .test(tool), "座標を作ろうとしています");
+  assert.ok(!/"lat": *(region|r)\[/.test(tool),
+    "エリアの代表点を、スポットの座標にしています");
 });

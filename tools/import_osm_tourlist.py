@@ -210,7 +210,7 @@ def centroid(nodes):
 def scan(path, wanted):
     """配布ファイルから、名前が一覧にあるものの候補を拾います。
 
-    candidates[正規化した名前] = [{lat, lng, osm, category, name}, ...]
+    candidates[正規化した名前] = [{lat, lng, osm, tags, name}, ...]
 
     **一覧にある名前だけを覚えます。** 日本の地域ファイルには名前つきの
     物が数十万件あり、全部を持つ必要はありません。
@@ -237,9 +237,9 @@ def scan(path, wanted):
         keys = [k for k in keys if k in wanted]
         if not keys:
             continue
-        cat = category_of(tags)
-        if cat is None:
-            continue
+        # **ここでは行き先かどうかを決めません。** タグをそのまま控えます。
+        # 決まり（category_of）は控えの後で当てるので、直した結果がすぐ
+        # 効きます（日本全体の走査は数分かかります）。
         if o.is_node():
             lat, lng = o.location.lat, o.location.lon
             osm = f"node/{o.id}"
@@ -249,12 +249,37 @@ def scan(path, wanted):
                 continue
             lat, lng = c
             osm = f"way/{o.id}"
-        cand = {"lat": lat, "lng": lng, "osm": osm, "category": cat,
+        cand = {"lat": lat, "lng": lng, "osm": osm, "tags": tags,
                 "name": tags.get("name") or names_of(tags)[0]}
         for k in set(keys):
             found[k].append(cand)
     if tmp and os.path.exists(tmp):
         os.remove(tmp)      # 索引は使い捨てです（数GBあります）
+    return found
+
+
+def scan_cached(path, wanted):
+    """scan() の結果を控えます。日本全体の走査は数分かかります。
+
+    確かめながら決まりを直すたびに走査し直すと、一回ごとに待たされます。
+    **配布ファイルと一覧の名前が同じなら、同じ結果**なので、控えを使います
+    （大きさ・更新時刻・一覧の名前の指紋が変わったら、読み直します）。
+    決まり（category_of など）は控えの**後**で当てるので、直した結果は
+    すぐに効きます。
+    """
+    st = os.stat(path)
+    fp = hashlib.sha1("\n".join(sorted(wanted)).encode("utf-8")).hexdigest()
+    key = f"v2:{os.path.basename(path)}:{st.st_size}:{int(st.st_mtime)}:{fp}"
+    cache = os.path.join(OSM, ".scan-cache.json")
+    if os.path.exists(cache):
+        with open(cache, encoding="utf-8") as f:
+            doc = json.load(f)
+        if doc.get("key") == key:
+            print("    （控えを使います）")
+            return doc["found"]
+    found = scan(path, wanted)
+    with open(cache, "w", encoding="utf-8") as f:
+        json.dump({"key": key, "found": found}, f, ensure_ascii=False)
     return found
 
 
@@ -301,9 +326,13 @@ def match(unplaced, found, locator):
         cands = []
         for v in variants(name):
             for c in found.get(n(v), []):
+                # 行き先らしいものだけ（店・宿・ただの建物は採らない）。
+                cat = category_of(c["tags"])
+                if cat is None:
+                    continue
                 ok, _ = locator.in_prefecture(c["lat"], c["lng"], pref)
                 if ok:
-                    cands.append(c)
+                    cands.append({**c, "category": cat})
             if cands:
                 break
         if not cands:
@@ -349,7 +378,7 @@ def main(write, only=None):
     found = collections.defaultdict(list)
     for p in files:
         print(f"  {os.path.basename(p)} を読んでいます…")
-        for k, v in scan(p, wanted).items():
+        for k, v in scan_cached(p, wanted).items():
             found[k].extend(v)
     print(f"  名前が一致した OSM の物 {sum(len(v) for v in found.values())}件")
 
@@ -410,6 +439,20 @@ def main(write, only=None):
     print("\n内訳:")
     for k, v in why.most_common():
         print(f"  {k}: {v}件")
+    if "--show" in sys.argv:
+        import random
+        random.seed(int(os.environ.get("SEED", "3")))
+        cat = os.environ.get("CAT")
+        pool = [(p, r, c) for p, r, c in hits if not cat or c["category"] == cat]
+        print(f"\n無作為に30件{'（' + cat + '）' if cat else ''}"
+              "（一覧の名前 → OSM の名前 / 分類 / 番号 / 主なタグ）:")
+        for p, r, c in random.sample(pool, min(30, len(pool))):
+            t = c["tags"]
+            keys = {k: t[k] for k in ("amenity", "leisure", "tourism", "historic",
+                                       "natural", "religion", "bath:type", "building")
+                    if k in t}
+            print(f"  {p} {r!r} → {c['name']!r} [{c['category']}] {c['osm']} {keys}")
+
     print(f"\n足す {len(add)}件")
     for cat, cnt in collections.Counter(s["category"] for s in add).most_common():
         print(f"  {cat} {cnt}件")
