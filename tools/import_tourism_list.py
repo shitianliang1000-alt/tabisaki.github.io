@@ -128,6 +128,35 @@ SUFFIX_CATEGORY = (
 )
 
 
+class PrefectureLocator:
+    """座標が、その県に入っているかを判定します。
+
+    一番近いエリアが**その県のもの**で、かつ MAX_REGION_KM 以内であること。
+    県境ぎわで隣の県のエリアが近くても、そのエリアの県で判定するので、
+    「名前が同じ別の県の場所」を通しません。
+
+    ウィキペディアの記事の座標（この道具）も、OpenStreetMap の座標
+    （tools/import_osm_tourlist.py）も、同じ物差しで見ます。
+    """
+
+    def __init__(self, regions):
+        self.regions = regions
+
+    def region_near(self, lat, lng):
+        best, best_d = None, None
+        for r in self.regions:
+            d = (r["lat"] - lat) ** 2 + (r["lng"] - lng) ** 2
+            if best_d is None or d < best_d:
+                best, best_d = r, d
+        return best
+
+    def in_prefecture(self, lat, lng, pref):
+        r = self.region_near(lat, lng)
+        ok = (r is not None and r["prefecture"] == pref
+              and km(lat, lng, r["lat"], r["lng"]) <= MAX_REGION_KM)
+        return ok, r
+
+
 def n(text):
     """比べるための形。全角半角・空白・中黒を畳みます。"""
     return re.sub(r"[\s　・]", "", unicodedata.normalize("NFKC", text))
@@ -252,19 +281,8 @@ def main(path, write):
     for title in coords:
         by_bare[n(re.sub(r"\s*[（(][^）)]*[）)]\s*$", "", title))].append(title)
 
-    def region_near(lat, lng):
-        best, best_d = None, None
-        for r in regions:
-            d = (r["lat"] - lat) ** 2 + (r["lng"] - lng) ** 2
-            if best_d is None or d < best_d:
-                best, best_d = r, d
-        return best
-
-    def in_prefecture(lat, lng, pref):
-        """座標が、その県のエリアの近くにあるか。"""
-        r = region_near(lat, lng)
-        return (r is not None and r["prefecture"] == pref
-                and km(lat, lng, r["lat"], r["lng"]) <= MAX_REGION_KM), r
+    locator = PrefectureLocator(regions)
+    in_prefecture = locator.in_prefecture
 
     shards = load_shards()
     # 前回ここが入れたぶんは、数え直します（2回走らせても二重にならない）。

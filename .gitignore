@@ -23,3 +23,8 @@ Thumbs.db
 # data/spots-wp*.json に直します。収録に入るのは直したあとのほうです。
 # 素データは30MBを超え、走らせ直せばまた作れます。
 /data/wikipedia/
+
+# OpenStreetMap の配布ファイル（tools/fetch_osm_extracts.py が落とす）。
+# 数GBあり、落とし直せば同じものが手に入ります。収録に入るのは、
+# tools/import_osm_tourlist.py が直したあとのほうだけです。
+/data/osm/
