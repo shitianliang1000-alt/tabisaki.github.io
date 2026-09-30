@@ -77,7 +77,7 @@ from dedupe_spots import same_place
 from place_match import CLUSTER_KM, cluster, pick, select
 import place_match
 from import_tourism_list import (
-    LODGING, PrefectureLocator, clean_name, n, variants,
+    LODGING, PrefectureLocator, clean_name, n, variants, split_variants,
 )
 from import_wikipedia_lists import (
     NOT_A_DESTINATION, describe, km, load_shards, looks_unusable, register,
@@ -117,9 +117,19 @@ def category_of(tags):
             "ice_cream", "biergarten"):
         return None
     if t.get("tourism") in ("hotel", "hostel", "guest_house", "motel",
-                            "apartment", "chalet", "camp_site",
-                            "caravan_site", "alpine_hut", "wilderness_hut"):
+                            "apartment", "chalet", "alpine_hut",
+                            "wilderness_hut"):
         return None
+    # ロープウェイ・ゴンドラ・リフト。線（way）にも乗り場（station）にも
+    # aerialway が付いています。一覧の名前が「〇〇ロープウェイ」のとき、
+    # 名前の一致した線か乗り場の座標を採ります。
+    if t.get("aerialway"):
+        return "ロープウェイ"
+    # キャンプ場・ゴルフ場は、名前が一覧と一致したときだけ入ります。
+    # 一覧に行き先として載っているためで、宿ではありません。
+    if t.get("tourism") in ("camp_site", "caravan_site") or t.get(
+            "leisure") == "golf_course":
+        return "観光名所"
 
     # 神社か寺か。religion で分かります。
     if t.get("amenity") == "place_of_worship" or t.get("building") in (
@@ -346,7 +356,8 @@ def match(unplaced, found, locator):
         if not name:
             why["閉店・店・宿・体験・催し"] += 1
             continue
-        cands = []
+        cands, weak = [], False
+        weak_set = set(split_variants(name)[1])
         for v in variants(name):
             for c in found.get(n(v), []):
                 cat = category_of(c["tags"])
@@ -354,8 +365,10 @@ def match(unplaced, found, locator):
                     continue
                 cands.append({**c, "category": cat})
             if cands:
+                weak = v in weak_set
                 break
-        chosen, reason, mismatch = select(cands, pref, locator)
+        chosen, reason, mismatch = place_match.select_for(
+            cands, pref, locator, weak)
         if chosen is None:
             why["OSM に無い" if reason == "候補が無い" else reason] += 1
             continue
@@ -428,6 +441,7 @@ def main(write, only=None):
     for s in existing:
         grid[(round(s["lat"] / 0.05), round(s["lng"] / 0.05))].append(s)
 
+    named_here = {(s["regionId"], n(s["name"])) for s in existing}
     add, used = [], set()
     for pref, raw, c in hits:
         name = re.sub(r"\s*[（(][^）)]*[）)]\s*$", "", c["name"]).strip() or c["name"]
@@ -448,6 +462,13 @@ def main(write, only=None):
             why["すでに収録にある"] += 1
             continue
         region = locator.region_near(c["lat"], c["lng"])
+        # 同じエリアに同じ名前があるときは、足しません。座標が離れていても
+        # 同じ旅程に同じ名前が2回出るためです（別の段が、同じ一覧の名前に
+        # 別の場所を当てたことがありました：伊勢山公園、月屋山）。
+        if (region["id"], n(name)) in named_here:
+            why["同じエリアに同名がすでにある"] += 1
+            continue
+        named_here.add((region["id"], n(name)))
         # エリアから遠すぎる場所は置きません（県の食い違いは許しますが、どの
         # エリアの近くでもない場所に、そのエリアの県を付けると、県の表示が
         # 実際と食い違います）。
