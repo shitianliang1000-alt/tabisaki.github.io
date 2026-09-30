@@ -62,15 +62,17 @@ test("座標を作っていない（出典の記事の座標だけ）", () => {
   assert.match(tool, /coords\.json/);
 });
 
-test("県が合っているものだけを入れる", () => {
+test("県が合うものを先に採り、食い違いは記録して入れる", () => {
   // 「氷川神社」「八幡宮」のような名前は、どの県にもあります。
-  // 名前が同じ記事があっても、別の県の記事なら別の場所です。
+  // 決め方は OSM・Overture と共通の place_match.select です。
+  //   ・県が合う記事があれば、それを採る（同じ県に複数なら決めない）
+  //   ・無ければ全国で1つ、複数なら一覧の県にいちばん近いもの
+  assert.match(tool, /from place_match import select/);
   assert.match(tool, /def in_prefecture/);
-  assert.match(tool, /r\["prefecture"\] == pref/);
-  // 同じ県に同名の記事が複数あるときは、どちらか決められない。
   assert.match(tool, /決められない/);
-  assert.match(tool, /len\(\{f\[0\] for f in found\}\) > 1/);
-  // 入れたものの座標が、エリアの近くにあること（県のずれを見つける）。
+  // 食い違いは、一覧の県を listedIn に残します（あとで見直せるように）。
+  assert.match(tool, /spot\["listedIn"\] = pref/);
+  // 入れたものの座標が、エリアの近くにあること（遠すぎるものは置かない）。
   const regions = JSON.parse(read("kb/regions.json")).regions;
   const byId = new Map(regions.map((r) => [r.id, r]));
   for (const s of mine.slice(0, 500)) {
@@ -78,7 +80,7 @@ test("県が合っているものだけを入れる", () => {
     assert.ok(r, `${s.name} のエリア ${s.regionId} がありません`);
     const km = Math.hypot((s.lat - r.lat) * 111,
       (s.lng - r.lng) * 111 * Math.cos((r.lat * Math.PI) / 180));
-    assert.ok(km <= 31, `${s.name} がエリア ${r.name} から ${km.toFixed(0)}km`);
+    assert.ok(km <= 100, `${s.name} がエリア ${r.name} から ${km.toFixed(0)}km`);
   }
 });
 
@@ -114,9 +116,9 @@ test("ウィキペディアの一覧の取り込みと、印を分けている",
 
 test("索引への登録を、2つの取り込みで共有している", () => {
   const wp = read("tools/import_wikipedia_lists.py");
-  assert.match(wp, /def register\(shards, regions\)/);
+  assert.match(wp, /def register\(shards, regions, extra_sources=\(\)\)/);
   assert.match(wp, /register\(shards, regions\)/);
-  assert.match(tool, /register\(shards, regions_doc\)/);
+  assert.match(tool, /register\(shards, regions_doc/);
   // 消したファイルの登録を残さない（並べ直しが無いファイルを読もうとする）。
   assert.match(wp, /os\.path\.exists\(os\.path\.join\(WEB, "kb", s\["file"\]\)\)/);
 });
@@ -167,4 +169,44 @@ print(json.dumps([clean_name(c) for c in cases], ensure_ascii=False))`;
     // 括弧の注は残す（突き合わせで外す）。NFKC で全角括弧が半角になる。
     "羊蹄山(蝦夷富士)",
   ]);
+});
+
+// --- 画面の下に出る「データ: …」の出典 ---------------------------------------
+//
+// 出典の名前は、そのまま画面に並びます（js/app.js の renderAttribution）。
+// ウィキペディアの出典が「Wikipedia（文化財・灯台・城・道の駅・滝の一覧）」と
+// 「Wikipedia」の2つ並んでいました。どの一覧から取ったかは、利用する側には
+// 関係がありません。「Wikipedia」でまとめます。
+
+test("出典に、Wikipedia が1つだけ出る", () => {
+  const names = (index.sources ?? []).map((x) => x.name);
+  const wiki = names.filter((n) => /wikipedia/i.test(n));
+  assert.deepEqual(wiki, ["Wikipedia"],
+    `Wikipedia の出典が ${JSON.stringify(wiki)} です（1つにまとめます）`);
+  // 同じ名前が2つ並ばないこと（画面にそのまま出ます）。
+  assert.equal(new Set(names).size, names.length,
+    `同じ名前の出典が並んでいます: ${names.join(" / ")}`);
+});
+
+test("各都道府県の公式観光サイトを、出典に入れている", () => {
+  // 一覧の出どころです。名前・座標・説明は写していませんが、「観光地
+  // として挙がっている」ことの確認に使っているので、利用する側にも
+  // 見えるようにします（ご指示がありました）。
+  const names = (index.sources ?? []).map((x) => x.name);
+  assert.ok(names.includes("各都道府県の公式観光サイト"),
+    `出典に入っていません: ${names.join(" / ")}`);
+  assert.match(tool, /EXTRA_SOURCES/);
+  assert.match(tool, /register\(shards, regions_doc, EXTRA_SOURCES\)/);
+});
+
+test("旧い出典の名前を、取り込みのたびに統合する", () => {
+  // 別の道具（import_csv.py）が書いた旧い名前が残っていても、
+  // register() が「Wikipedia」に直します。
+  const wp = read("tools/import_wikipedia_lists.py");
+  assert.match(wp, /LEGACY_SOURCE_NAMES/);
+  assert.match(wp, /def unify_sources/);
+  assert.match(wp, /unify_sources\(index\.get\("sources", \[\]\)/);
+  const csv = read("tools/import_csv.py");
+  assert.ok(!/Wikipedia（文化財/.test(csv.replace(/\/\/.*|#.*/g, "")
+    .replace(/LEGACY.*/g, "")), "import_csv.py が旧い名前を書いています");
 });

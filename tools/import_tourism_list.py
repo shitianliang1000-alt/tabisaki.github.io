@@ -58,6 +58,7 @@ import zipfile
 from xml.etree import ElementTree as ET
 
 from dedupe_spots import same_place
+from place_match import select
 from import_wikipedia_lists import (
     AN_EVENT, MAX_REGION_KM, NOT_A_DESTINATION, SOURCE_LINKS,
     describe, km, load_shards, looks_unusable, register,
@@ -67,10 +68,21 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.dirname(HERE)
 RAW = os.path.join(WEB, "data", "wikipedia")
 
+# エリアの代表点からこれ以上離れた場所は、置きません（OSM・Overture と同じ）。
+MAX_PLACE_KM = 100.0
+
 # 前回このファイルが入れたぶんを取り除くための印。
 # ウィキペディアの一覧の取り込み（src="wikipedia"）とは別にしてあります。
 # 同じ印にすると、あちらを走らせたときにこちらのぶんが消えます。
 SRC = "wikipedia-tourlist"
+
+# 出典に足す名前。**画面の下の「データ: …」にそのまま出ます。**
+#
+# 名前・座標・説明はウィキペディアの記事のものですが、「観光地として
+# 挙がっている」ことの確認に、各都道府県の公式観光サイトの一覧を使って
+# います。その旨を、利用する側にも見えるようにします（ご指示があり
+# ました）。個々のサイトの URL は、ファイルに書かれていないので空です。
+EXTRA_SOURCES = [{"name": "各都道府県の公式観光サイト", "url": ""}]
 
 # 閉まっている、という札。【閉店】【閉館】【休業】【営業終了】【廃止】…
 CLOSED = re.compile(r"[【\[（(][^】\]）)]*(閉店|閉館|閉園|閉鎖|休業|休館|休止|廃止|廃業|終了|移転|解体)[^】\]）)]*[】\]）)]")
@@ -118,6 +130,46 @@ SUFFIX_CATEGORY = (
     ("橋", "建築"), ("道の駅", "道の駅"), ("商店街", "商店街"),
     ("酒造", "酒蔵"), ("酒蔵", "酒蔵"), ("銘醸", "酒蔵"),
 )
+
+
+class PrefectureLocator:
+    """座標が、その県に入っているかを判定します。
+
+    一番近いエリアが**その県のもの**で、かつ MAX_REGION_KM 以内であること。
+    県境ぎわで隣の県のエリアが近くても、そのエリアの県で判定するので、
+    「名前が同じ別の県の場所」を通しません。
+
+    ウィキペディアの記事の座標（この道具）も、OpenStreetMap の座標
+    （tools/import_osm_tourlist.py）も、同じ物差しで見ます。
+    """
+
+    def __init__(self, regions):
+        self.regions = regions
+
+    def region_near(self, lat, lng):
+        best, best_d = None, None
+        for r in self.regions:
+            d = (r["lat"] - lat) ** 2 + (r["lng"] - lng) ** 2
+            if best_d is None or d < best_d:
+                best, best_d = r, d
+        return best
+
+    def dist_to_prefecture(self, lat, lng, pref):
+        """その県のエリアのうち、いちばん近いものまでの距離（km）。
+
+        県が合う候補が無いとき、**一覧の県にどれだけ近いか**を測るのに
+        使います（tools/place_match.py の select）。県境の山は近く、別の
+        場所は遠くなります。その県にエリアが無ければ、無限大です。
+        """
+        ds = [km(lat, lng, r["lat"], r["lng"])
+              for r in self.regions if r["prefecture"] == pref]
+        return min(ds) if ds else float("inf")
+
+    def in_prefecture(self, lat, lng, pref):
+        r = self.region_near(lat, lng)
+        ok = (r is not None and r["prefecture"] == pref
+              and km(lat, lng, r["lat"], r["lng"]) <= MAX_REGION_KM)
+        return ok, r
 
 
 def n(text):
@@ -244,19 +296,8 @@ def main(path, write):
     for title in coords:
         by_bare[n(re.sub(r"\s*[（(][^）)]*[）)]\s*$", "", title))].append(title)
 
-    def region_near(lat, lng):
-        best, best_d = None, None
-        for r in regions:
-            d = (r["lat"] - lat) ** 2 + (r["lng"] - lng) ** 2
-            if best_d is None or d < best_d:
-                best, best_d = r, d
-        return best
-
-    def in_prefecture(lat, lng, pref):
-        """座標が、その県のエリアの近くにあるか。"""
-        r = region_near(lat, lng)
-        return (r is not None and r["prefecture"] == pref
-                and km(lat, lng, r["lat"], r["lng"]) <= MAX_REGION_KM), r
+    locator = PrefectureLocator(regions)
+    in_prefecture = locator.in_prefecture
 
     shards = load_shards()
     # 前回ここが入れたぶんは、数え直します（2回走らせても二重にならない）。
@@ -287,26 +328,33 @@ def main(path, write):
                for v in vs for s in named.get(n(v), [])):
             why["すでに収録にある"] += 1
             continue
-        # 2. ウィキペディアの記事と一致し、座標が一覧の県に入っている。
-        found = []
+        # 2. ウィキペディアの記事と一致する。
+        #
+        # 県は**食い違ってもよい**ことにしました（ご指示です）。決め方は
+        # OSM・Overture と共通の place_match.select です。県が合う記事を
+        # 先に採り、無ければ全国で1つのもの、複数なら一覧の県にいちばん
+        # 近いもの（100km以内）を採ります。食い違ったものは listedIn に
+        # 一覧の県を残します。
+        cands = []
         for v in vs:
             for title in by_bare.get(n(v), []):
                 lat, lng = coords[title]
-                ok, region = in_prefecture(lat, lng, pref)
-                if ok:
-                    found.append((title, lat, lng, region))
-            if found:
+                cands.append({"lat": lat, "lng": lng, "key": title})
+            if cands:
                 break
-        if not found:
+        chosen, reason, mismatch = select(cands, pref, locator)
+        if chosen is None:
             unplaced.append([pref, raw])
-            why["座標が引けない"] += 1
+            why["座標が引けない" if reason == "候補が無い"
+                else "同じ県に同名の記事が複数（決められない）"
+                if "同名" in reason else "県が合わず、決められない"] += 1
             continue
-        if len({f[0] for f in found}) > 1:
-            # 同じ名前の記事が、その県に2つ以上ある。**どちらか決めません。**
+        title, lat, lng = chosen["key"], chosen["lat"], chosen["lng"]
+        region = locator.region_near(lat, lng)
+        if km(lat, lng, region["lat"], region["lng"]) > MAX_PLACE_KM:
             unplaced.append([pref, raw])
-            why["同じ県に同名の記事が複数（決められない）"] += 1
+            why["エリアから遠すぎて置けない"] += 1
             continue
-        title, lat, lng, region = found[0]
         # 表示する名前（括弧の注を外した形）。**これでも重複を見ます。**
         shown = re.sub(r"\s*[（(][^）)]*[）)]\s*$", "", title).strip() or title
         # 記事名（括弧つき）だけで比べていたら、実際に取りこぼしました。
@@ -357,6 +405,8 @@ def main(path, write):
             "src": SRC,
             "_raw": raw,
         }
+        if mismatch:
+            spot["listedIn"] = pref
         cached = (places.get(title) or {}).get("extract", "")
         desc = describe(cached)
         if desc:
@@ -430,7 +480,7 @@ def main(path, write):
     # **索引に登録します。** reshard_kb.py は index.json の段の一覧から
     # 読むので、登録しないと並べ直しが読まずに消します（書いた2,020件が
     # 1件も残りませんでした）。
-    total = register(shards, regions_doc)
+    total = register(shards, regions_doc, EXTRA_SOURCES)
     print(f"\n収録 {total}件になりました。")
     print("このあと tools/reshard_kb.py を走らせて、県ごとに並べ直します。")
 

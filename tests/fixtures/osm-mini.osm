@@ -1,0 +1,64 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- tools/import_osm_tourlist.py の試験用の、ごく小さな OpenStreetMap 風のデータです。
+     座標は札幌・大阪・京都のエリアの近くに置いてあります（県の判定が、エリアの
+     座標で行われるため）。名前は、この試験のための作り物です。 -->
+<osm version="0.6" generator="tabisaki-test">
+  <!-- 1. ふつうに決まる（北海道の神社） -->
+  <node id="1" lat="43.0620" lon="141.3550"><tag k="name" v="試験神社"/><tag k="amenity" v="place_of_worship"/><tag k="religion" v="shinto"/></node>
+
+  <!-- 2. 同じ名前が別の県にもある（大阪と北海道）。一覧が「大阪府」なら大阪のほう -->
+  <node id="2" lat="34.6690" lon="135.5035"><tag k="name" v="八幡試験社"/><tag k="amenity" v="place_of_worship"/><tag k="religion" v="shinto"/></node>
+  <node id="3" lat="43.0700" lon="141.3400"><tag k="name" v="八幡試験社"/><tag k="amenity" v="place_of_worship"/><tag k="religion" v="shinto"/></node>
+
+  <!-- 3. 同じ県に、離れた同名が2か所（決められない） -->
+  <node id="4" lat="34.9950" lon="135.7860"><tag k="name" v="重複試験寺"/><tag k="amenity" v="place_of_worship"/><tag k="religion" v="buddhist"/></node>
+  <node id="5" lat="35.0400" lon="135.7300"><tag k="name" v="重複試験寺"/><tag k="amenity" v="place_of_worship"/><tag k="religion" v="buddhist"/></node>
+
+  <!-- 4. 同じ名前の店・宿（行き先ではない）。神社のほうだけ採る -->
+  <node id="6" lat="43.0630" lon="141.3560"><tag k="name" v="店名試験"/><tag k="shop" v="bakery"/></node>
+  <node id="7" lat="43.0631" lon="141.3561"><tag k="name" v="宿名試験"/><tag k="tourism" v="hotel"/></node>
+
+  <!-- 5. 800m以内の2つ（同じ場所の点と面）は1つに数える -->
+  <node id="8" lat="43.0640" lon="141.3570"><tag k="name" v="重なり試験公園"/><tag k="leisure" v="park"/></node>
+  <node id="9" lat="43.0641" lon="141.3571"><tag k="name" v="重なり試験公園"/><tag k="leisure" v="park"/></node>
+
+  <!-- 6. 閉じた面（公園）。重心は四隅の平均になる -->
+  <node id="20" lat="43.0600" lon="141.3500"/>
+  <node id="21" lat="43.0600" lon="141.3600"/>
+  <node id="22" lat="43.0700" lon="141.3600"/>
+  <node id="23" lat="43.0700" lon="141.3500"/>
+  <way id="30"><nd ref="20"/><nd ref="21"/><nd ref="22"/><nd ref="23"/><nd ref="20"/><tag k="name" v="面試験公園"/><tag k="leisure" v="park"/></way>
+
+  <!-- 7. 一覧に無い名前は拾わない -->
+  <node id="40" lat="43.0650" lon="141.3580"><tag k="name" v="一覧に無い神社"/><tag k="amenity" v="place_of_worship"/><tag k="religion" v="shinto"/></node>
+
+  <!-- 8. 分類のタグ（灯台・滝・城） -->
+  <node id="50" lat="43.0660" lon="141.3590"><tag k="name" v="灯台試験"/><tag k="man_made" v="lighthouse"/></node>
+  <node id="51" lat="43.0661" lon="141.3591"><tag k="name" v="滝試験"/><tag k="waterway" v="waterfall"/></node>
+  <node id="52" lat="43.0662" lon="141.3592"><tag k="name" v="城試験"/><tag k="historic" v="castle"/></node>
+
+  <!-- 9. タグが行き先らしくない（名前は一致するが、ただの建物） -->
+  <node id="60" lat="43.0670" lon="141.3593"><tag k="name" v="ただの建物試験"/><tag k="building" v="yes"/></node>
+
+  <!-- 10. alt_name（;区切り）でも当たる -->
+  <node id="70" lat="43.0680" lon="141.3594"><tag k="name" v="正式名試験"/><tag k="alt_name" v="通称試験;別称試験"/><tag k="tourism" v="viewpoint"/></node>
+  <!-- 11. name に複数の名前が「;」でつながっている。一覧は後ろの名前 -->
+  <node id="80" lat="43.0690" lon="141.3595"><tag k="name" v="福祉センター試験;みたらし試験"/><tag k="amenity" v="public_bath"/></node>
+
+  <!-- 12. 全角スペースが入っている名前 -->
+  <node id="81" lat="43.0691" lon="141.3596"><tag k="name" v="空白　試験公園"/><tag k="leisure" v="park"/></node>
+
+  <!-- 13. 複数のタグ。博物館・公園を先にし、historic は受け皿 -->
+  <node id="82" lat="43.0692" lon="141.3597"><tag k="name" v="博物館史跡試験"/><tag k="tourism" v="museum"/><tag k="historic" v="building"/></node>
+  <node id="83" lat="43.0693" lon="141.3598"><tag k="name" v="公園記念試験"/><tag k="leisure" v="park"/><tag k="historic" v="memorial"/></node>
+  <node id="84" lat="43.0694" lon="141.3599"><tag k="name" v="史跡だけ試験"/><tag k="historic" v="monument"/></node>
+  <!-- 14. 一覧に別々の場所の同名が2つ（城山公園）。OSM には1つだけ -->
+  <node id="90" lat="43.0695" lon="141.3600"><tag k="name" v="城山試験公園"/><tag k="leisure" v="park"/></node>
+  <!-- 15. 注が花の名前（同じ場所）。そのまま一致するほうを採る -->
+  <node id="91" lat="43.0696" lon="141.3601"><tag k="name" v="渋谷試験公園"/><tag k="leisure" v="park"/></node>
+  <!-- 16. 同じ場所の別名どうし（name に両方） -->
+  <node id="92" lat="43.0697" lon="141.3602"><tag k="name" v="別名一試験;別名二試験"/><tag k="tourism" v="attraction"/></node>
+  <!-- 17. 一覧が別の県（東京都）になっている、北海道の1か所だけの神社。
+       県の食い違いを許すので、全国で1か所なら採る -->
+  <node id="100" lat="43.0698" lon="141.3603"><tag k="name" v="食い違い試験神社"/><tag k="amenity" v="place_of_worship"/><tag k="religion" v="shinto"/></node>
+</osm>
