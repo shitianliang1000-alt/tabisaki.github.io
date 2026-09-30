@@ -172,3 +172,16 @@ def resolve_shared(hits, names_of, clean, key="key"):
     order = {id(h): i for i, h in enumerate(hits)}
     keep.sort(key=lambda h: order[id(h)])       # 走らせるたびに同じ並び
     return keep, dropped
+
+
+def select_for(cands, pref, locator, weak):
+    """select に、「弱い名前の一致は県が合うときだけ」を足したもの。
+
+    弱い名前（括弧の中の別名・「」の中・空白で割った切れ端。
+    tools/import_tourism_list.py の split_variants）は、別の場所に当たり
+    やすいので、県の食い違いを許しません。
+    """
+    if weak:
+        cands = [c for c in cands
+                 if locator.in_prefecture(c["lat"], c["lng"], pref)[0]]
+    return select(cands, pref, locator)

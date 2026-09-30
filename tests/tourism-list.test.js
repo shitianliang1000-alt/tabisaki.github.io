@@ -210,3 +210,33 @@ test("旧い出典の名前を、取り込みのたびに統合する", () => {
   assert.ok(!/Wikipedia（文化財/.test(csv.replace(/\/\/.*|#.*/g, "")
     .replace(/LEGACY.*/g, "")), "import_csv.py が旧い名前を書いています");
 });
+
+// --- 完全一致だけでは取りこぼす名前を、広げる -------------------------------
+
+function pyVariants(name) {
+  const r = spawnSync("python3", ["-c",
+    "import json,sys;sys.path.insert(0,'tools');"
+    + "from import_tourism_list import variants;"
+    + "print(json.dumps(variants(sys.argv[1]),ensure_ascii=False))", name],
+  { cwd: new URL("..", import.meta.url).pathname, encoding: "utf8" });
+  return r.status === 0 ? JSON.parse(r.stdout) : null;
+}
+
+test("名前のゆれ（括弧・【市】・「」・ロープウェイ）を広げる", (t) => {
+  const probe = pyVariants("函館山ロープウェイ");
+  if (!probe) { t.skip("python3 が使えません"); return; }
+  // ロープウェイは、表記のゆれと、駅としての名前も試す。
+  assert.ok(probe.includes("函館山ロープウェー"));
+  assert.ok(probe.includes("函館山ロープウェイ山麓駅"));
+  assert.ok(pyVariants("名もなき池（通称：モネの池）").includes("モネの池"));
+  assert.ok(pyVariants("相模が丘仲よし小道【座間市】").includes("相模が丘仲よし小道"));
+  assert.ok(pyVariants("天神山緑地「天神藤」").includes("天神山緑地"));
+  assert.ok(pyVariants("妙見宮 妙福寺").includes("妙福寺"));
+});
+
+test("3文字未満の切れ端は、候補にしない（何にでも当たるため）", (t) => {
+  const v = pyVariants("七つ池(鏡池)");
+  if (!v) { t.skip("python3 が使えません"); return; }
+  assert.ok(!v.includes("鏡池"));
+  assert.ok(v.every((x) => x.length >= 3 || x === "七つ池(鏡池)"));
+});
