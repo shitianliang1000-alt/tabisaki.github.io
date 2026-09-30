@@ -42,4 +42,20 @@
 
   <!-- 10. alt_name（;区切り）でも当たる -->
   <node id="70" lat="43.0680" lon="141.3594"><tag k="name" v="正式名試験"/><tag k="alt_name" v="通称試験;別称試験"/><tag k="tourism" v="viewpoint"/></node>
+  <!-- 11. name に複数の名前が「;」でつながっている。一覧は後ろの名前 -->
+  <node id="80" lat="43.0690" lon="141.3595"><tag k="name" v="福祉センター試験;みたらし試験"/><tag k="amenity" v="public_bath"/></node>
+
+  <!-- 12. 全角スペースが入っている名前 -->
+  <node id="81" lat="43.0691" lon="141.3596"><tag k="name" v="空白　試験公園"/><tag k="leisure" v="park"/></node>
+
+  <!-- 13. 複数のタグ。博物館・公園を先にし、historic は受け皿 -->
+  <node id="82" lat="43.0692" lon="141.3597"><tag k="name" v="博物館史跡試験"/><tag k="tourism" v="museum"/><tag k="historic" v="building"/></node>
+  <node id="83" lat="43.0693" lon="141.3598"><tag k="name" v="公園記念試験"/><tag k="leisure" v="park"/><tag k="historic" v="memorial"/></node>
+  <node id="84" lat="43.0694" lon="141.3599"><tag k="name" v="史跡だけ試験"/><tag k="historic" v="monument"/></node>
+  <!-- 14. 一覧に別々の場所の同名が2つ（城山公園）。OSM には1つだけ -->
+  <node id="90" lat="43.0695" lon="141.3600"><tag k="name" v="城山試験公園"/><tag k="leisure" v="park"/></node>
+  <!-- 15. 注が花の名前（同じ場所）。そのまま一致するほうを採る -->
+  <node id="91" lat="43.0696" lon="141.3601"><tag k="name" v="渋谷試験公園"/><tag k="leisure" v="park"/></node>
+  <!-- 16. 同じ場所の別名どうし（name に両方） -->
+  <node id="92" lat="43.0697" lon="141.3602"><tag k="name" v="別名一試験;別名二試験"/><tag k="tourism" v="attraction"/></node>
 </osm>

@@ -40,6 +40,11 @@ unplaced = [
     ["北海道", "滝試験"], ["北海道", "城試験"], ["北海道", "ただの建物試験"],
     ["北海道", "通称試験"], ["北海道", "存在しない試験"], ["東京都", "試験神社"],
     ["北海道", "【閉店】試験神社"], ["北海道", "一覧に無い神社を探す試験"],
+    ["北海道", "みたらし試験"], ["北海道", "空白 試験公園"],
+    ["北海道", "博物館史跡試験"], ["北海道", "公園記念試験"], ["北海道", "史跡だけ試験"],
+    ["北海道", "城山試験公園（甲城跡）"], ["北海道", "城山試験公園（乙城跡）"],
+    ["北海道", "渋谷試験公園"], ["北海道", "渋谷試験公園（あじさい）"],
+    ["北海道", "別名一試験"], ["北海道", "別名二試験"],
 ]
 wanted = set()
 for pref, raw in unplaced:
@@ -47,10 +52,11 @@ for pref, raw in unplaced:
     if nm: wanted.update(T.n(v) for v in T.variants(nm))
 found = T.scan("tests/fixtures/osm-mini.osm", wanted)
 hits, why = T.match(unplaced, found, loc)
+hits, shared = T.resolve_shared(hits)
 print(json.dumps({
     "hits": [[p, r, c["name"], c["category"], c["osm"], round(c["lat"], 4), round(c["lng"], 4)]
              for p, r, c in hits],
-    "why": dict(why), "found": sorted(found)}, ensure_ascii=False))
+    "why": dict(why), "shared": shared, "found": sorted(found)}, ensure_ascii=False))
 `;
 
 function run() {
@@ -180,4 +186,94 @@ test("収録の座標を作らない（OSM にあるものだけ）", () => {
     .test(tool), "座標を作ろうとしています");
   assert.ok(!/"lat": *(region|r)\[/.test(tool),
     "エリアの代表点を、スポットの座標にしています");
+});
+
+test("name が「;」でつながっているとき、一覧に当たった部分を表示する", { skip }, () => {
+  const out = run();
+  const h = byRaw(out, "北海道", "みたらし試験");
+  assert.ok(h, "当たっていません");
+  // 「福祉センター試験;みたらし試験」をそのまま出すと、画面に「;」が並ぶ。
+  assert.equal(h[2], "みたらし試験");
+});
+
+test("全角スペースを半角にする", { skip }, () => {
+  const out = run();
+  assert.equal(byRaw(out, "北海道", "空白 試験公園")[2], "空白 試験公園");
+});
+
+test("複数のタグがあるとき、博物館・公園を先にする（史跡は受け皿）", { skip }, () => {
+  const out = run();
+  // tourism=museum + historic=building → 博物館（史跡ではない）
+  assert.equal(byRaw(out, "北海道", "博物館史跡試験")[3], "博物館");
+  // leisure=park + historic=memorial → 公園
+  assert.equal(byRaw(out, "北海道", "公園記念試験")[3], "公園");
+  // ほかに決め手が無い historic は、史跡。
+  assert.equal(byRaw(out, "北海道", "史跡だけ試験")[3], "史跡");
+});
+
+test("別々の場所の同名が一覧に2つあるとき、どちらも足さない", { skip }, () => {
+  // 栃木県の一覧には、別々の場所の「城山公園」が2つ載っています（祇園城跡・
+  // 佐野城跡）。括弧の注を外して比べるので、どちらも OSM の1つに当たります。
+  // 片方は必ず誤りで、どちらかは分かりません。
+  const out = run();
+  assert.equal(byRaw(out, "北海道", "城山試験公園（甲城跡）"), undefined);
+  assert.equal(byRaw(out, "北海道", "城山試験公園（乙城跡）"), undefined);
+});
+
+test("注が花の名前のときは、そのまま一致するほうだけを採る", { skip }, () => {
+  // 渋川市総合公園 と 渋川市総合公園（アジサイ）は、同じ場所です。
+  const out = run();
+  assert.ok(byRaw(out, "北海道", "渋谷試験公園"), "そのまま一致するほうが無い");
+  assert.equal(byRaw(out, "北海道", "渋谷試験公園（あじさい）"), undefined,
+    "注だけ違うものまで足しています（二重になります）");
+});
+
+test("同じ場所の別名どうしは、最初の1つだけを採る", { skip }, () => {
+  const out = run();
+  const got = ["別名一試験", "別名二試験"].filter((r) => byRaw(out, "北海道", r));
+  assert.equal(got.length, 1, `別名が ${got.length}件 足されています`);
+});
+
+// --- 入れたあとの収録の中身 --------------------------------------------------
+
+const index2 = JSON.parse(read("kb/index.json"));
+const all2 = index2.shards.flatMap((s) => JSON.parse(read(`kb/${s.file}`)).spots);
+const osm = all2.filter((s) => s.src === "osm-tourlist");
+
+test("OpenStreetMap から入れたものが、並べ直しのあとも収録に残っている", () => {
+  // 索引に登録しないと、reshard_kb.py が読まずに消します。言葉ではなく
+  // 収録の中身を数えます。
+  assert.ok(osm.length > 1000, `OSM 由来が ${osm.length}件しかありません`);
+});
+
+test("ODbL の表示が、出典に入っている", () => {
+  // 「© OpenStreetMap contributors」の表示は必須です。画面の下の
+  // 「データ: …」にそのまま出ます。消すと、利用条件に反します。
+  const names = (index2.sources ?? []).map((x) => x.name);
+  assert.ok(names.some((n) => /OpenStreetMap contributors/.test(n)),
+    `出典に OSM の表示がありません: ${names.join(" / ")}`);
+  const src = index2.sources.find((x) => /OpenStreetMap/.test(x.name));
+  assert.match(src.url, /openstreetmap\.org\/copyright/);
+});
+
+test("OSM 由来の1件ごとに、元の番号と座標がある", () => {
+  for (const s of osm) {
+    assert.match(s.osm, /^(node|way)\/\d+$/, `${s.name} の元の番号が変です`);
+    assert.ok(Number.isFinite(s.lat) && Number.isFinite(s.lng), s.name);
+    assert.ok(s.lat > 20 && s.lat < 46.6 && s.lng > 122 && s.lng < 154.5,
+      `${s.name} の座標が日本の外です`);
+  }
+});
+
+test("OSM 由来の名前に、「;」や全角スペースが残っていない", () => {
+  // OSM の name には、複数の名前が「;」でつながっていることがあります。
+  // そのまま出すと、画面に「麻績村福祉センター;みたらし温泉」と並びます。
+  const bad = osm.filter((s) => /[;\u3000]/.test(s.name));
+  assert.deepEqual(bad.map((s) => s.name), []);
+});
+
+test("OSM 由来に、宿・閉店・店・駅を入れていない", () => {
+  const bad = osm.filter((s) => /(ホテル|旅館|民宿|山荘|ロッジ|閉店|閉館|株式会社)/.test(s.name)
+    || (s.name.endsWith("駅") && !s.name.includes("道の駅")));
+  assert.deepEqual(bad.map((s) => s.name), []);
 });

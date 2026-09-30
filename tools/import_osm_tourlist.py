@@ -71,6 +71,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 
 from dedupe_spots import same_place
 from import_tourism_list import (
@@ -130,11 +131,18 @@ def category_of(tags):
             return "教会"
         return "観光名所"
 
+    # **決まりの順番が、分類を決めます。** 1つの物に複数のタグが付いて
+    # いることが多いためです。実物で見つかりました。
+    #
+    #   奈良町にぎわいの家   tourism=museum + historic=building
+    #   眉山治山祈念公苑     leisure=park   + historic=memorial
+    #
+    # はじめは historic を先に見ていたので、どちらも「史跡」になりました。
+    # 博物館・公園と分かる物は、その分類を先にします。「史跡」は、ほかに
+    # 決め手が無い historic の物の受け皿です。
     hist = t.get("historic")
     if hist == "castle":
         return "城"
-    if hist:
-        return "史跡"
 
     tour = t.get("tourism")
     if tour == "museum":
@@ -147,6 +155,15 @@ def category_of(tags):
         return "水族館"
     if tour == "theme_park":
         return "テーマパーク"
+
+    if t.get("leisure") == "park":
+        return "公園"
+    if t.get("leisure") == "garden":
+        return "庭園"
+
+    if hist:
+        return "史跡"
+
     if tour == "viewpoint":
         return "展望台"
     if tour in ("attraction", "artwork"):
@@ -170,10 +187,6 @@ def category_of(tags):
 
     if t.get("amenity") == "public_bath":
         return "温泉"
-    if t.get("leisure") == "park":
-        return "公園"
-    if t.get("leisure") == "garden":
-        return "庭園"
     if t.get("leisure") == "nature_reserve":
         return "自然"
     if t.get("man_made") == "lighthouse":
@@ -283,6 +296,31 @@ def scan_cached(path, wanted):
     return found
 
 
+def display_name(cand, name):
+    """OSM の名前から、**一覧の名前に当たった部分**を表示に使います。
+
+    OSM の name には、複数の名前が「;」でつながっていることがあります。
+
+        網張温泉館;薬師の湯
+        麻績村福祉センター;みたらし温泉      ← 一覧は「みたらし温泉」
+        荒神山温泉;湯にいくセンター          ← 一覧は「湯にいくセンター」
+
+    そのまま出すと、画面に「麻績村福祉センター;みたらし温泉」と並びます。
+    一覧の名前に当たった部分を採ります。当たる部分が無ければ（通称の
+    alt_name で当たったときなど）最初の名前です。
+    全角スペースは半角にし、続く空白は1つにします。
+    """
+    want = {n(v) for v in variants(name)}
+    parts = [x.strip() for x in cand["tags"].get("name", "").split(";")
+             if x.strip()] or [cand["name"]]
+    # name の中に、一覧の名前に当たる部分があれば、それを採ります。
+    # **alt_name（通称）で当たったときは、name の最初の名前**を採ります。
+    # alt_name は別名で、表示する名前ではありません（正式な名前が name に
+    # あります）。
+    pick_ = next((x for x in parts if n(x) in want), parts[0])
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", pick_)).strip()
+
+
 def cluster(cands):
     """800m 以内の候補を1つの場所にまとめます。"""
     groups = []
@@ -343,9 +381,65 @@ def match(unplaced, found, locator):
             # 同じ県に、離れた同名の場所が2か所以上ある。**決めません。**
             why["同じ県に同名が複数（決められない）"] += 1
             continue
-        hits.append((pref, raw, pick(groups[0])))
+        chosen = pick(groups[0])
+        hits.append((pref, raw,
+                     {**chosen, "name": display_name(chosen, name)}))
         why["決まった"] += 1
     return hits, why
+
+
+def resolve_shared(hits):
+    """同じ OSM の物に、一覧の名前が複数当たったときの決め方。
+
+    実物で見つかりました。栃木県の一覧には、**別々の場所の**「城山公園」が
+    2つ載っています。
+
+        城山公園（祇園城跡）
+        城山公園（佐野城跡）
+
+    括弧の注を外して比べるので、どちらも OSM の1つの「城山公園」に当たります。
+    **片方は必ず誤り**で、どちらかは分かりません。
+
+    一方、注が季節や花のときは、同じ場所です。
+
+        渋川市総合公園
+        渋川市総合公園（アジサイ）
+
+    括弧の注が場所なのか花なのかは、名前からは分かりません。決め方は、
+    一覧の名前（括弧つき）が OSM の名前に**そのまま一致するか**です。
+
+      ・そのまま一致するものがある     → それだけを採る（注だけ違うものは外す）
+      ・どれも括弧を外さないと一致しない
+          名前の本体が同じ              → **決められないので、全部外す**
+          名前の本体が違う（別名どうし）  → 同じ場所の別名なので、最初を採る
+                                         （あずみの湯 と 綿帽子温泉）
+
+    返り値: (残すもの, 外した数)
+    """
+    groups = collections.defaultdict(list)
+    for h in hits:
+        groups[h[2]["osm"]].append(h)
+    keep, dropped = [], 0
+    for osm, hs in groups.items():
+        if len(hs) == 1:
+            keep.append(hs[0])
+            continue
+        osm_names = {n(x) for x in names_of(hs[0][2]["tags"])}
+        exact = [h for h in hs if n(clean_name(h[1]) or "") in osm_names]
+        if exact:
+            keep.append(exact[0])
+            dropped += len(hs) - 1
+            continue
+        bare = {n(re.sub(r"[（(][^）)]*[）)]", "", clean_name(h[1]) or ""))
+                for h in hs}
+        if len(bare) == 1:
+            dropped += len(hs)          # 同じ名前の別の場所かもしれない
+        else:
+            keep.append(hs[0])
+            dropped += len(hs) - 1
+    order = {id(h): i for i, h in enumerate(hits)}
+    keep.sort(key=lambda h: order[id(h)])       # 走らせるたびに同じ並び
+    return keep, dropped
 
 
 def main(write, only=None):
@@ -388,6 +482,10 @@ def main(write, only=None):
     locator = PrefectureLocator(regions)
 
     hits, why = match(unplaced, found, locator)
+    hits, shared = resolve_shared(hits)
+    if shared:
+        why["決まった"] -= shared
+        why["同じ OSM の物に複数の名前が当たった（決められない／注だけ違う）"] += shared
 
     shards = load_shards()
     # 前回ここが入れたぶんは、数え直します（2回走らせても二重にならない）。
