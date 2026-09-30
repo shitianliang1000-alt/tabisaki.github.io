@@ -102,6 +102,7 @@ TOO_BIG = {"日本", "本州", "北海道", "九州", "四国", "沖縄本島",
 #   一覧・カテゴリ            … 記事であって場所ではありません
 #   国立公園・国定公園        … 数十kmの範囲で、1点にはなりません
 #   空港・駅・インターチェンジ … 行き先ではなく、通り道です
+#                                （駅は looks_unusable で外します。下に書きました）
 #   都道府県・市区町村        … 広すぎます（「京都市 90分」は立ちません）
 #   山地・山脈・湾・半島ほか  … 同じ理由です。下に書きました
 #
@@ -142,7 +143,11 @@ BAD_PART = ("遺産群", "の一覧", "Category:", "Template:", "Portal:")
 # 建物が別の名前を持たないまま載っていることがあります）。
 NOT_A_DESTINATION = ("大学", "大学校", "高等学校", "高校", "中学校",
                      "小学校", "専門学校", "病院", "銀行", "放送局",
-                     "株式会社", "信用金庫")
+                     "株式会社", "信用金庫",
+                     # 行政・公共の建物。用があって行く所で、見に行く所では
+                     # ありません（名古屋市役所・愛知県庁・八尾市文化会館）。
+                     "県庁", "市役所", "庁舎", "役場",
+                     "文化会館", "市民会館", "体育館")
 
 # 場所ではなく、催しの名前。
 #
@@ -185,6 +190,23 @@ def category_of(name, from_list):
 def looks_unusable(name, lat, lng):
     name = (name or "").strip()
     if not name or len(name) < 2 or name in TOO_BIG:
+        return True
+    # 駅。**コメントには「通り道」と書いてありながら、リストに「駅」が
+    # 入っていませんでした。** 76件が収録に入っていました。
+    #
+    #   札幌駅 / 博多駅 / 東京駅 / 松本駅 …  乗り換えに使う駅です
+    #   増毛駅 / 日之影温泉駅 / 博物館動物園駅 …  **廃駅**です
+    #
+    # 「札幌駅 45分」と旅程に出しても、することがありません。廃駅は、
+    # 閉まっている所へ案内するのと同じです。
+    #
+    # 下灘駅や土合駅のように駅そのものが見どころのものもありますが、
+    # 記事の書き出しはどれも「〜にある、〜線の駅である」としか言って
+    # いません。見どころだという根拠を、ここから取れませんでした。
+    # 名前だけでは分けられないので、通り道として外します。
+    #
+    # 「道の駅」は別の分類（道の駅）で、行き先です。残します。
+    if name.endswith("駅") and "道の駅" not in name:
         return True
     if name.endswith(BAD_SUFFIX) or any(b in name for b in BAD_PART):
         return True
@@ -276,6 +298,57 @@ def spot_id(title):
     """安定した id。記事名そのものは記号が混ざるので、短く潰します。"""
     h = hashlib.sha1(title.encode("utf-8")).hexdigest()[:10]
     return f"wp-{h}"
+
+
+def register(shards, regions):
+    """足した段を、索引とエリアの件数に登録します。**必ず呼びます。**
+
+    reshard_kb.py は、ファイルを探すのではなく **index.json の段の一覧**
+    から読みます。ここで登録しないと、並べ直しが新しい段を読まずに
+    消します（古い段を消すため）。取り込みが「収録 N件になりました」と
+    言っても、実際には入っていません。
+
+    tools/import_tourism_list.py で実際に起きました。書いた2,020件が、
+    並べ直しのあとに1件も残っていませんでした。
+    """
+    per_region, total = {}, 0
+    for doc in shards.values():
+        total += len(doc["spots"])
+        for s in doc["spots"]:
+            per_region[s["regionId"]] = per_region.get(s["regionId"], 0) + 1
+    for reg in regions["regions"]:
+        if "spotCount" in reg:
+            reg["spotCount"] = per_region.get(reg["id"], 0)
+    with open(os.path.join(WEB, "kb", "regions.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(regions, f, ensure_ascii=False, separators=(",", ":"))
+
+    ipath = os.path.join(WEB, "kb", "index.json")
+    with open(ipath, encoding="utf-8") as f:
+        index = json.load(f)
+    # 消したファイルの登録を残さないこと。件数が減って段が減ったあとに
+    # 残っていると、並べ直しが「無いファイル」を読もうとして止まります。
+    index["shards"] = [
+        s for s in index.get("shards", [])
+        if os.path.exists(os.path.join(WEB, "kb", s["file"]))]
+    have_file = {s["file"] for s in index.get("shards", [])}
+    for path, doc in sorted(shards.items()):
+        name = os.path.basename(path)
+        if name in have_file:
+            for s in index["shards"]:
+                if s["file"] == name:
+                    s["count"] = len(doc["spots"])
+        else:
+            index["shards"].append({"file": name, "count": len(doc["spots"])})
+    if "counts" in index:
+        index["counts"]["spots"] = total
+    have = {s["name"] for s in index.get("sources", [])}
+    index["sources"] = index.get("sources", []) + [
+        s for s in SOURCE_LINKS if s["name"] not in have]
+    with open(ipath, "w", encoding="utf-8") as f:
+        json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
+
+    return total
 
 
 def main(write):
@@ -414,38 +487,7 @@ def main(write):
                       separators=(",", ":"))
         shards[path] = {"spots": chunk}
 
-    per_region, total = {}, 0
-    for doc in shards.values():
-        total += len(doc["spots"])
-        for s in doc["spots"]:
-            per_region[s["regionId"]] = per_region.get(s["regionId"], 0) + 1
-    for reg in regions["regions"]:
-        if "spotCount" in reg:
-            reg["spotCount"] = per_region.get(reg["id"], 0)
-    with open(os.path.join(WEB, "kb", "regions.json"), "w",
-              encoding="utf-8") as f:
-        json.dump(regions, f, ensure_ascii=False, separators=(",", ":"))
-
-    ipath = os.path.join(WEB, "kb", "index.json")
-    with open(ipath, encoding="utf-8") as f:
-        index = json.load(f)
-    have_file = {s["file"] for s in index.get("shards", [])}
-    for path, doc in sorted(shards.items()):
-        name = os.path.basename(path)
-        if name in have_file:
-            for s in index["shards"]:
-                if s["file"] == name:
-                    s["count"] = len(doc["spots"])
-        else:
-            index["shards"].append({"file": name, "count": len(doc["spots"])})
-    if "counts" in index:
-        index["counts"]["spots"] = total
-    have = {s["name"] for s in index.get("sources", [])}
-    index["sources"] = index.get("sources", []) + [
-        s for s in SOURCE_LINKS if s["name"] not in have]
-    with open(ipath, "w", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
-
+    total = register(shards, regions)
     print(f"\n収録 {total}件になりました。")
     print("このあと tools/reshard_kb.py を走らせて、県ごとに並べ直します。")
 
