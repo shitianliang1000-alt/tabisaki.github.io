@@ -30,7 +30,8 @@
 import { createServer } from "node:http";
 
 const PORT = Number(process.env.PORT ?? 8787);
-const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN ?? "";
+const rawOrigin = (process.env.ALLOW_ORIGIN ?? "").trim();
+const ALLOW_ORIGIN = rawOrigin ? rawOrigin.split(/[,\s]+/).filter(Boolean) : [];
 const GEMINI_KEY = process.env.GEMINI_API_KEY ?? "";
 const MAPS_KEY = process.env.MAPS_API_KEY ?? "";
 
@@ -122,8 +123,11 @@ export function clientIp(headers, socketAddr = "") {
 
 export const handler = async (req, res) => {
   const origin = req.headers.origin ?? "";
+  const okOrigin = ALLOW_ORIGIN.length === 0 || ALLOW_ORIGIN.includes("*")
+    ? (origin || "*")
+    : (ALLOW_ORIGIN.includes(origin) ? origin : ALLOW_ORIGIN[0]);
   const head = {
-    "Access-Control-Allow-Origin": ALLOW_ORIGIN || origin || "*",
+    "Access-Control-Allow-Origin": okOrigin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Goog-FieldMask",
     "Content-Type": "application/json",
@@ -145,7 +149,7 @@ export const handler = async (req, res) => {
   //    これは認証ではありません。Origin は名乗りにすぎず、直に叩く側は
   //    好きな値を書けます。次の関門はレート制限です。
   //    ALLOW_ORIGIN が未設定の間だけ素通ししますが、起動時に警告します。
-  if (ALLOW_ORIGIN && origin !== ALLOW_ORIGIN) {
+  if (ALLOW_ORIGIN.length > 0 && !ALLOW_ORIGIN.includes("*") && !ALLOW_ORIGIN.includes(origin)) {
     return send(res, 403, head, "このサイトからは呼べません");
   }
 
@@ -238,7 +242,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     }
     if (!GEMINI_KEY) console.warn("GEMINI_API_KEY が空です");
     if (!MAPS_KEY) console.warn("MAPS_API_KEY が空です");
-    if (!ALLOW_ORIGIN) {
+    if (ALLOW_ORIGIN.length === 0) {
       console.warn("ALLOW_ORIGIN が空です。公開するなら必ず設定してください"
         + "（例: ALLOW_ORIGIN=https://example.com）");
     }
