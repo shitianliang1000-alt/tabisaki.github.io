@@ -30,18 +30,21 @@ function el(tag, attrs = {}, ...kids) {
     if (lowerK === "class") node.className = v;
     else if (lowerK.startsWith("on") && typeof v === "function") {
       node.addEventListener(lowerK.slice(2), v);
-    } else if (lowerK.startsWith("on") && typeof v === "string") {
-      // Neutralize inline event handlers passed as strings
+    } else if (lowerK.startsWith("on")) {
+      // Neutralize inline event handlers passed as strings or other coercible types
       // Do nothing to prevent the attribute from being added to the element entirely
-    } else if (["href", "src", "action", "formaction"].includes(lowerK) && typeof v === "string") {
-      const sanitized = v.replace(/[\x00-\x20]/g, "").toLowerCase();
+    } else if (v === null || v === undefined || v === false) {
+      // omit empty attributes (e.g. conditionally absent)
+    } else if (["href", "src", "action", "formaction"].includes(lowerK)) {
+      const stringifiedValue = String(v);
+      const sanitized = stringifiedValue.replace(/[\x00-\x20]/g, "").toLowerCase();
       const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
       if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
         node.setAttribute(k, "about:blank");
       } else {
-        node.setAttribute(k, v);
+        node.setAttribute(k, stringifiedValue);
       }
-    } else if (v !== null && v !== undefined && v !== false) {
+    } else {
       node.setAttribute(k, v);
     }
   }
