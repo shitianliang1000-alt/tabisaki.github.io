@@ -30,7 +30,8 @@
 import { createServer } from "node:http";
 
 const PORT = Number(process.env.PORT ?? 8787);
-const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN ?? "";
+const ALLOW_ORIGIN = String(process.env.ALLOW_ORIGIN ?? "").trim();
+const allowList = ALLOW_ORIGIN.split(/[,\s]+/).filter(Boolean);
 const GEMINI_KEY = process.env.GEMINI_API_KEY ?? "";
 const MAPS_KEY = process.env.MAPS_API_KEY ?? "";
 
@@ -122,8 +123,10 @@ export function clientIp(headers, socketAddr = "") {
 
 export const handler = async (req, res) => {
   const origin = req.headers.origin ?? "";
+  const okOrigin = allowList.length === 0 || allowList.includes("*") ? (origin || "*")
+    : (allowList.includes(origin) ? origin : allowList[0]);
   const head = {
-    "Access-Control-Allow-Origin": ALLOW_ORIGIN || origin || "*",
+    "Access-Control-Allow-Origin": okOrigin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Goog-FieldMask",
     "Content-Type": "application/json",
@@ -145,8 +148,10 @@ export const handler = async (req, res) => {
   //    これは認証ではありません。Origin は名乗りにすぎず、直に叩く側は
   //    好きな値を書けます。次の関門はレート制限です。
   //    ALLOW_ORIGIN が未設定の間だけ素通ししますが、起動時に警告します。
-  if (ALLOW_ORIGIN && origin !== ALLOW_ORIGIN) {
-    return send(res, 403, head, "このサイトからは呼べません");
+  if (allowList.length > 0 && !allowList.includes("*") && !allowList.includes(origin)) {
+    return send(res, 403, { ...head, "Access-Control-Allow-Origin": origin || "*" },
+      `このサイト（${origin || "出どころ不明"}）からは呼べません。`
+      + "ALLOW_ORIGIN に、このアドレスを足してください");
   }
 
   // 2. レート制限
