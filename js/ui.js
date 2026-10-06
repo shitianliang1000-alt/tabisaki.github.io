@@ -113,23 +113,26 @@ export function el(tag, attrs = {}, ...children) {
     //
     // テキストしか入らない作りにしておけば、その心配ごと自体が
     // 無くなります。強調や改行が要るときは、要素を分けてください。
-    else if (lowerK.startsWith("on") && typeof v === "function") {
+    else if (v === null || v === undefined || v === false) {
+      continue;
+    } else if (lowerK.startsWith("on") && typeof v === "function") {
       node.addEventListener(lowerK.slice(2), v);
-    } else if (lowerK.startsWith("on") && typeof v === "string") {
-      // Neutralize inline event handlers passed as strings
+    } else if (lowerK.startsWith("on")) {
+      // Neutralize inline event handlers passed as strings or other coercible types
       // Do nothing to prevent the attribute from being added to the element entirely
-    } else if (["href", "src", "action", "formaction"].includes(lowerK) && typeof v === "string") {
-      const sanitized = v.replace(/[\x00-\x20]/g, "").toLowerCase();
+    } else if (["href", "src", "action", "formaction", "data"].includes(lowerK)) {
+      const strV = String(v);
+      const sanitized = strV.replace(/[\x00-\x20]/g, "").toLowerCase();
       const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
       if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
         // XSS防止: href への javascript: の埋め込みを防ぐ
         // AIや外部データからのURLに悪意のあるコードが含まれていても発火しないようにします
         node.setAttribute(k, "about:blank");
       } else {
-        node.setAttribute(k, v);
+        node.setAttribute(k, strV);
       }
-    } else if (v !== null && v !== undefined && v !== false) {
-      node.setAttribute(k, v);
+    } else {
+      node.setAttribute(k, String(v));
     }
   }
   for (const c of children.flat()) {
