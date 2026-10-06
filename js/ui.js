@@ -2131,7 +2131,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
     const act = (action, label, hint) => {
       const b = el("button", {
         type: "button", class: "spot-action", "data-action": action,
-        "aria-label": `${item.title}を${hint}`,
+        "aria-label": `${label} (${item.title}を${hint})`,
       }, label);
       b.addEventListener("click", (e) => {
         e.stopPropagation();
