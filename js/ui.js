@@ -2128,8 +2128,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
     const act = (action, label, hint) => {
       const b = el("button", {
         type: "button", class: "spot-action", "data-action": action,
-        "aria-label": `${item.title}を${hint}`,
-      }, label);
+      }, el("span", { class: "visually-hidden" }, `${item.title}を`), label);
       b.addEventListener("click", (e) => {
         e.stopPropagation();
         handlers.onSpotEdit({ id, name: item.title, action });
