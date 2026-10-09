@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { userFacing } from "../js/errors.js";
+import { isNetworkFailure, userFacing } from "../js/errors.js";
 
 test("経路が取れないときは、旅程が作れることを先に言う", () => {
   const m = userFacing("routes", "Routes API 403: API_KEY_HTTP_REFERRER_BLOCKED");
@@ -111,4 +111,21 @@ test("未設定のときも、次にできることを言う", () => {
 test("知らない種類でも、行き止まりにしない", () => {
   const m = userFacing("なにか", "???");
   assert.ok(m.next, "控えの文にも next がありません");
+});
+
+test("通信の失敗は、ブラウザごとの原文でも見分ける", () => {
+  assert.ok(isNetworkFailure(new TypeError("Failed to fetch")));
+  assert.ok(isNetworkFailure("NetworkError when attempting to fetch resource."));
+  assert.ok(isNetworkFailure("Load failed"));
+  assert.ok(!isNetworkFailure("出発地が見つかりません。"));
+  assert.ok(!isNetworkFailure(undefined));
+});
+
+test("圏外で組めなかったときは、何ができるかまで言う", () => {
+  const m = userFacing("offline", "Failed to fetch");
+  assert.match(m.title, /圏外/);
+  assert.match(m.body, /保存した旅程/);
+  assert.match(m.next, /つながったら/);
+  assert.equal(m.detail, "Failed to fetch");
+  assert.doesNotMatch(m.title + m.body + m.next, /Failed to fetch/);
 });

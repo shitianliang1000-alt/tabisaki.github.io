@@ -1468,6 +1468,33 @@ await check("圏外のあいだは、そのことが上に出る", async () => {
     document.getElementById("net-status").textContent), { timeout: 5000 });
 });
 
+// 圏外で、まだ開いていない土地の旅程を頼んだとき。
+//
+// 県ごとのデータは要るぶんだけ取りにいくので、圏外では読めません。
+// そのとき出ていたのは、ブラウザの原文「Failed to fetch」だけでした。
+await check("圏外で組めないときは、原文ではなく理由と次の一手が出る", async () => {
+  const fresh = await browser.newContext({
+    viewport: { width: 1280, height: 1000 }, serviceWorkers: "block",
+  });
+  const pg = await fresh.newPage();
+  try {
+    await pg.goto(`${BASE}/index.html`, { waitUntil: "domcontentloaded" });
+    await until(pg, () => !document.getElementById("make-plan").disabled);
+    await pg.fill("#note", "北海道の小樽で運河と海鮮を楽しみたい");
+    await fresh.setOffline(true);
+    await pg.click("#make-plan");
+    await until(pg, () => !document.getElementById("form-error").hidden,
+      { timeout: 30_000 });
+    const text = await pg.textContent("#form-error");
+    assert(/圏外/.test(text) && /つながったら/.test(text), `出た文: ${text}`);
+    const shown = await pg.$eval("#form-error",
+      (e) => [...e.querySelectorAll("h3, p")].map((x) => x.textContent).join(" "));
+    assert(!/Failed to fetch/.test(shown), `原文がそのまま出ています: ${shown}`);
+  } finally {
+    await fresh.close();
+  }
+});
+
 await check("ページの例外が出ていない", () => {
   assert(pageErrors.length === 0, pageErrors.join(" / "));
 });
