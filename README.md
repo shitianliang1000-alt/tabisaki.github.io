@@ -59,9 +59,13 @@ AIが返したスポットIDも候補集合と照合し、**存在しない場�
 
 ### 写真・地図・外部リンク
 
-- **Leaflet + OpenStreetMap**：地図表示
-- **Wikipedia**：代表写真の取得
+- **Leaflet + OpenStreetMap**：地図表示。広い画面（幅1360px以上）では地図を旅程の横に固定し、読んでいる立ち寄りの印を濃くします（`js/follow.js`）
+- **Wikipedia**：代表写真の取得。記事名を持つ立ち寄りは、旅程のカードの上に写真を敷きます（取れなければ何も出しません）
 - **Google Maps**：地図・旅行関連リンク
+
+### エリア別のページ
+
+`areas/` に、都道府県ごとの定番・穴場と、主なエリアの1日モデルコースのページを置きます（検索から場所の名前で来る人の入口です）。モデルコースはアプリと同じエンジンで組み、移動時間は距離からの目安です。公開のたびに `tools/build_area_pages.mjs` が `kb/` から作るので、リポジトリには入っていません。
 
 ---
 
@@ -127,7 +131,8 @@ AI                     プログラム
 ├── css/
 │   ├── hig-tokens.css         # カラー・デザイントークン
 │   ├── hig.css                # ボタン・カード等の共通UI
-│   └── app.css                # アプリ固有のレイアウト
+│   ├── app.css                # アプリ固有のレイアウト
+│   └── area.css               # エリア別のページ（areas/）
 │
 ├── js/
 │   ├── app.js                 # アプリの起点・画面連携
@@ -177,6 +182,7 @@ AI                     プログラム
 │   ├── geo.js                 # 国・空路・時差などの地理処理
 │   ├── places.js              # 出発地・終着地候補
 │   ├── map.js                 # OpenStreetMap / Leaflet
+│   ├── follow.js              # 読んでいる立ち寄りを地図でも示す
 │   ├── photos.js              # Wikipediaから代表写真を取得
 │   ├── links.js               # Google Maps等へのリンク生成
 │   ├── history.js             # 過去に作った旅の保存
@@ -191,6 +197,7 @@ AI                     プログラム
 │
 ├── tools/
 │   ├── build_kb.py            # 知識ベース生成
+│   ├── build_area_pages.mjs   # エリア別のページと sitemap.xml（公開のたびに実行）
 │   ├── clean_kb.py            # 不要・重複データの除去
 │   ├── import_p27.py          # 国土数値情報「文化施設」の追加
 │   ├── build_sample_data.py   # 同梱サンプルデータ生成
@@ -357,13 +364,21 @@ PROXY_URL
 
 ## 🚀 公開する（GitHub Pages）
 
-`.github/workflows/pages.yml` が、`main` への push ごとに GitHub Pages へ配置します。ビルド工程はありませんが、**公開するのはブラウザが読むものだけ**です（`index.html`・`css/`・`js/`・`kb/`・`admin/` と、アイコン・manifest・robots・sitemap・sw.js）。`tests/`・`tools/`・`server/`・`data/` や README は公開されません。公開に要るファイルを増やしたら、`pages.yml` の「Stage site files」にも足してください。
+`.github/workflows/pages.yml` が、`main` への push ごとに GitHub Pages へ配置します。ビルド工程はエリア別のページ（`node tools/build_area_pages.mjs dist`）だけで、**公開するのはブラウザが読むものだけ**です（`index.html`・`css/`・`js/`・`kb/`・`admin/` と、アイコン・manifest・robots・sitemap・sw.js）。`tests/`・`tools/`・`server/`・`data/` や README は公開されません。公開に要るファイルを増やしたら、`pages.yml` の「Stage site files」にも足してください。
 
 初回だけ、リポジトリの **Settings → Pages → Source** を「GitHub Actions」にしてください。
 
 公開する URL を変えたら、`index.html` の OGP（`og:url` / `og:image` / canonical）と `sitemap.xml`・`robots.txt` の絶対 URL も合わせて書き換えてください。
 
-`.github/workflows/test.yml` は push / pull request ごとに単体テストと、ブラウザを使う E2E テスト（外へは出ない設定）を走らせます。
+`.github/workflows/test.yml` は push / pull request ごとに単体テストと、ブラウザを使う E2E テスト・読み上げと色のテスト（外へは出ない設定）を走らせます。
+
+エリア別のページを手元で見るときは、作ってから開きます。
+
+```bash
+node tools/build_area_pages.mjs dist
+cp -r index.html css js kb icon.svg og.png dist/
+python3 -m http.server 8000 --directory dist   # http://localhost:8000/areas/
+```
 
 ## ▶️ ローカルで動かす
 
@@ -524,7 +539,6 @@ AIから返ったIDをそのまま信用せず、候補集合と照合します�
 
 - スクリーンショットまたはデモGIFをREADME冒頭に追加
 - ODPT（公共交通オープンデータ）の時刻表連携
-- E2EテストをCIで実行（現在は単体テストのみ）
 
 ---
 

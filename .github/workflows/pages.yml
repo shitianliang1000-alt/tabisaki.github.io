@@ -38,6 +38,9 @@ jobs:
              icon-180.png icon-192.png icon-512.png icon-maskable-512.png \
              robots.txt sitemap.xml sw.js dist/
           cp -r css js kb admin dist/
+          # エリア別のページ（areas/）と、それを含めた sitemap.xml。
+          # 収録から毎回作るので、リポジトリには入れていません。
+          node tools/build_area_pages.mjs dist
           # 作業の残骸（エディタの .orig など）は入れません
           find dist -type f \( -name '*.orig' -o -name '*.rej' -o -name '*.patch' \) -delete
           touch dist/.nojekyll
