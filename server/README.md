@@ -155,6 +155,33 @@ Origin が無いリクエストは弾きます。ブラウザはクロスオリ�
 ただし **これは認証ではありません。** Origin は名乗りにすぎず、直に
 叩く側は好きな値を書けます。素通りを1段減らすだけのものです。
 
+## 使われかたの件数（/metrics）
+
+画面は「旅程ができた」「組めなかった（圏外・通信・その他）」「圏外の帯が出た」
+「1か所を外した」「別の候補を出した」を、**件数だけ** `/metrics` に送ります
+（`js/metrics.js`）。入力した文・地名・旅程・位置・IP・端末の識別子は送らず、
+中継も残しません。設定の「使われかたの集計に協力する」を外した人と、
+ブラウザが Global Privacy Control / Do Not Track を出している人の分は送りません。
+
+件数は Workers Analytics Engine のデータセット `tabisaki_metrics` に入ります
+（`wrangler.jsonc` の `analytics_engine_datasets`）。無料枠の範囲で使えます。
+`blob1` が出来事、`blob2` が補足（移動手段や組めなかった理由）です。
+
+見るときは、Cloudflare の API トークン（Account Analytics: Read）で SQL API を叩きます。
+
+```sh
+curl "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/analytics_engine/sql" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "SELECT blob1 AS event, blob2 AS detail, SUM(_sample_interval) AS n
+      FROM tabisaki_metrics
+      WHERE timestamp > NOW() - INTERVAL '7' DAY
+      GROUP BY event, detail ORDER BY n DESC"
+```
+
+`METRICS` のバインディングが無い Worker は、受け取って 204 を返すだけで何も
+残しません。手元の Node 版（`node-proxy.mjs`）には `/metrics` がなく、送っても
+数えられずに捨てられます（画面は返事を待たないので、困ることはありません）。
+
 ## まだやっていないこと
 
 公開の規模によっては、次が要ります。
