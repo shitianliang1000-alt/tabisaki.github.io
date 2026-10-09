@@ -32,19 +32,21 @@ function el(tag, attrs = {}, ...kids) {
       if (typeof v === "function") {
         node.addEventListener(lowerK.slice(2), v);
       }
-      // Neutralize inline event handlers passed as strings or other types
+      // Neutralize inline event handlers passed as strings or array bypasses
       // Do nothing to prevent the attribute from being added to the element entirely
     } else if (["href", "src", "action", "formaction"].includes(lowerK)) {
-      if (v === null || v === undefined || v === false) continue;
-      const sanitized = String(v).replace(/[\x00-\x20]/g, "").toLowerCase();
-      const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
-      if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
-        node.setAttribute(k, "about:blank");
-      } else {
-        node.setAttribute(k, v);
+      if (v !== null && v !== undefined && v !== false) {
+        const strV = String(v);
+        const sanitized = strV.replace(/[\x00-\x20]/g, "").toLowerCase();
+        const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
+        if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
+          node.setAttribute(k, "about:blank");
+        } else {
+          node.setAttribute(k, strV);
+        }
       }
-    } else if (v !== null && v !== undefined && v !== false) {
-      node.setAttribute(k, v);
+    } else {
+      node.setAttribute(k, String(v));
     }
   }
   for (const c of kids.flat()) {
