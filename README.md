@@ -59,9 +59,13 @@ AIが返したスポットIDも候補集合と照合し、**存在しない場�
 
 ### 写真・地図・外部リンク
 
-- **Leaflet + OpenStreetMap**：地図表示
-- **Wikipedia**：代表写真の取得
+- **Leaflet + OpenStreetMap**：地図表示。広い画面（幅1360px以上）では地図を旅程の横に固定し、読んでいる立ち寄りの印を濃くします（`js/follow.js`）
+- **Wikipedia**：代表写真の取得。記事名を持つ立ち寄りは、旅程のカードの上に写真を敷きます（取れなければ何も出しません）
 - **Google Maps**：地図・旅行関連リンク
+
+### エリア別のページ
+
+`areas/` に、都道府県ごとの定番・穴場と、主なエリアの1日モデルコースのページを置きます（検索から場所の名前で来る人の入口です）。モデルコースはアプリと同じエンジンで組み、移動時間は距離からの目安です。公開のたびに `tools/build_area_pages.mjs` が `kb/` から作るので、リポジトリには入っていません。
 
 ---
 
@@ -127,7 +131,8 @@ AI                     プログラム
 ├── css/
 │   ├── hig-tokens.css         # カラー・デザイントークン
 │   ├── hig.css                # ボタン・カード等の共通UI
-│   └── app.css                # アプリ固有のレイアウト
+│   ├── app.css                # アプリ固有のレイアウト
+│   └── area.css               # エリア別のページ（areas/）
 │
 ├── js/
 │   ├── app.js                 # アプリの起点・画面連携
@@ -177,6 +182,7 @@ AI                     プログラム
 │   ├── geo.js                 # 国・空路・時差などの地理処理
 │   ├── places.js              # 出発地・終着地候補
 │   ├── map.js                 # OpenStreetMap / Leaflet
+│   ├── follow.js              # 読んでいる立ち寄りを地図でも示す
 │   ├── photos.js              # Wikipediaから代表写真を取得
 │   ├── links.js               # Google Maps等へのリンク生成
 │   ├── history.js             # 過去に作った旅の保存
@@ -191,6 +197,7 @@ AI                     プログラム
 │
 ├── tools/
 │   ├── build_kb.py            # 知識ベース生成
+│   ├── build_area_pages.mjs   # エリア別のページと sitemap.xml（公開のたびに実行）
 │   ├── clean_kb.py            # 不要・重複データの除去
 │   ├── import_p27.py          # 国土数値情報「文化施設」の追加
 │   ├── build_sample_data.py   # 同梱サンプルデータ生成
@@ -227,8 +234,8 @@ AI                     プログラム
 
 | 項目 | 件数 |
 |---|---:|
-| エリア | **1,369** |
-| スポット | **13,934** |
+| エリア | **1,370** |
+| スポット | **54,702** |
 
 主なデータソースは以下です。
 
@@ -237,10 +244,18 @@ AI                     プログラム
 | 国土数値情報「観光資源」 | 国土交通省 |
 | 国土数値情報「文化施設」 | 国土交通省 |
 | 収録済みサンプルデータ | 手作業で確認したデータ |
+| Wikidata | CC0。名前・座標・分類 |
+| Wikipedia | CC BY-SA。日本語版の一覧記事71本（各地の温泉地・古墳・山・川・寺院・島・史跡…と、47都道府県の観光地）から、記事名・座標・冒頭の説明。画面の出典は「Wikipedia」にまとめています |
+| 各都道府県の公式観光サイト | 観光地の名前の一覧（xlsx）の出どころ。**「観光地として挙がっている」ことの確認にだけ**使い、名前・座標・説明は写していません（`tools/import_tourism_list.py`） |
+| OpenStreetMap | **ODbL 1.0**。座標が引けなかった観光地の名前に、名前と県の一致で付けた座標（4,312件。`tools/import_osm_tourlist.py`）。下の「OpenStreetMap 由来の座標」を読んでください |
+| Overture Maps | **CDLA Permissive 2.0 / Apache 2.0 / CC0**（出どころごと。1件ずつ `license` に持たせています）。座標が引けなかった観光地の名前に、名前と県の一致で付けた座標（1,515件。`tools/import_overture_places.py`）。**飲食店・宿・店は入れていません**（営業の状態がほぼ空で、閉業を見分けられないため）。表示は「Overture Maps Foundation, overturemaps.org」。共有の義務はありません |
+| 座標つきの観光地一覧（いただいたもの） | 各都道府県の公式観光サイトの名前に、Yahoo!ローカルサーチ・コンテンツジオコーダ、国土地理院、Photon・Nominatim（OSM）などで座標を付けた一覧から10,653件（`tools/import_tourism_coords.py`。`src="tourlist-geocoded"`、取得元は1件ずつ `geo`）。下の「座標つきの観光地一覧」を読んでください |
 
-いずれも再配布の条件がはっきりしているものだけを収録しています。
+再配布の条件がはっきりしているものだけを収録する方針です。
 観光資源台帳（日本観光振興協会）は、条件が曖昧なため収録していません
-（`tools/drop_daicho.py`）。
+（`tools/drop_daicho.py`）。各都道府県の公式観光サイトの利用条件は確かめて
+いないため、**その一覧から写しているものはありません**（名前が観光地として
+挙がっているかの確認にだけ使っています）。
 
 大きなデータを1つのJavaScriptファイルにまとめず、`spots-*.json` に分割して読み込む構成です。
 
@@ -349,13 +364,21 @@ PROXY_URL
 
 ## 🚀 公開する（GitHub Pages）
 
-`.github/workflows/pages.yml` が、`main` への push ごとに GitHub Pages へ配置します。ビルド工程はありませんが、**公開するのはブラウザが読むものだけ**です（`index.html`・`css/`・`js/`・`kb/`・`admin/` と、アイコン・manifest・robots・sitemap・sw.js）。`tests/`・`tools/`・`server/`・`data/` や README は公開されません。公開に要るファイルを増やしたら、`pages.yml` の「Stage site files」にも足してください。
+`.github/workflows/pages.yml` が、`main` への push ごとに GitHub Pages へ配置します。ビルド工程はエリア別のページ（`node tools/build_area_pages.mjs dist`）だけで、**公開するのはブラウザが読むものだけ**です（`index.html`・`css/`・`js/`・`kb/`・`admin/` と、アイコン・manifest・robots・sitemap・sw.js）。`tests/`・`tools/`・`server/`・`data/` や README は公開されません。公開に要るファイルを増やしたら、`pages.yml` の「Stage site files」にも足してください。
 
 初回だけ、リポジトリの **Settings → Pages → Source** を「GitHub Actions」にしてください。
 
 公開する URL を変えたら、`index.html` の OGP（`og:url` / `og:image` / canonical）と `sitemap.xml`・`robots.txt` の絶対 URL も合わせて書き換えてください。
 
-`.github/workflows/test.yml` は push / pull request ごとに単体テストと、ブラウザを使う E2E テスト（外へは出ない設定）を走らせます。
+`.github/workflows/test.yml` は push / pull request ごとに単体テストと、ブラウザを使う E2E テスト・読み上げと色のテスト（外へは出ない設定）を走らせます。
+
+エリア別のページを手元で見るときは、作ってから開きます。
+
+```bash
+node tools/build_area_pages.mjs dist
+cp -r index.html css js kb icon.svg og.png dist/
+python3 -m http.server 8000 --directory dist   # http://localhost:8000/areas/
+```
 
 ## ▶️ ローカルで動かす
 
@@ -473,13 +496,49 @@ AIから返ったIDをそのまま信用せず、候補集合と照合します�
 
 公開・商用利用の前に、各サービスの最新の規約を確認してください。特に `kb/index.json` に記載されている外部データソースは、それぞれ利用条件が異なります。
 
+### OpenStreetMap 由来の座標
+
+`tools/import_osm_tourlist.py` が入れた座標（`src="osm-tourlist"`、元の番号は
+`osm="node/123"`）は、**OpenStreetMap のデータで、ODbL 1.0 です**。
+
+- **「© OpenStreetMap contributors」の表示が必須です。** 画面の下の
+  「データ: …」に出しています（`kb/index.json` の `sources`）。消さないでください
+- **同じ条件で共有する義務があります**（share-alike）。これらの座標を含む
+  `kb/` は、ODbL の派生データベースにあたります。再配布するときは、その部分
+  を ODbL で共有してください
+- まとめて外すときは、`src="osm-tourlist"` の印で消えます
+  （`python3 tools/import_osm_tourlist.py` は走らせるたびに前回のぶんを取り除きます）
+
+ライセンスの全文: <https://opendatacommons.org/licenses/odbl/1-0/>
+
+### 座標つきの観光地一覧
+
+`tools/import_tourism_coords.py` が入れたもの（`src="tourlist-geocoded"`）は、
+いただいた一覧の座標です。
+
+- **Yahoo! JAPAN の API で取った座標が9割です。** 画面の下に「Web Services by
+  Yahoo! JAPAN」を出しています。**取った座標を保存して配ってよいかは、
+  Yahoo! の利用規約を確かめていません。** 公開の前に確かめてください。
+  外すときは `src="tourlist-geocoded"`（取得元ごとなら `geo`）の印で消えます
+- 祭りなどの追加表記は外して入れました（`listedAs` に一覧の名前が残ります）
+- 一覧の県の外に落ちた座標は、県境から15km以内だけを採りました。それより
+  遠いもの（約2,000件）は、別の県の同じ名前に当たった疑いが強いので入れて
+  いません（鳥取県「長谷寺」→ 広島県の長谷寺 など）
+- 一覧の「まとめ名」の列は使っていません。別々の場所が1つにまとまっていた
+  り（「徳島県立」）、座標がメンバーの平均だったりしたためです
+
+### 県が食い違う座標
+
+一覧の県と、座標のある県が違うものがあります（名前が全国で1つだけの場所など）。
+ご指示で入れていますが、**別の場所を取り違えている可能性が、県が合うものより高いです。**
+一覧の県は `listedIn` に残してあります。見直すときは、`listedIn` があるものから見てください。
+
 ---
 
 ## 🌱 今後の改善候補
 
 - スクリーンショットまたはデモGIFをREADME冒頭に追加
 - ODPT（公共交通オープンデータ）の時刻表連携
-- E2EテストをCIで実行（現在は単体テストのみ）
 
 ---
 

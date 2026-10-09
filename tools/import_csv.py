@@ -65,8 +65,9 @@ CATEGORY = {
 KNOWN_SOURCES = {"Wikipedia(日本の滝百選)"}
 
 SOURCE_LINKS = [
-    {"name": "Wikipedia（文化財・灯台・城・道の駅・滝の一覧）",
-     "url": "https://ja.wikipedia.org/"},
+    # 「Wikipedia」でまとめます（画面の下に出る名前です。分けて書く理由が
+    # 利用する側にはありません）。
+    {"name": "Wikipedia", "url": "https://ja.wikipedia.org/"},
     {"name": "川の防災情報 ダムデータ（国土交通省）",
      "url": "https://www.river.go.jp/"},
 ]

@@ -83,11 +83,21 @@ test("どこからか分からないときも、必ず何かを返す", () => {
 test("Origin が無いリクエストは、利用者からのものではない", () => {
   // ALLOW_ORIGIN を設定しているとき、空の Origin は一致しません。
   const allow = "https://example.com";
-  const judge = (origin) => Boolean(allow) && origin !== allow;
+  const allows = allow.split(/[,\s]+/).filter(Boolean);
+  const judge = (origin) => allows.length > 0 && !allows.includes(origin) && !allows.includes("*");
   assert.equal(judge(""), true, "Origin が空でも通しています");
   assert.equal(judge(undefined), true);
   assert.equal(judge("https://evil.example"), true);
   assert.equal(judge(allow), false, "自分のサイトを弾いています");
+});
+
+test("ALLOW_ORIGIN は複数書ける", () => {
+  const allow = "https://example.com, https://example.org";
+  const allows = allow.split(/[,\s]+/).filter(Boolean);
+  const judge = (origin) => allows.length > 0 && !allows.includes(origin) && !allows.includes("*");
+  assert.equal(judge("https://example.com"), false, "1つ目のサイトを弾いています");
+  assert.equal(judge("https://example.org"), false, "2つ目のサイトを弾いています");
+  assert.equal(judge("https://evil.example"), true, "許可していないサイトを通しています");
 });
 
 test("上限ちょうどまでは通り、その次で止まる（取りこぼしなし）", () => {
