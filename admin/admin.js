@@ -28,24 +28,25 @@ function el(tag, attrs = {}, ...kids) {
   for (const [k, v] of Object.entries(attrs)) {
     const lowerK = k.toLowerCase();
     if (lowerK === "class") node.className = v;
-    else if (lowerK.startsWith("on") && typeof v === "function") {
-      node.addEventListener(lowerK.slice(2), v);
-    } else if (lowerK.startsWith("on")) {
-      // Neutralize inline event handlers passed as strings or other coercible types
+    else if (lowerK.startsWith("on")) {
+      if (typeof v === "function") {
+        node.addEventListener(lowerK.slice(2), v);
+      }
+      // Neutralize inline event handlers passed as strings or array bypasses
       // Do nothing to prevent the attribute from being added to the element entirely
-    } else if (v === null || v === undefined || v === false) {
-      // omit empty attributes (e.g. conditionally absent)
     } else if (["href", "src", "action", "formaction"].includes(lowerK)) {
-      const stringifiedValue = String(v);
-      const sanitized = stringifiedValue.replace(/[\x00-\x20]/g, "").toLowerCase();
-      const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
-      if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
-        node.setAttribute(k, "about:blank");
-      } else {
-        node.setAttribute(k, stringifiedValue);
+      if (v !== null && v !== undefined && v !== false) {
+        const strV = String(v);
+        const sanitized = strV.replace(/[\x00-\x20]/g, "").toLowerCase();
+        const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
+        if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
+          node.setAttribute(k, "about:blank");
+        } else {
+          node.setAttribute(k, strV);
+        }
       }
     } else {
-      node.setAttribute(k, v);
+      node.setAttribute(k, String(v));
     }
   }
   for (const c of kids.flat()) {
