@@ -44,11 +44,14 @@ const COST = {
   // 使えるモデルの一覧。取りに行くだけで、生成はしません。
   "/gemini/models": 1,
   "/cf/generate": 5,
+  // 使われかたの件数（js/metrics.js）。外へは取りに行きません。
+  "/metrics": 1,
 };
 
 /** その入口が、どちらの枠か。 */
 const POOL = {
   "/yahoo/transit": "free",
+  "/metrics": "free",
 };
 
 export const LIMITS = {
@@ -134,6 +137,7 @@ export default {
       if (path.endsWith("/routes")) return cors(await routes(request, env), origin, allow);
       if (path.endsWith("/cf/generate")) return cors(await cfGenerate(request, env), origin, allow);
       if (path.endsWith("/yahoo/transit")) return cors(await yahooTransit(request), origin, allow);
+      if (path.endsWith("/metrics")) return cors(await metrics(request, env), origin, allow);
       // 鍵が入っているかどうかだけを答えます（値は返しません）。
       // 「キーが無効です」と「中継に鍵が置かれていない」は別のことで、
       // 直す場所も違います。画面がそれを言い分けられるようにします。
@@ -162,6 +166,45 @@ export default {
     return cors(text("その入口はありません", 404), origin, allow);
   },
 };
+
+// 使われかたの件数（js/metrics.js から sendBeacon で届きます）。
+//
+// 受け取るのは、決まった出来事の名前と、決まった言葉の補足だけです。
+// それ以外の文字列は、ここでも捨てます（ブラウザ側の絞り込みを
+// 信じません。誰でもこの入口を叩けるためです）。
+//
+// **IP も、届いた時刻以外の何も、残しません。** Workers Analytics Engine
+// に「出来事・補足・1件」を書くだけです。件数は Cloudflare の管理画面か
+// SQL API で見ます（server/README.md）。
+//
+// METRICS のバインディングが無い中継（wrangler.jsonc に書いていない、
+// 手元の node-proxy など）では、受け取って何もしません。
+export const METRIC_EVENTS = new Set([
+  "plan_ok", "plan_error", "offline_seen", "spot_replace", "spot_remove",
+]);
+export const METRIC_DETAILS = new Set([
+  "transit", "car", "transit+car", "walk",
+  "plan", "offline", "network", "kb", "quota",
+]);
+
+export async function metrics(request, env) {
+  let body;
+  try { body = await readJson(request); } catch { return text("数えられない形です", 400); }
+  const event = String(body?.e ?? "");
+  if (!METRIC_EVENTS.has(event)) return text("その出来事は数えません", 400);
+  const detail = METRIC_DETAILS.has(String(body?.d ?? "")) ? String(body.d) : "";
+  try {
+    env?.METRICS?.writeDataPoint?.({
+      indexes: [event],
+      blobs: [event, detail],
+      doubles: [1],
+    });
+  } catch (e) {
+    // 数えそこねても、使う人には関係ありません。
+    console.error(e);
+  }
+  return new Response(null, { status: 204 });
+}
 
 /** 鍵が入っているか（値は見せません）。 */
 function hasSecret(env, name) {

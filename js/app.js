@@ -44,6 +44,7 @@ import { $, el, openSheet, renderItinerary, renderProgress, renderToday,
          scrollBehavior, suggestionButton } from "./ui.js";
 import { catchUp } from "./today.js";
 import { isOffline, watchConnection } from "./online.js";
+import { metricsEnabled, setMetricsEnabled, track } from "./metrics.js";
 import { watchArrival } from "./arrive.js";
 import { armNotices, askNotifyPermission, scheduleNotices }
   from "./notify.js";
@@ -115,6 +116,10 @@ async function boot() {
   // 圏外のあいだは、そのことを上に1行出します（js/online.js）。
   const netBar = $("#net-status");
   if (netBar) watchConnection(netBar);
+  // 圏外の帯が出たことも数えます。圏外のあいだは送れないので、
+  // js/metrics.js が貯めておいて、つながったときに送ります。
+  if (isOffline()) count("offline_seen");
+  addEventListener("offline", () => count("offline_seen"));
   renderRecent();
 
   fillPlaces();
@@ -604,6 +609,11 @@ function wireKeyPanel() {
     quota.reset();
     showQuota();
   });
+  const share = $("#share-metrics");
+  if (share) {
+    share.checked = metricsEnabled();
+    share.addEventListener("change", () => setMetricsEnabled(share.checked));
+  }
   fill();
   refresh();
   showQuota();
@@ -1791,6 +1801,21 @@ function showView(view) {
   globalThis.scrollTo?.({ top: 0, behavior: scrollBehavior() });
 }
 
+/**
+ * 使われかたを1件数えます（js/metrics.js）。名前の無い件数だけです。
+ * 中継（PROXY_URL）が無いときと、設定で外したときは送りません。
+ */
+function count(event, detail = "") {
+  track(event, detail, { proxyUrl: effectiveConfig().proxyUrl });
+}
+
+/** 組めなかった理由を、数えるための言葉にします（js/errors.js と同じ分け方）。 */
+function failureKind(e) {
+  const msg = e?.message ?? String(e);
+  if (isNetworkFailure(msg)) return isOffline() ? "offline" : "network";
+  return "plan";
+}
+
 function showError(text, suggestions = [], kind = "plan") {
   const box = $("#form-error");
   box.textContent = "";
@@ -1929,6 +1954,7 @@ function editSpot({ id, name, action }, trip, itin) {
   }, trip);
   syncFormTo(next);
   state.trip = next;
+  count(remove ? "spot_remove" : "spot_replace");
   state.editNote = remove
     ? `「${name}」を旅程から外して、組み直しました。`
     : `「${name}」の代わりになる場所を探して、組み直しました。`;
@@ -2170,7 +2196,9 @@ async function run(override) {
     const itin = await buildPlans(trip, progress);
     showRoutesUsage();
     show(itin, trip);
+    count("plan_ok", trip.transport);
   } catch (e) {
+    count("plan_error", failureKind(e));
     $("#progress").hidden = true;
     $("#placeholder").hidden = false;
     // うまくいかなかったときは、条件の画面へ戻します。理由は
