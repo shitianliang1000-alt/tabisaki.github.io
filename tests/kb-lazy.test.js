@@ -152,7 +152,10 @@ test("同じ場所が、2件のまま残らない", async () => {
   const { restore } = countingFetch();
   try {
     await ensureAllSpots(kb);
-    const named = (n) => kb.spots.filter((s) => s.name.includes(n));
+    // 鎌倉のものだけを見ます。「桶狭間古戦場伝説地・高徳院」（愛知県）は
+    // 名前に高徳院を含みますが、別の場所です。
+    const named = (n) => kb.spots.filter((s) => s.name.includes(n)
+      && Math.abs(s.lat - 35.3167) < 0.05 && Math.abs(s.lng - 139.5358) < 0.05);
     // 高徳院と鎌倉大仏は、同じ座標の同じお寺です。
     assert.equal(named("高徳院").length, 1,
       named("高徳院").map((s) => s.name).join(" / "));
