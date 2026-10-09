@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- いまは1ページだけです。
-     エリア別のページ（「箱根 日帰り モデルコース」など）を
-     kb/ から作るようになったら、ここに足してください。 -->
-<urlset xmlns="http://www.sitemap.org/schemas/sitemap/0.9">
+<!-- 手元で開くときのためのものです。公開されるのはこれではなく、
+     tools/build_area_pages.mjs がエリア別のページ（areas/）を足して
+     作り直したものです（.github/workflows/pages.yml）。
+     公開URLの根は、この1件目の <loc> から読みます。 -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://shitianliang1000-alt.github.io/tabisaki.github.io/</loc>
     <changefreq>weekly</changefreq>
