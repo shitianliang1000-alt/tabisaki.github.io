@@ -312,3 +312,24 @@ TripMap.prototype.showDay = function showDay(dayIndex) {
   this.map.fitBounds(bounds,
     { padding: [32, 32], maxZoom: 14, animate: !reduceMotion() });
 };
+
+/**
+ * いま読んでいる立ち寄りを、地図の上でも示す（js/follow.js から）。
+ *
+ * 触れたとき（highlight）とは分けます。読んでいるだけで吹き出しが
+ * 次々に開くと、地図が文字で埋まります。ここでは印を濃くして、
+ * 画面の外にあるときだけ地図を寄せます。縮尺は変えません。
+ */
+TripMap.prototype.follow = function follow(spotId) {
+  if (this.following === spotId) return;
+  const prev = this.following && this.bySpot.get(this.following);
+  prev?.getElement?.()?.classList.remove("reading");
+  this.following = spotId ?? null;
+  const marker = spotId && this.bySpot.get(spotId);
+  if (!marker || !this.map) return;
+  marker.getElement?.()?.classList.add("reading");
+  const at = marker.getLatLng?.();
+  if (at && !this.map.getBounds().pad(-0.1).contains(at)) {
+    this.map.panTo(at, { animate: !reduceMotion() });
+  }
+};

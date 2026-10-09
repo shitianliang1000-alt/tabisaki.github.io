@@ -26,22 +26,27 @@ const app = document.getElementById("app");
 function el(tag, attrs = {}, ...kids) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
-    if (k === "class") node.className = v;
-    else if (k.startsWith("on") && typeof v === "function") {
-      node.addEventListener(k.slice(2).toLowerCase(), v);
-    } else if (k.startsWith("on") && typeof v === "string") {
-      // Neutralize inline event handlers passed as strings
-      // Do nothing to prevent the attribute from being added to the element entirely
-    } else if (["href", "src", "action", "formaction", "data"].includes(k) && typeof v === "string") {
-      const sanitized = v.replace(/[\x00-\x20]/g, "").toLowerCase();
-      const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
-      if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
-        node.setAttribute(k, "about:blank");
-      } else {
-        node.setAttribute(k, v);
+    const lowerK = k.toLowerCase();
+    if (lowerK === "class") node.className = v;
+    else if (lowerK.startsWith("on")) {
+      if (typeof v === "function") {
+        node.addEventListener(lowerK.slice(2), v);
       }
-    } else if (v !== null && v !== undefined && v !== false) {
-      node.setAttribute(k, v);
+      // Neutralize inline event handlers passed as strings or array bypasses
+      // Do nothing to prevent the attribute from being added to the element entirely
+    } else if (["href", "src", "action", "formaction"].includes(lowerK)) {
+      if (v !== null && v !== undefined && v !== false) {
+        const strV = String(v);
+        const sanitized = strV.replace(/[\x00-\x20]/g, "").toLowerCase();
+        const isDangerousData = sanitized.startsWith("data:") && !sanitized.startsWith("data:image/");
+        if (sanitized.startsWith("javascript:") || sanitized.startsWith("vbscript:") || isDangerousData) {
+          node.setAttribute(k, "about:blank");
+        } else {
+          node.setAttribute(k, strV);
+        }
+      }
+    } else {
+      node.setAttribute(k, String(v));
     }
   }
   for (const c of kids.flat()) {
