@@ -1465,7 +1465,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .pace-bar > i { display: block; height: 100%; }
 .pace-bar > i.sight { background: var(--md-sys-color-primary); }
 .pace-bar > i.move  { background: var(--md-sys-color-tertiary); }
-.pace-bar > i.meal  { background: var(--md-sys-color-secondary); }
+/* 食事は琥珀です。藍（見る）・青緑（動く）だけの画面に、1色だけ
+   暖かい色を足します。食べるのは、旅でいちばん「人の時間」だからです。
+   以前は secondary（＝主色と同じ藍）で、見る時間と見分けられませんでした。 */
+.pace-bar > i.meal  { background: var(--tabi-amber); }
 .pace-bar > i.free  { background: var(--md-sys-color-outline-variant); }
 .pace-legend {
   display: flex; flex-wrap: wrap; gap: 8px 18px; list-style: none;
@@ -1475,7 +1478,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .pace-legend .dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
 .pace-legend .dot.sight { background: var(--md-sys-color-primary); }
 .pace-legend .dot.move  { background: var(--md-sys-color-tertiary); }
-.pace-legend .dot.meal  { background: var(--md-sys-color-secondary); }
+.pace-legend .dot.meal  { background: var(--tabi-amber); }
 .pace-legend .dot.free  { background: var(--md-sys-color-outline-variant); }
 .pace-legend b { font-weight: 500; }
 .pace-legend span { color: var(--md-sys-color-on-surface-variant); }
@@ -1628,8 +1631,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   box-shadow: 0 0 0 3px var(--md-sys-color-surface-container-highest);
 }
 .tl.meal .rail i {
-  background: var(--md-sys-color-secondary);
-  box-shadow: 0 0 0 4px var(--md-sys-color-secondary-container);
+  background: var(--tabi-amber);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--tabi-amber) 22%,
+                                  var(--md-sys-color-surface));
 }
 .tl.lodging .rail i {
   background: var(--md-sys-color-tertiary);
