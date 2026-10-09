@@ -460,7 +460,8 @@ export function buildItinerary(input) {
     const label = returnsToStart(trip)
       ? `${lastRegion.station || lastRegion.name} → ${end.place.name}`
       : `${lastRegion.station || lastRegion.name} → ${end.place.name}（最終目的地）`;
-    items.push({
+    // 帰りの便も、乗る路線の手順を付けます（行きと同じ形）。
+    items.push(withTransit({
       id: nextId(), kind: "transit",
       start: startBack, end: addMinutes(startBack, backMin),
       title: label,
@@ -476,7 +477,7 @@ export function buildItinerary(input) {
       costYen: 0,
       reason: trip.endMode === END_MODES.RETURN_TO_ORIGIN
         ? "帰着時刻に間に合う便" : "最終目的地に向かう便",
-    });
+    }, legs?.inbound?.transit));
   }
 
   // --- 日をまたぐ区間は、着いた日にも「着いた」を置く ---

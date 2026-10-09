@@ -41,7 +41,8 @@ import { QuotaBlockedError, meteredFetch } from "./quota.js";
 import { estimateMinutes, haversineKm, isSlowTerrain, taxiMinutes }
   from "./feasibility.js";
 import { findStop, nearbyStops, nearestStop } from "./stops.js";
-import { summarizeTransitLeg, transitFieldMask } from "./transit.js";
+import { summarizeTransitLeg, summarizeYahooRoute, transitFieldMask }
+  from "./transit.js";
 import { KIND_NOTE, asksTimetable, classifyLine, kindsOf, preferredKinds,
   yahooFlags } from "./modes.js";
 import { resetYahooCooldown, resetYahooPace, searchYahooTransit, yahooCooldown }
@@ -886,6 +887,9 @@ async function yahooLeg(a, b, opts) {
       searchedAt: yahoo.searchedAt ?? null,
       stations: { from: from.name, to: to.name, walkMeasured: false },
       yahoo: yahoo.meta ?? null,
+      // 乗る路線と乗り場の手順（どのバスに、どこから乗るのか）。
+      // 旅程の行の「乗換の手順」で開けます。
+      transit: summarizeYahooRoute(yahoo.meta, { walkA, walkB }) ?? undefined,
       alternatives: yahoo.meta?.alternatives ?? [],
       // **何に乗る区間なのか。**
       //

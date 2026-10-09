@@ -11,6 +11,8 @@
 // 画面に出せる形に直すだけです。時刻の計算はしません（API が返した
 // 絶対時刻をそのまま使います）。推測で埋めるくらいなら、空にします。
 
+import { classifyLine } from "./modes.js";
+
 /** 秒文字列 "780s" を分に。 */
 function minutesOf(v) {
   if (typeof v === "number") return Math.round(v / 60);
@@ -137,6 +139,13 @@ function headlineOf(s) {
 /** 時刻を HH:MM に。tz を渡すとその時間帯で読みます（試験用）。 */
 function hhmm(d, tz) {
   if (!d) return "";
+  // Yahoo!の区間は「10:15」の形で持っています。保存した旅程を開き直すと
+  // 日時も文字列で戻ってくるので、Date に直してから読みます。
+  if (typeof d === "string") {
+    if (/^\d{1,2}:\d{2}$/.test(d)) return d.padStart(5, "0");
+    d = new Date(d);
+  }
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "";
   return d.toLocaleTimeString("ja-JP", {
     hour: "2-digit", minute: "2-digit", hour12: false,
     ...(tz ? { timeZone: tz } : {}),
@@ -166,6 +175,112 @@ export function describeTransit(summary, opts = {}) {
     return `${times}　${name || s.vehicle || "公共交通"}`
       + `（${s.minutes}分${stops ? `・${stops}` : ""}）`;
   });
+}
+
+/**
+ * Yahoo!路線情報で調べた経路を、乗り換えの手順の形にします。
+ *
+ * **ここが無かったので、バスの経路が画面に出ていませんでした。**
+ *
+ * 手順（segments）は Routes API の答えからしか作っていませんでした。
+ * 日本の電車・バスは Yahoo!で引くようになったので、旅程の行には
+ * 「10:10発→10:52着（37分）・乗換なし・230円」とだけ出て、
+ * 何に乗るのか（京都市営バス7号、どのバス停から乗るのか）が
+ * どこにも書かれていませんでした。中継は区間ごとの路線名と
+ * 乗り場を返しているので（meta.legs）、それを並べます。
+ *
+ * @param {object} meta  中継の meta（legs: [{from,to,departure,arrival,minutes,line}]）
+ * @param {{walkA?:number, walkB?:number}} [opts]
+ *   停留所までの徒歩（分）。旅程の行はこれを含めて数えています。
+ * @returns {object|null} summarizeTransitLeg と同じ形。区間が無ければ null。
+ */
+export function summarizeYahooRoute(meta, opts = {}) {
+  const legs = Array.isArray(meta?.legs) ? meta.legs : [];
+  if (!legs.length) return null;
+  const segments = [];
+  let walkMinutes = 0, rideMinutes = 0, waitMinutes = 0;
+  const walk = (min) => {
+    if (!(min > 0)) return;
+    walkMinutes += min;
+    segments.push({ kind: "walk", minutes: min, meters: 0 });
+  };
+
+  walk(Math.round(opts.walkA ?? 0));
+  let readyAt = null;   // 前の区間を降りて（歩いて）次に乗れる時刻（分）
+  for (const leg of legs) {
+    const { kind, label } = classifyLine(leg?.line);
+    const minutes = Number.isFinite(leg?.minutes) ? leg.minutes
+      : clockGap(leg?.departure, leg?.arrival);
+    if (kind === "walk") {
+      walk(minutes ?? 0);
+      const arrived = clockOf(leg?.arrival);
+      if (arrived != null) readyAt = arrived;
+      else if (readyAt != null) readyAt += minutes ?? 0;
+      continue;
+    }
+    const dep = clockOf(leg?.departure);
+    if (readyAt != null && dep != null) {
+      const wait = (dep - readyAt + 1440) % 1440;
+      if (wait > 0 && wait < 600) {
+        waitMinutes += wait;
+        segments.push({ kind: "wait", minutes: wait, at: stopName(leg?.from) });
+      }
+    }
+    rideMinutes += minutes ?? 0;
+    segments.push({
+      kind: "ride",
+      line: String(leg?.line ?? "").trim() || null,
+      short: null, agency: null,
+      vehicle: label, vehicleKind: kind,
+      headsign: null,
+      from: stopName(leg?.from), to: stopName(leg?.to),
+      stops: null,
+      departAt: leg?.departure ?? null, arriveAt: leg?.arrival ?? null,
+      minutes: minutes ?? 0,
+      meters: 0,
+    });
+    readyAt = clockOf(leg?.arrival);
+  }
+  walk(Math.round(opts.walkB ?? 0));
+
+  const rides = segments.filter((s) => s.kind === "ride");
+  if (!rides.length) return null;
+  return {
+    segments,
+    transfers: Math.max(0, rides.length - 1),
+    walkMinutes, rideMinutes, waitMinutes,
+    boardAt: rides[0].from,
+    alightAt: rides.at(-1).to,
+    firstDepartAt: rides[0].departAt,
+    lastArriveAt: rides.at(-1).arriveAt,
+    line: rides[0].line,
+    // 旅程の行に足す一言。乗換の回数と運賃は行にもう書いてあるので、
+    // ここでは**何に乗るのか**だけを並べます（「京都市営バス・７号」）。
+    headline: rides.map((r) => shortLine(r.line) || r.vehicle)
+      .filter(Boolean).join(" → "),
+  };
+}
+
+/** 「京都市営バス・７号・四条河原町 銀閣寺行」→「京都市営バス・７号・四条河原町」 */
+function shortLine(line) {
+  return String(line ?? "").replace(/\s+\S+行$/, "").trim();
+}
+
+/** 「銀閣寺道/京都市営バス」→「銀閣寺道」。会社名は路線名のほうに出ます。 */
+function stopName(name) {
+  const s = String(name ?? "").trim();
+  if (!s) return null;
+  return s.replace(/\/[^/()（）]+$/, "") || s;
+}
+
+function clockOf(hm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm ?? ""));
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+function clockGap(a, b) {
+  const x = clockOf(a), y = clockOf(b);
+  return x == null || y == null ? null : (y - x + 1440) % 1440;
 }
 
 /**
