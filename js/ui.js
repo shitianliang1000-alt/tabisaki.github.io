@@ -2174,7 +2174,11 @@ function renderItem(item, index, itin, handlers, sunNote) {
   if (item.kind === "spot" && item.place && handlers.onSpotEdit) {
     const id = item.spotId ?? item.place.id;
     const row = el("div", { class: "spot-actions" });
-    const act = (action, label, hint) => {
+    // 読み上げの名前には、**見えている字をそのまま含めます**。
+    // 「別の候補」と見えているボタンが「小町通りを別の場所に差し替える」
+    // と読まれると、声で操作する人が「別の候補を押して」と言っても
+    // 通じません（axe の label-content-name-mismatch）。
+    const act = (action, label, name) => {
       const b = el("button", {
         type: "button", class: "spot-action", "data-action": action,
         // 読み上げの名前は、見えている言葉から始めます。音声で操作する
@@ -2189,8 +2193,8 @@ function renderItem(item, index, itin, handlers, sunNote) {
       return b;
     };
     row.append(
-      act("replace", "別の候補", "別の場所に差し替える"),
-      act("remove", "外す", "旅程から外す"),
+      act("replace", "別の候補", `${item.title}の別の候補を出す`),
+      act("remove", "外す", `${item.title}を旅程から外す`),
     );
     info.append(row);
   }

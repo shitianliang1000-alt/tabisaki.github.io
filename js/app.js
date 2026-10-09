@@ -35,7 +35,7 @@ import { followReading } from "./follow.js";
 import { applyEdit, describeEdit, parseEdit } from "./edit.js";
 import { applyReplan } from "./replan.js";
 import { confidenceOf, describeSource, freshnessOf } from "./confidence.js";
-import { userFacing } from "./errors.js";
+import { isNetworkFailure, userFacing } from "./errors.js";
 import { spotFit, tripFit } from "./fit.js";
 import { paceBreakdown, slackLevel } from "./score.js";
 import { VARIANTS, distinguishOf, recommendOf, summaryOf, tripsFor }
@@ -43,6 +43,7 @@ import { VARIANTS, distinguishOf, recommendOf, summaryOf, tripsFor }
 import { $, el, openSheet, renderItinerary, renderProgress, renderToday,
          scrollBehavior, suggestionButton } from "./ui.js";
 import { catchUp } from "./today.js";
+import { isOffline, watchConnection } from "./online.js";
 import { watchArrival } from "./arrive.js";
 import { armNotices, askNotifyPermission, scheduleNotices }
   from "./notify.js";
@@ -111,6 +112,9 @@ async function boot() {
   configureQuota({ ask: askQuota, onChange: showQuota });
 
   registerServiceWorker();
+  // 圏外のあいだは、そのことを上に1行出します（js/online.js）。
+  const netBar = $("#net-status");
+  if (netBar) watchConnection(netBar);
   renderRecent();
 
   fillPlaces();
@@ -1793,6 +1797,11 @@ function showError(text, suggestions = [], kind = "plan") {
   box.hidden = !text;
   if (!text) return;
 
+  // 通信そのものが切れたときは、ブラウザの原文（Failed to fetch）を
+  // そのまま出さず、圏外かどうかで言い分けます（js/errors.js）。
+  if (kind === "plan" && isNetworkFailure(text)) {
+    kind = isOffline() ? "offline" : "network";
+  }
   const m = userFacing(kind, text);
   const notice = el("div", { class: "notice notice--error" });
   notice.append(el("h3", {}, m.title === "うまくいきませんでした"

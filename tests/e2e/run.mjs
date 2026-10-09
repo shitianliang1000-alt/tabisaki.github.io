@@ -1190,6 +1190,64 @@ await check("指で押せる大きさになっている（44pt）", async () => 
   }
 });
 
+// 旅程の画面の中も、指で押せる大きさになっていること。
+//
+// 上の試験は条件の画面だけを、部品ごとに1つずつ見ています。旅程の
+// カードの中に足した小さな操作（「別の候補」「外す」、注記の中の
+// 「地図」、いる時間のバー）は、36px・22px・28px のまま残っていました。
+// ここでは、旅程を1本つくって、見えている押せるものを全部見ます。
+await check("旅程の画面でも、押せるものが 44pt ある", async () => {
+  const phone = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true, isMobile: true, serviceWorkers: "block",
+  });
+  const pg = await phone.newPage();
+  if (process.env.E2E_OFFLINE) {
+    const origin = new URL(BASE).origin;
+    await pg.route((u) => u.origin !== origin,
+      (route) => route.abort("connectionrefused"));
+  }
+  const answer = setInterval(() => {
+    pg.evaluate(() => {
+      const dlg = document.getElementById("quota-dialog");
+      if (dlg?.open) document.getElementById("quota-go")?.click();
+    }).catch(() => {});
+  }, 500);
+  try {
+    await pg.goto(`${BASE}/index.html`, { waitUntil: "domcontentloaded" });
+    await until(pg, () => !document.getElementById("make-plan").disabled);
+    await pg.click('[data-example^="温泉でゆっくり"]');
+    await pg.click("#make-plan");
+    await pg.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
+    await pg.waitForTimeout(1000);
+    const bad = await pg.evaluate(() => {
+      const out = new Set();
+      const sel = "#result button, #result a[href], #result summary, "
+        + "#result input, #result select";
+      for (const e of document.querySelectorAll(sel)) {
+        if (e.closest("[hidden]")) continue;
+        if (e.closest("details:not([open]) > :not(summary)")) continue;
+        const r = e.getBoundingClientRect();
+        if (!r.width || !r.height) continue;
+        const a = getComputedStyle(e, "::after");
+        const w = Math.max(r.width, parseFloat(a.minWidth) || 0);
+        const h = Math.max(r.height, parseFloat(a.minHeight) || 0);
+        if (w >= 43.5 && h >= 43.5) continue;
+        // ラベルの中のチェックは、ラベルごと押せます。
+        const label = e.closest("label");
+        if (label && label.getBoundingClientRect().height >= 43.5) continue;
+        out.add(`${e.tagName.toLowerCase()}.${[...e.classList].join(".")} `
+          + `${Math.round(w)}x${Math.round(h)}`);
+      }
+      return [...out];
+    });
+    assert(bad.length === 0, `44pt を下回ります: ${bad.join(" / ")}`);
+  } finally {
+    clearInterval(answer);
+    await phone.close();
+  }
+});
+
 // 指で押したあと、触った跡が残らないこと。
 //
 // :hover の指定に @media (hover: hover) の囲いがありませんでした。
