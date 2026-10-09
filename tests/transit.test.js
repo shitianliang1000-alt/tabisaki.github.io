@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  describeTransit, summarizeTransitLeg, transitFieldMask,
+  describeTransit, summarizeTransitLeg, summarizeYahooRoute, transitFieldMask,
 } from "../js/transit.js";
 
 /** 大阪 → 京都（乗り換え1回）を模した応答。 */
@@ -169,4 +169,59 @@ test("必要な項目だけを、公共交通のときに要求する", () => {
   }
   // 使わない重い項目は取りません（応答が大きくなるだけです）
   assert.ok(!mask.some((m) => /polyline|iconUri/.test(m)));
+});
+
+// --- Yahoo!路線情報の経路 ---------------------------------------------------
+//
+// 京都 → 銀閣寺道（2026-10-13 10:00発）を実際に引いた答えを、中継
+// （server/worker.js の parseRouteDetail）に通したものです。地下鉄から
+// 歩いて、市バスに乗り換えます。これまでは「10:02発→10:39着」としか
+// 出ず、**どのバスに乗るのかが画面のどこにもありませんでした。**
+
+const KYOTO_GINKAKUJI = {
+  departure: "10:02", arrival: "10:39", transfers: 1, fareYen: 490,
+  legs: [
+    { kind: "ride", from: "京都", to: "今出川", departure: "10:02",
+      arrival: "10:12", minutes: 10, line: "京都市営烏丸線 国際会館行" },
+    { kind: "ride", from: "今出川", to: "烏丸今出川(地下鉄今出川駅)/京都市営バス",
+      departure: "10:14", arrival: "10:18", minutes: 4, line: "徒歩" },
+    { kind: "ride", from: "烏丸今出川(地下鉄今出川駅)/京都市営バス",
+      to: "銀閣寺道/京都市営バス", departure: "10:24", arrival: "10:39",
+      minutes: 15, line: "京都市営バス・２０３号・出町柳駅・銀閣寺 錦林車庫行" },
+  ],
+};
+
+test("Yahoo!の経路から、乗るバスと乗り場を手順にする", () => {
+  const t = summarizeYahooRoute(KYOTO_GINKAKUJI, { walkA: 5, walkB: 3 });
+  assert.deepEqual(t.segments.map((s) => s.kind),
+    ["walk", "ride", "walk", "wait", "ride", "walk"]);
+  const bus = t.segments.filter((s) => s.kind === "ride")[1];
+  assert.equal(bus.vehicleKind, "bus");
+  assert.equal(bus.from, "烏丸今出川(地下鉄今出川駅)");
+  assert.equal(bus.to, "銀閣寺道");
+  assert.equal(t.transfers, 1);
+  assert.equal(t.boardAt, "京都");
+  assert.equal(t.alightAt, "銀閣寺道");
+  // 行に足す一言は、何に乗るのか
+  assert.equal(t.headline, "京都市営烏丸線 → 京都市営バス・２０３号・出町柳駅・銀閣寺");
+
+  const lines = describeTransit(t);
+  assert.ok(lines.some((l) => l.includes("10:24 烏丸今出川(地下鉄今出川駅) → 10:39 銀閣寺道")
+    && l.includes("京都市営バス・２０３号")), lines.join("\n"));
+  assert.ok(lines.includes("烏丸今出川(地下鉄今出川駅)で6分待ち"), lines.join("\n"));
+});
+
+test("Yahoo!の区間が無ければ手順は作らない（作り話をしない）", () => {
+  assert.equal(summarizeYahooRoute({ legs: [] }), null);
+  assert.equal(summarizeYahooRoute(null), null);
+  // 歩くだけの答えは、乗る手順になりません
+  assert.equal(summarizeYahooRoute({ legs: [
+    { from: "祇園", to: "京都", departure: "10:00", arrival: "10:20",
+      minutes: 20, line: "徒歩" }] }), null);
+});
+
+test("保存した旅程を開き直しても、手順の時刻が読める", () => {
+  const t = summarizeYahooRoute(KYOTO_GINKAKUJI);
+  const revived = JSON.parse(JSON.stringify(t));
+  assert.deepEqual(describeTransit(revived), describeTransit(t));
 });
