@@ -45,8 +45,8 @@ function el(tag, attrs = {}, ...kids) {
           node.setAttribute(k, strV);
         }
       }
-    } else if (v !== null && v !== undefined && v !== false) {
-      node.setAttribute(k, v);
+    } else {
+      node.setAttribute(k, String(v));
     }
   }
   for (const c of kids.flat()) {
