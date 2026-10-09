@@ -1550,11 +1550,31 @@ function restoreConditions() {
       return "url";
     }
   } catch { /* 壊れたリンクは無視して、保存済みに落ちます */ }
+  let restored = null;
   try {
     const raw = globalThis.localStorage?.getItem(SAVE_KEY);
-    if (raw) { applyFormState(JSON.parse(raw)); return "saved"; }
+    if (raw) { applyFormState(JSON.parse(raw)); restored = "saved"; }
   } catch { /* 無ければ既定値のまま */ }
-  return null;
+  // エリアのページ（areas/）から来たとき。`?q=` は「どんな旅にしたい？」
+  // の欄に入れるだけです。**勝手に組み始めません**（日時や出発地は、
+  // その人の保存済みの条件のほうが合っています）。
+  try {
+    const note = noteFromQuery(location.search);
+    if (note) {
+      const box = $("#note");
+      box.value = note;
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+      restored = "query";
+    }
+  } catch { /* 読めない欄は無視します */ }
+  return restored;
+}
+
+/** `?q=` の文。長すぎるものは切ります（欄に貼れる長さで十分です）。 */
+function noteFromQuery(search) {
+  const q = new URLSearchParams(search ?? "").get("q");
+  const text = String(q ?? "").replace(/\s+/g, " ").trim();
+  return text ? text.slice(0, 200) : "";
 }
 
 /** いまの条件をURLにして、共有できるようにします。 */

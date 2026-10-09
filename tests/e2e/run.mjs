@@ -1452,6 +1452,18 @@ await check("待っているあいだの絵が、描かれている", async () =
   }
 });
 
+await check("エリアのページから来ると、旅の希望が欄に入っている（組み始めない）", async () => {
+  // areas/ のページの「この旅程をつくる」は、`?q=` で文を渡します。
+  const text = "箱根で温泉と美術館をめぐる日帰り";
+  await page.goto(`${BASE}/index.html?q=${encodeURIComponent(text)}`,
+    { waitUntil: "domcontentloaded" });
+  await until(page, () => !document.getElementById("make-plan").disabled);
+  const got = await page.$eval("#note", (e) => e.value);
+  assert(got === text, `欄に入っていません: ${got}`);
+  const started = await page.$eval("#progress", (e) => !e.hidden);
+  assert(!started, "押していないのに、組み始めています");
+});
+
 await check("ページの例外が出ていない", () => {
   assert(pageErrors.length === 0, pageErrors.join(" / "));
 });
