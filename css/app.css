@@ -957,6 +957,41 @@ p, li { text-wrap: pretty; }
 }
 .result.map-full .itin { max-height: 240px; overflow-y: auto; }
 
+/* 広い画面では、地図を旅程の横に固定します。
+   上に置いたままだと、旅程を読み進めたとたんに地図が画面の外へ出て、
+   「この順で無理がないか」を確かめるには上まで戻ることになります。
+   横に並べれば、読んでいる行と地図の印が同時に見えます（読んでいる
+   行の印は js/follow.js が濃くします）。幅は js/app.js の
+   sideMapLayout() と揃えてあります。 */
+@media (min-width: 1360px) {
+  .result {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 40%);
+    grid-auto-rows: min-content;
+    align-items: start;
+  }
+  .result > :not(.map) { grid-column: 1; }
+  .result > .map {
+    grid-column: 2; grid-row: 1 / span 20;
+    position: sticky; top: 16px;
+    height: calc(100vh - 32px);
+    height: calc(100dvh - 32px);
+    margin: 16px 20px 16px 0;
+  }
+  /* 地図の代わりの順路の図（タイルを読めないとき）も、同じ場所に。 */
+  .result > .map.map-fallback { height: auto; max-height: calc(100vh - 32px); overflow: auto; }
+  /* もう大きく出ているので、「大きく見る」は要りません。 */
+  .result .map-expand { display: none; }
+  .result.map-full .map { height: calc(100vh - 32px); }
+  .result.map-full .itin { max-height: none; overflow: visible; }
+}
+
+/* 読んでいる行の印（js/follow.js）。触れたとき（.hl）よりは控えめに。 */
+.trip-pin.reading > span {
+  box-shadow: 0 0 0 3px #fff, 0 0 0 7px rgba(21, 122, 130, .45),
+              0 3px 10px rgba(0, 0, 0, .4);
+}
+
 /* 旅程の面も、横持ちのノッチを避けます（上と同じ考えです）。
    余白は変数にしておきます。中で「余白の外まで敷きたいもの」
    （日のタブなど）が、同じ値を使えるようにするためです。 */
@@ -1613,6 +1648,40 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .card-info { padding: 14px 16px 16px; }
+
+/* 旅程のカードの写真。届くまでは高さ0で、届いたら開きます
+   （js/ui.js の spotPhoto）。取れなかったカードに空の枠は残しません。 */
+.card-photo-band {
+  height: 0; overflow: hidden;
+  transition: height var(--md-sys-motion-medium, 300ms) var(--md-sys-motion-standard, ease);
+}
+.card-photo-band.on { height: 148px; }
+.card-photo-band img {
+  display: block; width: 100%; height: 148px; object-fit: cover;
+  opacity: 0; transition: opacity 400ms ease;
+}
+.card-photo-band.on img { opacity: 1; }
+@media (max-width: 860px) {
+  .card-photo-band.on, .card-photo-band img { height: 120px; }
+}
+
+/* 立ち寄りの補足を畳んだもの（js/ui.js の renderItem）。 */
+.spot-more { margin-top: 10px; }
+.spot-more > summary {
+  cursor: pointer; min-height: 44px; display: flex; align-items: center;
+  color: var(--md-sys-color-primary); font-size: var(--hig-t-subhead);
+  list-style: none;
+}
+.spot-more > summary::-webkit-details-marker { display: none; }
+.spot-more > summary::before {
+  content: "\203A"; display: inline-block; width: 1em; margin-right: 4px;
+  transition: transform 160ms ease;
+}
+.spot-more[open] > summary::before { transform: rotate(90deg); }
+.spot-more-body > :first-child { margin-top: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .card-photo-band, .card-photo-band img, .spot-more > summary::before { transition: none; }
+}
 
 /* スポットのカードは、写真の代わりに分類の色をごく薄く敷くだけにします
    （--card-hue は js/ui.js が art.js の色相を入れます）。 */
@@ -2416,7 +2485,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   .pane-form, .map, .map-expand, .settings-fab, .md-fab-extended,
   .day-tabs, .item-links, .chev, .panel.talk, .panel.adjust,
   .variants, .actions, .recheck, .spot-actions, .spot-tune, .dropped,
-  .back-to-form, #progress, #placeholder, .recent,
+  .back-to-form, #progress, #placeholder, .recent, .card-photo-band,
   .panel.story, .more, .mix,
   /* 畳まれた「選んだ理由」は、紙では三角の付いた空行になるだけです。 */
   .tl details, .transit-steps { display: none !important; }

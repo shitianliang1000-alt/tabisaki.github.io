@@ -1491,6 +1491,39 @@ function cardArt(spot, { tall = false } = {}) {
   return box;
 }
 
+/**
+ * 旅程のカードの上に敷く写真。
+ *
+ * 写真が取れるまでは何も出しません（箱は畳んだまま）。取れなかった
+ * カードに空の枠が残ると、壊れて見えます。届いたら静かに開きます。
+ * Wikipedia の記事名を持たない場所は、問い合わせもしません。
+ */
+function spotPhoto(spot) {
+  if (!spot?.wikipedia) return null;
+  const box = el("div", { class: "card-photo-band", "aria-hidden": "true" });
+  const img = el("img", { alt: "", decoding: "async" });
+  box.append(img);
+  photoFor(spot).then((url) => {
+    if (!url) return;
+    img.addEventListener("load", () => box.classList.add("on"), { once: true });
+    // 要約APIの縮小版は幅320pxです。カードの幅いっぱいに敷くと粗いので、
+    // 640px 版を先に頼みます。元の写真がそれより小さいと Wikimedia は
+    // 返さないので、そのときは届いた縮小版に戻します。
+    const wide = widerThumb(url);
+    if (wide !== url) {
+      img.addEventListener("error", () => { img.src = url; }, { once: true });
+    }
+    img.src = wide;
+  }).catch(() => { /* 写真は飾りです */ });
+  return box;
+}
+
+/** Wikimedia の縮小版URLを、幅640pxのものに書き換えます。形が違えばそのまま。 */
+export function widerThumb(url, px = 640) {
+  return String(url ?? "").replace(/\/(\d+)px-([^/]+)$/,
+    (m, w, rest) => (Number(w) < px ? `/${px}px-${rest}` : m));
+}
+
 /** 携帯の幅か。シートを半分で開くかどうかの判断に使います。 */
 function isNarrowScreen() {
   return Boolean(globalThis.matchMedia?.("(max-width: 860px)")?.matches);
@@ -1793,7 +1826,16 @@ function renderItem(item, index, itin, handlers, sunNote) {
     body.style.setProperty("--card-hue", spotArt.hue);
   }
   const info = item.kind === "spot" ? el("div", { class: "card-info" }) : body;
-  if (item.kind === "spot") body.append(info);
+  if (item.kind === "spot") {
+    const photo = spotPhoto(item.place);
+    if (photo) body.append(photo);
+    body.append(info);
+  }
+  // 立ち寄りの補足（広い場所・同行者・選んだ理由など）は、畳んで後ろに
+  // 回します。どれも正しい話ですが、旅程を上から追っている人がまず
+  // 知りたいのは「何時に・どこで・何時まで開いているか」です。
+  // 全部を開いて並べると、その3つが説明の間に埋もれます。
+  const extra = item.kind === "spot" ? el("div", { class: "spot-more-body" }) : info;
 
   const title = el("div", { class: "title" },
     icon(spotArt?.icon ?? iconFor(item, itin)),
@@ -1955,7 +1997,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
     const sh = item.shape;
     const stop = (st) => (st ? `最寄り: ${st.name}${st.km ? `・約${st.km}km` : ""}` : "最寄りは分かりません");
     if (sh.entry && sh.exit) {
-      info.append(el("p", { class: "sun shape" },
+      extra.append(el("p", { class: "sun shape" },
         icon("forward"),
         el("span", {},
           `これは道の名前です。収録には両端があります（約${sh.km}km）。`
@@ -1965,7 +2007,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
           + "なります。この旅程の時刻は入口へ戻る前提で組んであるので、"
           + "通り抜ける場合は次の移動を出口から確かめてください。")));
     } else {
-      info.append(el("p", { class: "sun shape" },
+      extra.append(el("p", { class: "sun shape" },
         icon("forward"),
         el("span", {},
           "これは道の名前です。収録にあるのは道の上の1点だけで、"
@@ -1991,7 +2033,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
     if (sh.stop) {
       parts.push(`代表の点の最寄りは ${sh.stop.name}（約${sh.stop.km}km）です。`);
     }
-    info.append(el("p", { class: "sun shape" },
+    extra.append(el("p", { class: "sun shape" },
       icon("area"),
       el("span", {}, parts.join(""))));
   }
@@ -2002,7 +2044,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
   // だけなので、**「行けません」とは言いません**。何がつらい分類
   // なのかと、確かめ先を書きます。決めるのは本人です。
   if (item.access?.why) {
-    info.append(el("p", { class: "sun access" },
+    extra.append(el("p", { class: "sun access" },
       icon("access"),
       el("span", {}, item.access.why)));
   }
@@ -2014,7 +2056,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
   // 「小樽美術館」と「小樽文学館」は同じ建物の別の施設です）。
   // 決めずに、そう書きます。
   if (item.sameSpot?.length) {
-    info.append(el("p", { class: "sun samespot" },
+    extra.append(el("p", { class: "sun samespot" },
       icon("samespot"),
       el("span", {},
         `${item.sameSpot.join("・")}と同じ地点です`
@@ -2022,7 +2064,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
         + "同じものかどうかはこちらでは分かりません）")));
   }
   if (item.kind === "spot" && (item.reason || item.fit)) {
-    info.append(el("p", { class: "reason" }, item.fit?.summary ?? item.reason));
+    extra.append(el("p", { class: "reason" }, item.fit?.summary ?? item.reason));
     // なぜここが選ばれたのか。軸ごとに出すと、納得も反論もできます。
     if (item.fit?.axes?.length) {
       const box = el("details", { class: "transit-steps" });
@@ -2040,7 +2082,7 @@ function renderItem(item, index, itin, handlers, sunNote) {
             el("span", {}, "★".repeat(q.stars)),
             el("span", { class: "off" }, "★".repeat(5 - q.stars)))))));
       box.append(inner);
-      info.append(box);
+      extra.append(box);
     }
   }
   if (sunNote) {
@@ -2098,6 +2140,13 @@ function renderItem(item, index, itin, handlers, sunNote) {
       `¥${item.costYen.toLocaleString()}${item.estimated === false ? "" : "（目安）"}`));
   }
 
+  if (extra !== info && extra.childElementCount) {
+    const fold = el("details", { class: "spot-more" },
+      el("summary", {}, "この場所のくわしいこと"));
+    fold.append(extra);
+    info.append(fold);
+  }
+
   // 食事・宿泊・スポットの外部リンク
   const ctx = {
     lat: item.near?.lat ?? item.place?.lat,
@@ -2128,7 +2177,10 @@ function renderItem(item, index, itin, handlers, sunNote) {
     const act = (action, label, hint) => {
       const b = el("button", {
         type: "button", class: "spot-action", "data-action": action,
-        "aria-label": `${item.title}を${hint}`,
+        // 読み上げの名前は、見えている言葉から始めます。音声で操作する
+        // 人は「別の候補」と言って押します。名前にその言葉が無いと、
+        // 押せません（axe の label-content-name-mismatch）。
+        "aria-label": `${label}（${item.title}を${hint}）`,
       }, label);
       b.addEventListener("click", (e) => {
         e.stopPropagation();

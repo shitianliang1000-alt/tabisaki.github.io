@@ -108,6 +108,21 @@ if (process.env.E2E_OFFLINE) {
     (route) => route.abort("connectionrefused"));
 }
 
+// 写真（Wikipedia）は、こちらで答えます。外へ出られない環境でも、
+// 「写真が届いたらカードに載るか」を確かめるためです。後から足した
+// route が先に効くので、上の「外は切る」より優先されます。
+const PHOTO_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAABAAAAAKCAIAAAAy3EnLAAAAF0lEQVR4nGOM6sljIAUwkaR6VMOg0QAAnTgBaLn0Cs0AAAAASUVORK5CYII=", "base64");
+await page.route(/ja\.wikipedia\.org\/api\/rest_v1\/page\/summary\//, (route) =>
+  route.fulfill({
+    status: 200, contentType: "application/json",
+    headers: { "access-control-allow-origin": "*" },
+    body: JSON.stringify({ thumbnail: {
+      source: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/T.png/320px-T.png" } }),
+  }));
+await page.route(/upload\.wikimedia\.org\//, (route) =>
+  route.fulfill({ status: 200, contentType: "image/png",
+                  headers: { "access-control-allow-origin": "*" }, body: PHOTO_PNG }));
+
 // 「もう少し詳しく調べますか」には、利用者として「詳しく調べる」と
 // 答え続けます。外へ出られない環境では失敗した呼び出しも数に入るので、
 // 旅程を数本つくると確認が出ます。出たままだと、後ろの操作が全部
@@ -376,6 +391,48 @@ await check("旅程ができる", async () => {
   assert(title.length > 0, "旅先の名前が出ていません");
   const spots = await page.$$eval(".tl .body", (els) => els.length);
   assert(spots > 0, "立ち寄り先が1つも出ていません");
+});
+
+await check("写真が届いた立ち寄りは、カードに写真が載る", async () => {
+  // 記事名を持つ場所だけが問い合わせます。持つ場所が旅程に無ければ、
+  // 見るものがありません。
+  const want = await page.$$eval(".tl.spot .card-photo-band", (els) => els.length);
+  if (!want) return;
+  await until(page, () => document.querySelector(".card-photo-band.on"),
+    { timeout: 15_000 });
+  const h = await page.$eval(".card-photo-band.on",
+    (e) => e.getBoundingClientRect().height);
+  assert(h >= 100, `写真の帯が低すぎます: ${h}px`);
+});
+
+await check("写真が無いカードに、空の枠が残らない", async () => {
+  const empty = await page.$$eval(".card-photo-band:not(.on)",
+    (els) => els.map((e) => e.getBoundingClientRect().height));
+  assert(empty.every((h) => h === 0), `空の枠があります: ${empty.join(", ")}`);
+});
+
+await check("立ち寄りの補足は、畳まれている", async () => {
+  // 何時に・どこで・何時まで開いているか、が先です。理由や広い場所の
+  // 断り書きは、開けば読めるところに置きます。
+  const got = await page.$$eval(".tl.spot", (els) => els.map((li) => ({
+    folded: Boolean(li.querySelector("details.spot-more:not([open]) .reason")),
+    loose: Boolean(li.querySelector(".card-info > .reason, .card-info > .shape")),
+  })));
+  assert(got.some((g) => g.folded), "選んだ理由が畳まれていません");
+  assert(!got.some((g) => g.loose), "補足が畳まれずに出ています");
+});
+
+await check("広い画面では、地図が旅程の横に固定される", async () => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(300);
+  const got = await page.$eval("#map", (e) => {
+    const cs = getComputedStyle(e);
+    const it = document.getElementById("itinerary").getBoundingClientRect();
+    return { pos: cs.position, left: e.getBoundingClientRect().left, itRight: it.right };
+  });
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  assert(got.pos === "sticky", `地図が固定されていません: ${got.pos}`);
+  assert(got.left >= got.itRight - 1, "地図が旅程の横に並んでいません");
 });
 
 await check("要約 → 旅程 → 3案 → 言葉で直す → 詳細 の順に出る", async () => {
@@ -1393,6 +1450,18 @@ await check("待っているあいだの絵が、描かれている", async () =
   } finally {
     await pg.close();
   }
+});
+
+await check("エリアのページから来ると、旅の希望が欄に入っている（組み始めない）", async () => {
+  // areas/ のページの「この旅程をつくる」は、`?q=` で文を渡します。
+  const text = "箱根で温泉と美術館をめぐる日帰り";
+  await page.goto(`${BASE}/index.html?q=${encodeURIComponent(text)}`,
+    { waitUntil: "domcontentloaded" });
+  await until(page, () => !document.getElementById("make-plan").disabled);
+  const got = await page.$eval("#note", (e) => e.value);
+  assert(got === text, `欄に入っていません: ${got}`);
+  const started = await page.$eval("#progress", (e) => !e.hidden);
+  assert(!started, "押していないのに、組み始めています");
 });
 
 await check("ページの例外が出ていない", () => {
