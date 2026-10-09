@@ -1952,6 +1952,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   flex: 1 1 110px; min-width: 96px; max-width: 180px;
   height: 28px; margin: 0; accent-color: var(--md-sys-color-primary);
 }
+/* 指で押す端末では、箱の高さを 44pt にします（溝の太さは変わりません）。
+   range は当たり判定が要素そのものなので、::after では広げられません。
+   「別の候補」「外す」と注記の中の「地図」は、css/hig.css の透明な面で
+   広げています。 */
+@media (pointer: coarse) {
+  .spot-tune .tune-bar { height: var(--hig-touch); }
+}
 .spot-tune .tune-out {
   min-width: 56px; font-size: var(--hig-t-caption1); font-variant-numeric: tabular-nums;
   color: var(--hig-label);
