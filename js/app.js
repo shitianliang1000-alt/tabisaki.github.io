@@ -31,6 +31,7 @@ import { artFor } from "./art.js";
 import { icon } from "./icons.js";
 import { mixTargets } from "./mix.js";
 import { photoFor } from "./photos.js";
+import { followReading } from "./follow.js";
 import { applyEdit, describeEdit, parseEdit } from "./edit.js";
 import { applyReplan } from "./replan.js";
 import { confidenceOf, describeSource, freshnessOf } from "./confidence.js";
@@ -1553,11 +1554,31 @@ function restoreConditions() {
       return "url";
     }
   } catch { /* 壊れたリンクは無視して、保存済みに落ちます */ }
+  let restored = null;
   try {
     const raw = globalThis.localStorage?.getItem(SAVE_KEY);
-    if (raw) { applyFormState(JSON.parse(raw)); return "saved"; }
+    if (raw) { applyFormState(JSON.parse(raw)); restored = "saved"; }
   } catch { /* 無ければ既定値のまま */ }
-  return null;
+  // エリアのページ（areas/）から来たとき。`?q=` は「どんな旅にしたい？」
+  // の欄に入れるだけです。**勝手に組み始めません**（日時や出発地は、
+  // その人の保存済みの条件のほうが合っています）。
+  try {
+    const note = noteFromQuery(location.search);
+    if (note) {
+      const box = $("#note");
+      box.value = note;
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+      restored = "query";
+    }
+  } catch { /* 読めない欄は無視します */ }
+  return restored;
+}
+
+/** `?q=` の文。長すぎるものは切ります（欄に貼れる長さで十分です）。 */
+function noteFromQuery(search) {
+  const q = new URLSearchParams(search ?? "").get("q");
+  const text = String(q ?? "").replace(/\s+/g, " ").trim();
+  return text ? text.slice(0, 200) : "";
 }
 
 /** いまの条件をURLにして、共有できるようにします。 */
@@ -2577,10 +2598,24 @@ function show(itin, trip) {
   const points = pointsFromItinerary(itin, trip, { onSpot: openSpotSheet });
   state.map.render(points);
   state.map.invalidate();
+  // 広い画面では地図が旅程の横に固定されます。読み進めた行の印を、
+  // 地図の側でも濃くします（js/follow.js）。狭い画面では地図は上に
+  // あって読んでいるあいだは見えないので、動かしません。
+  state.stopFollow?.();
+  state.stopFollow = sideMapLayout()
+    ? followReading($(".pane-result"),
+        () => document.querySelectorAll("#itinerary .tl.spot[data-spot]"),
+        (id) => state.map.follow(id))
+    : null;
   // 背景の地図も、その旅先へ寄せます。左で条件を直しているあいだも
   // 「いまどこの話をしているか」が背後に残ります。
   const first = points.find((p) => p.kind === "spot") ?? points[0];
   if (first) moveBackgroundMap(first.lat, first.lng, 9);
+}
+
+/** 地図を旅程の横に固定する幅か（css/app.css の同じ値と揃えます）。 */
+function sideMapLayout() {
+  return Boolean(globalThis.matchMedia?.("(min-width: 1360px)")?.matches);
 }
 
 /**

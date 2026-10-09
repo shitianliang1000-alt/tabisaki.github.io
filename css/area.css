@@ -1,0 +1,94 @@
+/* エリア別のページ（tools/build_area_pages.mjs が作る areas/）。
+   アプリ本体の app.css は読みません。2,500行の大半は旅程の画面のもので、
+   読み物のページには要りません。色は hig-tokens.css、字の大きさは
+   hig.css（Dynamic Type の表）を共有します。 */
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--hig-grouped-bg);
+  color: var(--hig-label);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro JP",
+               "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP",
+               "Yu Gothic UI", Meiryo, sans-serif;
+  line-height: 1.75;
+  -webkit-text-size-adjust: 100%;
+}
+a { color: var(--md-sys-color-primary); }
+
+.area-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--hig-separator);
+  background: var(--hig-card);
+}
+.area-bar .brand {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-weight: 700; color: var(--hig-label); text-decoration: none;
+}
+.bar-link { font-size: var(--hig-t-subhead); min-height: 44px; display: inline-flex; align-items: center; }
+
+.area {
+  max-width: 760px; margin: 0 auto;
+  padding: 20px max(16px, env(safe-area-inset-right)) 40px max(16px, env(safe-area-inset-left));
+}
+.crumbs { font-size: var(--hig-t-footnote); color: var(--hig-label-2); }
+h1 { font-size: var(--hig-t-title1); line-height: 1.3; margin: 12px 0 8px; }
+h2 { font-size: var(--hig-t-title3); margin: 0 0 12px; }
+.lead { font-size: var(--hig-t-body); color: var(--hig-label-2); margin-top: 0; }
+.fine { font-size: var(--hig-t-footnote); color: var(--hig-label-2); }
+
+section {
+  background: var(--hig-card); border-radius: 16px;
+  padding: 20px; margin: 20px 0;
+}
+
+.cta {
+  display: inline-flex; align-items: center; min-height: 44px;
+  padding: 8px 16px; border-radius: 12px;
+  background: var(--hig-fill); color: var(--md-sys-color-primary);
+  text-decoration: none; font-weight: 600;
+}
+.cta.primary { background: var(--tabi-indigo); color: var(--hig-on-accent); }
+
+.prompts, .spots, .regions, .prefs, .course { list-style: none; margin: 0; padding: 0; }
+.prompts li { margin: 8px 0; }
+
+.spots li {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
+  padding: 12px 0; border-top: 1px solid var(--hig-separator);
+}
+.spots li:first-child { border-top: 0; }
+.sp-name { font-weight: 600; }
+.sp-meta { font-size: var(--hig-t-footnote); color: var(--hig-label-2); white-space: nowrap; }
+.sp-desc { grid-column: 1 / -1; font-size: var(--hig-t-subhead); color: var(--hig-label-2); }
+
+.regions, .prefs { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.regions a, .prefs a {
+  display: flex; flex-direction: column; gap: 2px; min-height: 44px;
+  padding: 12px 14px; border-radius: 12px;
+  background: var(--hig-card); text-decoration: none; color: var(--hig-label);
+}
+.regions a { background: var(--hig-fill); }
+.regions span, .prefs span { font-size: var(--hig-t-footnote); color: var(--hig-label-2); }
+
+.course li {
+  display: grid; grid-template-columns: 56px 1fr; gap: 2px 12px;
+  padding: 10px 0; border-top: 1px solid var(--hig-separator);
+}
+.course li:first-child { border-top: 0; }
+.c-time { font-variant-numeric: tabular-nums; }
+.c-title small { margin-left: 8px; font-size: var(--hig-t-footnote); color: var(--hig-label-2); }
+.c-text { grid-column: 2; font-size: var(--hig-t-subhead); color: var(--hig-label-2); }
+.course .c-move .c-title, .course .c-free .c-title { color: var(--hig-label-2); font-size: var(--hig-t-subhead); }
+.course .c-spot .c-title { font-weight: 600; }
+
+.area-foot {
+  max-width: 760px; margin: 0 auto;
+  padding: 0 max(16px, env(safe-area-inset-right)) 40px max(16px, env(safe-area-inset-left));
+  font-size: var(--hig-t-footnote); color: var(--hig-label-2);
+}
+
+@media (max-width: 480px) {
+  section { padding: 16px; }
+}
