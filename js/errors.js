@@ -62,7 +62,41 @@ const KINDS = {
     next: "web/ フォルダで `python3 -m http.server 8000` を実行し、"
       + "http://localhost:8000 から開き直してください。",
   },
+  // 旅程を組む途中で、通信そのものが切れたとき。
+  //
+  // 旅先のデータは県ごとに分けてあり、要るぶんだけ取りにいきます
+  // （js/kb.js）。一度開いた土地は端末に残りますが、まだ開いていない
+  // 土地は圏外では読めません。そのとき画面に出ていたのは、ブラウザの
+  // 原文「Failed to fetch」だけでした。
+  offline: {
+    title: "圏外のため、この土地のデータを読み込めませんでした",
+    body: "旅先のデータは、一度開いた土地のぶんだけ端末に残ります。"
+      + "まだ開いていない土地は、圏外では旅程を組めません。"
+      + "保存した旅程は、このまま開けます。",
+    blocking: true,
+    next: "つながったら、もう一度「旅程をつくる」を押してください。",
+  },
+  network: {
+    title: "通信が途中で切れました",
+    body: "旅先のデータを取りにいく途中で、通信が切れました。"
+      + "入力した条件はそのまま残っています。",
+    blocking: true,
+    next: "もう一度「旅程をつくる」を押してください。",
+  },
 };
+
+/**
+ * ブラウザが通信に失敗したときの原文か。
+ *
+ * fetch の失敗は、ブラウザごとに言いかたが違います（Chrome は
+ * 「Failed to fetch」、Firefox は「NetworkError when attempting to fetch
+ * resource.」、Safari は「Load failed」）。どれも利用者には読めません。
+ */
+export function isNetworkFailure(raw) {
+  const detail = String(raw?.message ?? raw ?? "");
+  return /Failed to fetch|NetworkError|Load failed|ERR_INTERNET_DISCONNECTED|network error/i
+    .test(detail);
+}
 
 const FALLBACK = {
   title: "うまくいきませんでした",
@@ -96,6 +130,7 @@ const NOT_SET = {
  * 旅行者に見せる文と、開発者向けの原文を返します。
  *
  * @param {string} kind "routes" | "ai" | "weather" | "photo" | "quota" | "kb"
+ *                      | "offline" | "network"
  * @param {string|Error} raw 元のエラー
  * `next` は「次に何をすればいいか」です。
  *

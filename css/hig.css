@@ -497,13 +497,15 @@
      44pt にします。見た目は 32px のままです。 */
   .note-examples .md-chip, .date-presets .md-chip,
   .pin-chip, .item-links .link, .md-icon-btn, .md-sheet .sheet-toggle,
-  .recent-del, .tl .chev, .spot-tune .tune-move, .tune-grip {
+  .recent-del, .tl .chev, .spot-tune .tune-move, .tune-grip,
+  .spot-action, .tl .backup .link, .tl .reserve .link {
     position: relative;
   }
   .note-examples .md-chip::after, .date-presets .md-chip::after,
   .pin-chip::after, .item-links .link::after, .md-icon-btn::after,
   .md-sheet .sheet-toggle::after, .recent-del::after, .tl .chev::after,
-  .spot-tune .tune-move::after, .tune-grip::after {
+  .spot-tune .tune-move::after, .tune-grip::after,
+  .spot-action::after, .tl .backup .link::after, .tl .reserve .link::after {
     content: "";
     position: absolute; left: 50%; top: 50%;
     width: 100%; height: 100%;
