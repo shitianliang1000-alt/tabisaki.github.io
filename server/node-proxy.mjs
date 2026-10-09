@@ -241,7 +241,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     }
     if (!GEMINI_KEY) console.warn("GEMINI_API_KEY が空です");
     if (!MAPS_KEY) console.warn("MAPS_API_KEY が空です");
-    if (!ALLOW_ORIGIN) {
+    if (ALLOW_ORIGIN.length === 0) {
       console.warn("ALLOW_ORIGIN が空です。公開するなら必ず設定してください"
         + "（例: ALLOW_ORIGIN=https://example.com）");
     }
