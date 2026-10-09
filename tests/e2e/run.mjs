@@ -1395,6 +1395,21 @@ await check("待っているあいだの絵が、描かれている", async () =
   }
 });
 
+await check("圏外のあいだは、そのことが上に出る", async () => {
+  const ctx = page.context();
+  await ctx.setOffline(true);
+  try {
+    await until(page, () => !document.getElementById("net-status").hidden,
+      { timeout: 5000 });
+    const text = await page.textContent("#net-status");
+    assert(/圏外/.test(text) && /目安/.test(text), `帯の文が違います: ${text}`);
+  } finally {
+    await ctx.setOffline(false);
+  }
+  await until(page, () => /つながりました/.test(
+    document.getElementById("net-status").textContent), { timeout: 5000 });
+});
+
 await check("ページの例外が出ていない", () => {
   assert(pageErrors.length === 0, pageErrors.join(" / "));
 });

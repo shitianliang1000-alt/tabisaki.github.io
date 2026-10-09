@@ -109,6 +109,10 @@
   <h1 class="sr-only">旅さき</h1>
 </header>
 
+<!-- 圏外の帯。圏外のときだけ出ます（js/online.js）。
+     目安の時刻を、時刻表の時刻と読み違えさせないためです。 -->
+<p id="net-status" class="net-status" role="status" aria-live="polite" hidden></p>
+
 <main class="layout">
 
   <!-- 設定は、上のバーではなく地図の上に浮かせます。結果が出る前も

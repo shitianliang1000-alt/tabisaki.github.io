@@ -145,6 +145,33 @@ p, li { text-wrap: pretty; }
   color: var(--md-sys-color-on-surface);
 }
 
+/* 圏外の帯（js/online.js）。
+   目安の時刻を時刻表の時刻と読み違えないよう、圏外のあいだだけ上に
+   出します。設定のボタンと重ならないよう、右はそのぶん空けます。
+   色は琥珀の線1本だけ。赤にすると「壊れた」に見えますが、圏外でも
+   旅程は組めますし、保存したものは開けます。 */
+.net-status {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  left: calc(12px + env(safe-area-inset-left));
+  right: calc(68px + env(safe-area-inset-right));
+  z-index: 590;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border-left: 4px solid var(--tabi-amber);
+  background: var(--hig-glass-tint-2);
+  -webkit-backdrop-filter: var(--hig-glass-blur);
+  backdrop-filter: var(--hig-glass-blur);
+  box-shadow: var(--hig-glass-shadow);
+  color: var(--hig-label);
+  font-size: var(--hig-t-footnote);
+  line-height: 1.45;
+}
+.net-status[hidden] { display: none; }
+.net-status:not(.is-offline) { border-left-color: var(--md-sys-color-tertiary); }
+@media print { .net-status { display: none; } }
+
 /* 4つ並ぶ切り替え（予算・移動手段）。
    携帯では「1万円ま/で」のように折り返して読みにくいので、
    字を少し詰めて、途中で折らないようにします。 */

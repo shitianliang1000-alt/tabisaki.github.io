@@ -42,6 +42,7 @@ import { VARIANTS, distinguishOf, recommendOf, summaryOf, tripsFor }
 import { $, el, openSheet, renderItinerary, renderProgress, renderToday,
          scrollBehavior, suggestionButton } from "./ui.js";
 import { catchUp } from "./today.js";
+import { watchConnection } from "./online.js";
 import { watchArrival } from "./arrive.js";
 import { armNotices, askNotifyPermission, scheduleNotices }
   from "./notify.js";
@@ -110,6 +111,9 @@ async function boot() {
   configureQuota({ ask: askQuota, onChange: showQuota });
 
   registerServiceWorker();
+  // 圏外のあいだは、そのことを上に1行出します（js/online.js）。
+  const netBar = $("#net-status");
+  if (netBar) watchConnection(netBar);
   renderRecent();
 
   fillPlaces();
