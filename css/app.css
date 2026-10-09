@@ -1669,7 +1669,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .spot-more { margin-top: 10px; }
 .spot-more > summary {
   cursor: pointer; min-height: 44px; display: flex; align-items: center;
-  color: var(--md-sys-color-primary); font-size: 14px;
+  color: var(--md-sys-color-primary); font-size: var(--hig-t-subhead);
   list-style: none;
 }
 .spot-more > summary::-webkit-details-marker { display: none; }

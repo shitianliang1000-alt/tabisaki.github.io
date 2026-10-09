@@ -2177,7 +2177,10 @@ function renderItem(item, index, itin, handlers, sunNote) {
     const act = (action, label, hint) => {
       const b = el("button", {
         type: "button", class: "spot-action", "data-action": action,
-        "aria-label": `${item.title}を${hint}`,
+        // 読み上げの名前は、見えている言葉から始めます。音声で操作する
+        // 人は「別の候補」と言って押します。名前にその言葉が無いと、
+        // 押せません（axe の label-content-name-mismatch）。
+        "aria-label": `${label}（${item.title}を${hint}）`,
       }, label);
       b.addEventListener("click", (e) => {
         e.stopPropagation();

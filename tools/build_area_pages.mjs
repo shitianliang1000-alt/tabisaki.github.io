@@ -132,6 +132,7 @@ function page({ title, description, canonical, rel, body, jsonLd }) {
 <meta name="theme-color" content="#F4F1EB">
 <link rel="icon" href="${rel}icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="${rel}css/hig-tokens.css">
+<link rel="stylesheet" href="${rel}css/hig.css">
 <link rel="stylesheet" href="${rel}css/area.css">
 ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, "\\u003c")}</script>\n` : ""}</head>
 <body>
