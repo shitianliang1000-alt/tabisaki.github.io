@@ -58,6 +58,7 @@ import zipfile
 from xml.etree import ElementTree as ET
 
 from dedupe_spots import same_place
+import place_match
 from place_match import select
 from import_wikipedia_lists import (
     AN_EVENT, MAX_REGION_KM, NOT_A_DESTINATION, SOURCE_LINKS,
@@ -248,18 +249,79 @@ def clean_name(raw):
     return name or None
 
 
-def variants(name):
-    """突き合わせる名前の候補。長い（元のまま）ほうを先に。"""
-    out = [name]
+ROPEWAY = re.compile(r"(ロープウェイ|ロープウェー|ゴンドラ|ケーブルカー|リフト|索道)")
+ROPEWAY_STATION = ("駅", "山麓駅", "山頂駅", "山上駅", "乗り場", "乗場", "のりば")
+
+
+def is_ropeway(name):
+    """名前がロープウェイ・ゴンドラ・ケーブルカーか。"""
+    return bool(ROPEWAY.search(name or ""))
+
+
+# 一般名詞だけの名前。どこにでもあるので、一致しても決め手になりません
+# （実データで「町営露天風呂」「オートキャンプ場」が別の場所に当たりました）。
+GENERIC = re.compile(
+    r"^(町営|市営|村営|公共|天然|日帰り|県立|市立|町立|国営)?"
+    r"(露天風呂|温泉|大浴場|キャンプ場|オートキャンプ場|公園|広場|神社|寺|"
+    r"展望台|資料館|博物館|美術館|記念館|駅|ダム|牧場|農園|市場|"
+    r"せせらぎの郷|心の杜)$")
+
+
+def split_variants(name):
+    """突き合わせる名前の候補を、強いものと弱いものに分けて返します。
+
+    **完全一致だけでは取りこぼす**ものを広げます（ご指示です）。ただし
+    広げたものは、別の場所と取り違えやすくなります。
+
+      強い   元の名前／括弧・後ろの【市】を外した名前／
+             ロープウェイの表記ゆれと駅としての名前
+      弱い   括弧の中の別名（七つ池(鏡池)）／「」の中と外／
+             空白・・・、で割った切れ端（妙見宮 妙福寺 → 妙福寺）
+
+    弱いものは、**県が合うときだけ**採ります（各段が、県の食い違いを
+    許すのは強いものだけです）。実データで、切れ端が別の場所に当たりました。
+
+      岩木山 求聞寺      → 岩木山           （山であって、寺ではない）
+      町営露天風呂 美女づくりの湯 → 町営露天風呂 （どこにでもある名前）
+
+    3文字未満の切れ端と、一般名詞だけの名前は、どちらも使いません。
+    """
+    strong, weak = [name], []
+
+    def add(lst, x):
+        x = (x or "").strip()
+        if len(x) >= 3 and x not in strong and x not in weak \
+                and not GENERIC.match(x):
+            lst.append(x)
+
     bare = re.sub(r"[（(][^）)]*[）)]", "", name).strip()
-    if bare and bare != name:
-        out.append(bare)
-    # 「羊蹄山（蝦夷富士）」→「羊蹄山」は上で足ります。
-    # 「〜・〜」で2つの名前が並んでいるときは、先頭を試します。
-    head = re.split(r"[・／/]", bare or name)[0].strip()
-    if head and head not in out and len(head) >= 3:
-        out.append(head)
-    return out
+    bare = re.sub(r"【[^】]*】\s*$", "", bare).strip()
+    add(strong, bare)
+    for inner in re.findall(r"[（(]([^）)]*)[）)]", name):
+        add(weak, re.sub(r"^(通称|旧称|別名|愛称)[:：]?", "", inner.strip()))
+    for inner in re.findall(r"「([^」]*)」", name):
+        add(weak, inner)
+    add(weak, re.sub(r"「[^」]*」", "", bare))
+    for part in re.split(r"[・／/、,\s]+", bare or name):
+        add(weak, part)
+    if is_ropeway(bare or name):
+        core = bare or name
+        alt = core.replace("ロープウェイ", "ロープウェー") \
+            if "ロープウェイ" in core else core.replace("ロープウェー", "ロープウェイ")
+        add(strong, alt)
+        m = ROPEWAY.search(core)
+        stem = core[:m.start()] if m else core
+        for base in (core, alt, stem + "ロープウェイ", stem + "ロープウェー"):
+            for suf in ROPEWAY_STATION:
+                add(strong, base + suf)
+        add(strong, stem + "駅")
+    return strong, weak
+
+
+def variants(name):
+    """強い候補、弱い候補の順に、ぜんぶ。"""
+    strong, weak = split_variants(name)
+    return strong + weak
 
 
 def category_of(name):
@@ -335,14 +397,17 @@ def main(path, write):
         # 先に採り、無ければ全国で1つのもの、複数なら一覧の県にいちばん
         # 近いもの（100km以内）を採ります。食い違ったものは listedIn に
         # 一覧の県を残します。
-        cands = []
+        cands, weak = [], False
+        weak_set = set(split_variants(name)[1])
         for v in vs:
             for title in by_bare.get(n(v), []):
                 lat, lng = coords[title]
                 cands.append({"lat": lat, "lng": lng, "key": title})
             if cands:
+                weak = v in weak_set
                 break
-        chosen, reason, mismatch = select(cands, pref, locator)
+        chosen, reason, mismatch = place_match.select_for(
+            cands, pref, locator, weak)
         if chosen is None:
             unplaced.append([pref, raw])
             why["座標が引けない" if reason == "候補が無い"

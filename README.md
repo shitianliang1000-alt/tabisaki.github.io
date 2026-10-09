@@ -235,7 +235,7 @@ AI                     プログラム
 | 項目 | 件数 |
 |---|---:|
 | エリア | **1,370** |
-| スポット | **43,412** |
+| スポット | **54,702** |
 
 主なデータソースは以下です。
 
@@ -247,8 +247,9 @@ AI                     プログラム
 | Wikidata | CC0。名前・座標・分類 |
 | Wikipedia | CC BY-SA。日本語版の一覧記事71本（各地の温泉地・古墳・山・川・寺院・島・史跡…と、47都道府県の観光地）から、記事名・座標・冒頭の説明。画面の出典は「Wikipedia」にまとめています |
 | 各都道府県の公式観光サイト | 観光地の名前の一覧（xlsx）の出どころ。**「観光地として挙がっている」ことの確認にだけ**使い、名前・座標・説明は写していません（`tools/import_tourism_list.py`） |
-| OpenStreetMap | **ODbL 1.0**。座標が引けなかった観光地の名前に、名前と県の一致で付けた座標（873件。`tools/import_osm_tourlist.py`）。下の「OpenStreetMap 由来の座標」を読んでください |
-| Overture Maps | **CDLA Permissive 2.0 / Apache 2.0 / CC0**（出どころごと。1件ずつ `license` に持たせています）。座標が引けなかった観光地の名前に、名前と県の一致で付けた座標（4,120件。`tools/import_overture_places.py`）。**飲食店・宿・店は入れていません**（営業の状態がほぼ空で、閉業を見分けられないため）。表示は「Overture Maps Foundation, overturemaps.org」。共有の義務はありません |
+| OpenStreetMap | **ODbL 1.0**。座標が引けなかった観光地の名前に、名前と県の一致で付けた座標（4,312件。`tools/import_osm_tourlist.py`）。下の「OpenStreetMap 由来の座標」を読んでください |
+| Overture Maps | **CDLA Permissive 2.0 / Apache 2.0 / CC0**（出どころごと。1件ずつ `license` に持たせています）。座標が引けなかった観光地の名前に、名前と県の一致で付けた座標（1,515件。`tools/import_overture_places.py`）。**飲食店・宿・店は入れていません**（営業の状態がほぼ空で、閉業を見分けられないため）。表示は「Overture Maps Foundation, overturemaps.org」。共有の義務はありません |
+| 座標つきの観光地一覧（いただいたもの） | 各都道府県の公式観光サイトの名前に、Yahoo!ローカルサーチ・コンテンツジオコーダ、国土地理院、Photon・Nominatim（OSM）などで座標を付けた一覧から10,653件（`tools/import_tourism_coords.py`。`src="tourlist-geocoded"`、取得元は1件ずつ `geo`）。下の「座標つきの観光地一覧」を読んでください |
 
 再配布の条件がはっきりしているものだけを収録する方針です。
 観光資源台帳（日本観光振興協会）は、条件が曖昧なため収録していません
@@ -509,6 +510,22 @@ AIから返ったIDをそのまま信用せず、候補集合と照合します�
   （`python3 tools/import_osm_tourlist.py` は走らせるたびに前回のぶんを取り除きます）
 
 ライセンスの全文: <https://opendatacommons.org/licenses/odbl/1-0/>
+
+### 座標つきの観光地一覧
+
+`tools/import_tourism_coords.py` が入れたもの（`src="tourlist-geocoded"`）は、
+いただいた一覧の座標です。
+
+- **Yahoo! JAPAN の API で取った座標が9割です。** 画面の下に「Web Services by
+  Yahoo! JAPAN」を出しています。**取った座標を保存して配ってよいかは、
+  Yahoo! の利用規約を確かめていません。** 公開の前に確かめてください。
+  外すときは `src="tourlist-geocoded"`（取得元ごとなら `geo`）の印で消えます
+- 祭りなどの追加表記は外して入れました（`listedAs` に一覧の名前が残ります）
+- 一覧の県の外に落ちた座標は、県境から15km以内だけを採りました。それより
+  遠いもの（約2,000件）は、別の県の同じ名前に当たった疑いが強いので入れて
+  いません（鳥取県「長谷寺」→ 広島県の長谷寺 など）
+- 一覧の「まとめ名」の列は使っていません。別々の場所が1つにまとまっていた
+  り（「徳島県立」）、座標がメンバーの平均だったりしたためです
 
 ### 県が食い違う座標
 
