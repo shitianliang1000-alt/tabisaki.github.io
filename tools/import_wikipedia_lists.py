@@ -100,32 +100,35 @@ TOO_BIG = {"日本", "本州", "北海道", "九州", "四国", "沖縄本島",
 
 # 名前で落とすもの。
 #   一覧・カテゴリ            … 記事であって場所ではありません
-#   国立公園・国定公園        … 数十kmの範囲で、1点にはなりません
 #   空港・駅・インターチェンジ … 行き先ではなく、通り道です
+#                                （駅は looks_unusable で外します。下に書きました）
 #   都道府県・市区町村        … 広すぎます（「京都市 90分」は立ちません）
-#   山地・山脈・湾・半島ほか  … 同じ理由です。下に書きました
+#   地方・地域                … 行政や地理の区分で、行き先ではありません
 #
-# 「1点にならないもの」を落とすのは、国立公園と同じ理屈です。
+# **国立公園・国定公園・山地・半島・湾・諸島などは、外しません。**
 #
-#   東京湾    ふちの長さが数百kmあります
-#   飛騨山脈  北アルプス。100km以上に伸びています
-#   伊豆半島  縦に50km、宿も駅もいくつもあります
-#   五島列島  島が150ほどあり、渡るのに船が要ります
+# はじめは「1点にならない」として、これらも外していました。
 #
-# どれも座標は付いていますが、それは**代表点**です。旅程に
-# 「東京湾 45分」と出しても、どこへ行けばいいのか分かりません。
-# 行き先になるのは、その中の海岸や展望台や島のほうで、そちらは
-# 別の記事として収録に入っています。
+#   東京湾 / 飛騨山脈 / 伊豆半島 / 五島列島 / ○○国立公園 …
 #
-# 小さな湾（英虞湾・館山湾）も落ちます。惜しいのですが、大きさで
-# 線を引けません——**どこまでが「立てる場所」かは、記事名からは
-# 分かりません**。分からないものを入れて、当たっていることを期待する
-# よりは、落とすほうを選びます。
-BAD_SUFFIX = ("一覧", "国立公園", "国定公園", "自然公園", "空港", "飛行場",
+# 座標は代表の1点で、旅程に「東京湾 45分」と出しても、どこへ行けばいい
+# のか分かりません。そう考えて83件を外し、国立公園も入れていませんでした。
+#
+# ところが、アプリには**広い場所の扱い**が最初からありました
+# （js/shapes.js）。国立公園・半島・島・高原などは「広い場所」として、
+#
+#   「これは広い場所です。収録にあるのは代表の1点で、入口ではありません」
+#
+# と旅程に書き、名前がその場所から始まる収録を「中の行き先」として挙げ
+# ます。**分からないことを分からないと言う仕組みが、すでにありました。**
+# それを踏まえずに外していたのは、私の判断の誤りです。
+#
+# ご依頼は「国立公園など大きい場合は、エリアで登録するか、入口などで、
+# できるだけ多く入れてください」でした。代表の点として入れます
+# （分類は WIDE_BY_SUFFIX で名前の終わりから決めます）。
+BAD_SUFFIX = ("一覧", "空港", "飛行場",
               "インターチェンジ", "都道府県", "地方", "県", "府", "都",
-              "市", "区", "町", "村", "郡",
-              "山地", "山脈", "山塊", "平野", "盆地", "台地", "半島",
-              "諸島", "列島", "地域", "海峡", "湾", "流域", "水系")
+              "市", "区", "町", "村", "郡", "地域")
 BAD_PART = ("遺産群", "の一覧", "Category:", "Template:", "Portal:")
 
 # 施設ではあるけれど、行き先にはならないもの。
@@ -142,7 +145,11 @@ BAD_PART = ("遺産群", "の一覧", "Category:", "Template:", "Portal:")
 # 建物が別の名前を持たないまま載っていることがあります）。
 NOT_A_DESTINATION = ("大学", "大学校", "高等学校", "高校", "中学校",
                      "小学校", "専門学校", "病院", "銀行", "放送局",
-                     "株式会社", "信用金庫")
+                     "株式会社", "信用金庫",
+                     # 行政・公共の建物。用があって行く所で、見に行く所では
+                     # ありません（名古屋市役所・愛知県庁・八尾市文化会館）。
+                     "県庁", "市役所", "庁舎", "役場",
+                     "文化会館", "市民会館", "体育館")
 
 # 場所ではなく、催しの名前。
 #
@@ -166,7 +173,30 @@ AN_EVENT = ("舞", "祭", "祭り", "まつり", "踊り", "行事", "神事")
 #   音戸大橋 → 島
 #
 # 橋は橋です。名前で分かるものは、名前を先に見ます。
-BY_NAME = ((("橋", "大橋"), "建築"),)
+# 広い場所の分類。名前の終わりで決めます（既存の分類だけを使います）。
+#
+# 新しい分類名（半島・山地…）は作りません。分類は滞在時間・営業時間・
+# 記号の表（js/feasibility.js・js/art.js）と結び付いていて、表に無い名前は
+# 既定値（45分・9〜17時・300円）に落ちるためです（実際に1,515件が落ちて
+# いました）。
+#
+#   国立公園・国定公園   そのままの分類（滞在90・80分、24時間、無料）
+#   自然公園             自然
+#   山地・山脈・山塊     山
+#   湾・海峡             海岸
+#   諸島・列島           島
+#   半島・平野・盆地・台地・流域・水系   自然
+WIDE_BY_SUFFIX = (
+    (("国立公園",), "国立公園"),
+    (("国定公園",), "国定公園"),
+    (("自然公園",), "自然"),
+    (("山地", "山脈", "山塊"), "山"),
+    (("湾", "海峡"), "海岸"),
+    (("諸島", "列島"), "島"),
+    (("半島", "平野", "盆地", "台地", "流域", "水系"), "自然"),
+)
+
+BY_NAME = ((("橋", "大橋"), "建築"),) + WIDE_BY_SUFFIX
 
 
 def category_of(name, from_list):
@@ -185,6 +215,23 @@ def category_of(name, from_list):
 def looks_unusable(name, lat, lng):
     name = (name or "").strip()
     if not name or len(name) < 2 or name in TOO_BIG:
+        return True
+    # 駅。**コメントには「通り道」と書いてありながら、リストに「駅」が
+    # 入っていませんでした。** 76件が収録に入っていました。
+    #
+    #   札幌駅 / 博多駅 / 東京駅 / 松本駅 …  乗り換えに使う駅です
+    #   増毛駅 / 日之影温泉駅 / 博物館動物園駅 …  **廃駅**です
+    #
+    # 「札幌駅 45分」と旅程に出しても、することがありません。廃駅は、
+    # 閉まっている所へ案内するのと同じです。
+    #
+    # 下灘駅や土合駅のように駅そのものが見どころのものもありますが、
+    # 記事の書き出しはどれも「〜にある、〜線の駅である」としか言って
+    # いません。見どころだという根拠を、ここから取れませんでした。
+    # 名前だけでは分けられないので、通り道として外します。
+    #
+    # 「道の駅」は別の分類（道の駅）で、行き先です。残します。
+    if name.endswith("駅") and "道の駅" not in name:
         return True
     if name.endswith(BAD_SUFFIX) or any(b in name for b in BAD_PART):
         return True
@@ -276,6 +323,86 @@ def spot_id(title):
     """安定した id。記事名そのものは記号が混ざるので、短く潰します。"""
     h = hashlib.sha1(title.encode("utf-8")).hexdigest()[:10]
     return f"wp-{h}"
+
+
+# 出典の旧い名前 → いまの名前。
+#
+# 画面の下には「データ: 〇〇 / 〇〇 / …」と、出典の名前がそのまま並びます
+# （js/app.js の renderAttribution）。ウィキペディアの出典が
+#
+#   Wikipedia（文化財・灯台・城・道の駅・滝の一覧）
+#   Wikipedia
+#
+# と2つ並んでいました。分けて書く理由は、利用する側にはありません。
+# **「Wikipedia」でまとめます。** どの一覧から取ったかは、収録の作り方
+# （この tools/）に残してあれば足ります。
+LEGACY_SOURCE_NAMES = {
+    "Wikipedia（文化財・灯台・城・道の駅・滝の一覧）": "Wikipedia",
+}
+
+
+def unify_sources(sources):
+    """旧い名前をいまの名前に直し、同じ名前を1つにします（並びは保ちます）。"""
+    out, seen = [], set()
+    for s in sources:
+        s = dict(s)
+        s["name"] = LEGACY_SOURCE_NAMES.get(s["name"], s["name"])
+        if s["name"] in seen:
+            continue
+        seen.add(s["name"])
+        out.append(s)
+    return out
+
+
+def register(shards, regions, extra_sources=()):
+    """足した段を、索引とエリアの件数に登録します。**必ず呼びます。**
+
+    reshard_kb.py は、ファイルを探すのではなく **index.json の段の一覧**
+    から読みます。ここで登録しないと、並べ直しが新しい段を読まずに
+    消します（古い段を消すため）。取り込みが「収録 N件になりました」と
+    言っても、実際には入っていません。
+
+    tools/import_tourism_list.py で実際に起きました。書いた2,020件が、
+    並べ直しのあとに1件も残っていませんでした。
+    """
+    per_region, total = {}, 0
+    for doc in shards.values():
+        total += len(doc["spots"])
+        for s in doc["spots"]:
+            per_region[s["regionId"]] = per_region.get(s["regionId"], 0) + 1
+    for reg in regions["regions"]:
+        if "spotCount" in reg:
+            reg["spotCount"] = per_region.get(reg["id"], 0)
+    with open(os.path.join(WEB, "kb", "regions.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(regions, f, ensure_ascii=False, separators=(",", ":"))
+
+    ipath = os.path.join(WEB, "kb", "index.json")
+    with open(ipath, encoding="utf-8") as f:
+        index = json.load(f)
+    # 消したファイルの登録を残さないこと。件数が減って段が減ったあとに
+    # 残っていると、並べ直しが「無いファイル」を読もうとして止まります。
+    index["shards"] = [
+        s for s in index.get("shards", [])
+        if os.path.exists(os.path.join(WEB, "kb", s["file"]))]
+    have_file = {s["file"] for s in index.get("shards", [])}
+    for path, doc in sorted(shards.items()):
+        name = os.path.basename(path)
+        if name in have_file:
+            for s in index["shards"]:
+                if s["file"] == name:
+                    s["count"] = len(doc["spots"])
+        else:
+            index["shards"].append({"file": name, "count": len(doc["spots"])})
+    if "counts" in index:
+        index["counts"]["spots"] = total
+    have = {s["name"] for s in index.get("sources", [])}
+    index["sources"] = unify_sources(index.get("sources", []) + [
+        s for s in [*SOURCE_LINKS, *extra_sources] if s["name"] not in have])
+    with open(ipath, "w", encoding="utf-8") as f:
+        json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
+
+    return total
 
 
 def main(write):
@@ -414,38 +541,7 @@ def main(write):
                       separators=(",", ":"))
         shards[path] = {"spots": chunk}
 
-    per_region, total = {}, 0
-    for doc in shards.values():
-        total += len(doc["spots"])
-        for s in doc["spots"]:
-            per_region[s["regionId"]] = per_region.get(s["regionId"], 0) + 1
-    for reg in regions["regions"]:
-        if "spotCount" in reg:
-            reg["spotCount"] = per_region.get(reg["id"], 0)
-    with open(os.path.join(WEB, "kb", "regions.json"), "w",
-              encoding="utf-8") as f:
-        json.dump(regions, f, ensure_ascii=False, separators=(",", ":"))
-
-    ipath = os.path.join(WEB, "kb", "index.json")
-    with open(ipath, encoding="utf-8") as f:
-        index = json.load(f)
-    have_file = {s["file"] for s in index.get("shards", [])}
-    for path, doc in sorted(shards.items()):
-        name = os.path.basename(path)
-        if name in have_file:
-            for s in index["shards"]:
-                if s["file"] == name:
-                    s["count"] = len(doc["spots"])
-        else:
-            index["shards"].append({"file": name, "count": len(doc["spots"])})
-    if "counts" in index:
-        index["counts"]["spots"] = total
-    have = {s["name"] for s in index.get("sources", [])}
-    index["sources"] = index.get("sources", []) + [
-        s for s in SOURCE_LINKS if s["name"] not in have]
-    with open(ipath, "w", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
-
+    total = register(shards, regions)
     print(f"\n収録 {total}件になりました。")
     print("このあと tools/reshard_kb.py を走らせて、県ごとに並べ直します。")
 

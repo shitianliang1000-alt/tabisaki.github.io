@@ -145,6 +145,33 @@ p, li { text-wrap: pretty; }
   color: var(--md-sys-color-on-surface);
 }
 
+/* 圏外の帯（js/online.js）。
+   目安の時刻を時刻表の時刻と読み違えないよう、圏外のあいだだけ上に
+   出します。設定のボタンと重ならないよう、右はそのぶん空けます。
+   色は琥珀の線1本だけ。赤にすると「壊れた」に見えますが、圏外でも
+   旅程は組めますし、保存したものは開けます。 */
+.net-status {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  left: calc(12px + env(safe-area-inset-left));
+  right: calc(68px + env(safe-area-inset-right));
+  z-index: 590;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border-left: 4px solid var(--tabi-amber);
+  background: var(--hig-glass-tint-2);
+  -webkit-backdrop-filter: var(--hig-glass-blur);
+  backdrop-filter: var(--hig-glass-blur);
+  box-shadow: var(--hig-glass-shadow);
+  color: var(--hig-label);
+  font-size: var(--hig-t-footnote);
+  line-height: 1.45;
+}
+.net-status[hidden] { display: none; }
+.net-status:not(.is-offline) { border-left-color: var(--md-sys-color-tertiary); }
+@media print { .net-status { display: none; } }
+
 /* 4つ並ぶ切り替え（予算・移動手段）。
    携帯では「1万円ま/で」のように折り返して読みにくいので、
    字を少し詰めて、途中で折らないようにします。 */
@@ -409,9 +436,14 @@ p, li { text-wrap: pretty; }
 /* 端はカプセルの丸みに合わせます（中の区間は角を持ちません）。 */
 .mix-seg:first-child { border-radius: var(--hig-r-full) 0 0 var(--hig-r-full); }
 .mix-seg:last-child  { border-radius: 0 var(--hig-r-full) var(--hig-r-full) 0; }
+/* 旅程の札（.tier）と同じ色にそろえます。条件の画面で「穴場は琥珀」と
+   覚えたら、旅程でも琥珀を探せば穴場が見つかる、という対応です。
+   以前は帯が 藍・濃い青・青緑、札が 藍・青緑・藍 で、同じ青緑が
+   帯では穴場、札では知る人ぞ知る場所を指していました。
+   琥珀の上の字も --hig-on-accent です（明るい配色で 4.51、暗い配色で 8.2）。 */
 .mix-seg--major  { background: var(--tabi-indigo); }
-.mix-seg--known  { background: var(--hig-blue-deep); }
-.mix-seg--hidden { background: var(--tabi-teal); }
+.mix-seg--known  { background: var(--tabi-teal); }
+.mix-seg--hidden { background: var(--tabi-amber); }
 .mix-seg > b {
   font-size: var(--hig-t-caption1); font-weight: 600; letter-spacing: 0;
 }
@@ -451,9 +483,17 @@ p, li { text-wrap: pretty; }
    数と単位、名前と数は、ひと続きで読めないと意味が変わります。 */
 .mix-part { white-space: nowrap; }
 .mix-part > b { margin-left: 1px; }
+/* 点の形も、旅程の札と同じです（丸・輪・ひし形）。 */
 .mix-key--major::before  { background: var(--tabi-indigo); }
-.mix-key--known::before  { background: var(--hig-blue-deep); }
-.mix-key--hidden::before { background: var(--tabi-teal); }
+.mix-key--known::before  {
+  box-sizing: border-box; background: transparent;
+  border: 2px solid var(--tabi-teal);
+}
+.mix-key--hidden::before {
+  width: 7px; height: 7px; border-radius: 1px;
+  transform: rotate(45deg);
+  background: var(--tabi-amber);
+}
 /* どんな旅になるかを先に1行で言い、数はその下に添えます。 */
 .mix-mood {
   display: block; margin-bottom: 2px;
@@ -957,6 +997,41 @@ p, li { text-wrap: pretty; }
 }
 .result.map-full .itin { max-height: 240px; overflow-y: auto; }
 
+/* 広い画面では、地図を旅程の横に固定します。
+   上に置いたままだと、旅程を読み進めたとたんに地図が画面の外へ出て、
+   「この順で無理がないか」を確かめるには上まで戻ることになります。
+   横に並べれば、読んでいる行と地図の印が同時に見えます（読んでいる
+   行の印は js/follow.js が濃くします）。幅は js/app.js の
+   sideMapLayout() と揃えてあります。 */
+@media (min-width: 1360px) {
+  .result {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 40%);
+    grid-auto-rows: min-content;
+    align-items: start;
+  }
+  .result > :not(.map) { grid-column: 1; }
+  .result > .map {
+    grid-column: 2; grid-row: 1 / span 20;
+    position: sticky; top: 16px;
+    height: calc(100vh - 32px);
+    height: calc(100dvh - 32px);
+    margin: 16px 20px 16px 0;
+  }
+  /* 地図の代わりの順路の図（タイルを読めないとき）も、同じ場所に。 */
+  .result > .map.map-fallback { height: auto; max-height: calc(100vh - 32px); overflow: auto; }
+  /* もう大きく出ているので、「大きく見る」は要りません。 */
+  .result .map-expand { display: none; }
+  .result.map-full .map { height: calc(100vh - 32px); }
+  .result.map-full .itin { max-height: none; overflow: visible; }
+}
+
+/* 読んでいる行の印（js/follow.js）。触れたとき（.hl）よりは控えめに。 */
+.trip-pin.reading > span {
+  box-shadow: 0 0 0 3px #fff, 0 0 0 7px rgba(21, 122, 130, .45),
+              0 3px 10px rgba(0, 0, 0, .4);
+}
+
 /* 旅程の面も、横持ちのノッチを避けます（上と同じ考えです）。
    余白は変数にしておきます。中で「余白の外まで敷きたいもの」
    （日のタブなど）が、同じ値を使えるようにするためです。 */
@@ -1425,7 +1500,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .pace-bar > i { display: block; height: 100%; }
 .pace-bar > i.sight { background: var(--md-sys-color-primary); }
 .pace-bar > i.move  { background: var(--md-sys-color-tertiary); }
-.pace-bar > i.meal  { background: var(--md-sys-color-secondary); }
+/* 食事は琥珀です。藍（見る）・青緑（動く）だけの画面に、1色だけ
+   暖かい色を足します。食べるのは、旅でいちばん「人の時間」だからです。
+   以前は secondary（＝主色と同じ藍）で、見る時間と見分けられませんでした。 */
+.pace-bar > i.meal  { background: var(--tabi-amber); }
 .pace-bar > i.free  { background: var(--md-sys-color-outline-variant); }
 .pace-legend {
   display: flex; flex-wrap: wrap; gap: 8px 18px; list-style: none;
@@ -1435,7 +1513,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .pace-legend .dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
 .pace-legend .dot.sight { background: var(--md-sys-color-primary); }
 .pace-legend .dot.move  { background: var(--md-sys-color-tertiary); }
-.pace-legend .dot.meal  { background: var(--md-sys-color-secondary); }
+.pace-legend .dot.meal  { background: var(--tabi-amber); }
 .pace-legend .dot.free  { background: var(--md-sys-color-outline-variant); }
 .pace-legend b { font-weight: 500; }
 .pace-legend span { color: var(--md-sys-color-on-surface-variant); }
@@ -1588,8 +1666,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   box-shadow: 0 0 0 3px var(--md-sys-color-surface-container-highest);
 }
 .tl.meal .rail i {
-  background: var(--md-sys-color-secondary);
-  box-shadow: 0 0 0 4px var(--md-sys-color-secondary-container);
+  background: var(--tabi-amber);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--tabi-amber) 22%,
+                                  var(--md-sys-color-surface));
 }
 .tl.lodging .rail i {
   background: var(--md-sys-color-tertiary);
@@ -1614,6 +1693,40 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
 .card-info { padding: 14px 16px 16px; }
 
+/* 旅程のカードの写真。届くまでは高さ0で、届いたら開きます
+   （js/ui.js の spotPhoto）。取れなかったカードに空の枠は残しません。 */
+.card-photo-band {
+  height: 0; overflow: hidden;
+  transition: height var(--md-sys-motion-medium, 300ms) var(--md-sys-motion-standard, ease);
+}
+.card-photo-band.on { height: 148px; }
+.card-photo-band img {
+  display: block; width: 100%; height: 148px; object-fit: cover;
+  opacity: 0; transition: opacity 400ms ease;
+}
+.card-photo-band.on img { opacity: 1; }
+@media (max-width: 860px) {
+  .card-photo-band.on, .card-photo-band img { height: 120px; }
+}
+
+/* 立ち寄りの補足を畳んだもの（js/ui.js の renderItem）。 */
+.spot-more { margin-top: 10px; }
+.spot-more > summary {
+  cursor: pointer; min-height: 44px; display: flex; align-items: center;
+  color: var(--md-sys-color-primary); font-size: var(--hig-t-subhead);
+  list-style: none;
+}
+.spot-more > summary::-webkit-details-marker { display: none; }
+.spot-more > summary::before {
+  content: "\203A"; display: inline-block; width: 1em; margin-right: 4px;
+  transition: transform 160ms ease;
+}
+.spot-more[open] > summary::before { transform: rotate(90deg); }
+.spot-more-body > :first-child { margin-top: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .card-photo-band, .card-photo-band img, .spot-more > summary::before { transition: none; }
+}
+
 /* スポットのカードは、写真の代わりに分類の色をごく薄く敷くだけにします
    （--card-hue は js/ui.js が art.js の色相を入れます）。 */
 .tl.spot .body.card-tinted {
@@ -1632,13 +1745,32 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--md-sys-color-on-surface);
   font-size: var(--hig-t-caption2); font-weight: 500; letter-spacing: .4px;
 }
+/* 3つは、色だけでなく**形**でも分けます。
+   これまでは定番と穴場の粒が同じ藍で（primary と secondary が同じ色
+   です）、言葉を読まないと見分けられませんでした。
+     定番         … 塗った丸（藍）
+     知る人ぞ知る … 輪（青緑）
+     穴場         … ひし形（琥珀）。札も少し温かくして、目に留まるように
+   穴場はこのアプリがいちばん届けたいものなので、いちばん目立たせます。 */
 .tier::before {
   content: ""; width: 8px; height: 8px; border-radius: 50%;
-  background: var(--md-sys-color-secondary);
+  box-sizing: border-box; flex: none;
+  background: var(--md-sys-color-primary);
 }
 .tier.major::before  { background: var(--md-sys-color-primary); }
-.tier.known::before  { background: var(--md-sys-color-tertiary); }
-.tier.hidden::before { background: var(--md-sys-color-secondary); }
+.tier.known::before  {
+  background: transparent;
+  border: 2px solid var(--md-sys-color-tertiary);
+}
+.tier.hidden {
+  background: color-mix(in srgb, var(--tabi-amber) 16%,
+                        var(--md-sys-color-surface-container-high));
+}
+.tier.hidden::before {
+  width: 7px; height: 7px; border-radius: 1px;
+  transform: rotate(45deg);
+  background: var(--tabi-amber);
+}
 
 /* 混雑の見込み。色だけで伝えないよう、必ず言葉を出します。 */
 .crowd-chip {
@@ -1888,6 +2020,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 .spot-tune .tune-bar {
   flex: 1 1 110px; min-width: 96px; max-width: 180px;
   height: 28px; margin: 0; accent-color: var(--md-sys-color-primary);
+}
+/* 指で押す端末では、箱の高さを 44pt にします（溝の太さは変わりません）。
+   range は当たり判定が要素そのものなので、::after では広げられません。
+   「別の候補」「外す」と注記の中の「地図」は、css/hig.css の透明な面で
+   広げています。 */
+@media (pointer: coarse) {
+  .spot-tune .tune-bar { height: var(--hig-touch); }
 }
 .spot-tune .tune-out {
   min-width: 56px; font-size: var(--hig-t-caption1); font-variant-numeric: tabular-nums;
@@ -2416,7 +2555,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   .pane-form, .map, .map-expand, .settings-fab, .md-fab-extended,
   .day-tabs, .item-links, .chev, .panel.talk, .panel.adjust,
   .variants, .actions, .recheck, .spot-actions, .spot-tune, .dropped,
-  .back-to-form, #progress, #placeholder, .recent,
+  .back-to-form, #progress, #placeholder, .recent, .card-photo-band,
   .panel.story, .more, .mix,
   /* 畳まれた「選んだ理由」は、紙では三角の付いた空行になるだけです。 */
   .tl details, .transit-steps { display: none !important; }
