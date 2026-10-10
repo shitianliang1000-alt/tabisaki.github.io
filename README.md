@@ -250,7 +250,7 @@ AI                     プログラム
 | 各都道府県の公式観光サイト | 観光地の名前の一覧（xlsx）の出どころ。**「観光地として挙がっている」ことの確認にだけ**使い、名前・座標・説明は写していません（`tools/import_tourism_list.py`） |
 | OpenStreetMap | **ODbL 1.0**。座標が引けなかった観光地の名前に、名前と県の一致で付けた座標（4,312件。`tools/import_osm_tourlist.py`）。下の「OpenStreetMap 由来の座標」を読んでください |
 | Overture Maps | **CDLA Permissive 2.0 / Apache 2.0 / CC0**（出どころごと。1件ずつ `license` に持たせています）。座標が引けなかった観光地の名前に、名前と県の一致で付けた座標（1,515件。`tools/import_overture_places.py`）。**飲食店・宿・店は入れていません**（営業の状態がほぼ空で、閉業を見分けられないため）。表示は「Overture Maps Foundation, overturemaps.org」。共有の義務はありません |
-| 座標つきの観光地一覧（いただいたもの） | 各都道府県の公式観光サイトの名前に、Yahoo!ローカルサーチ・コンテンツジオコーダ、国土地理院、Photon・Nominatim（OSM）などで座標を付けた一覧から10,653件（`tools/import_tourism_coords.py`。`src="tourlist-geocoded"`、取得元は1件ずつ `geo`）。下の「座標つきの観光地一覧」を読んでください |
+| 座標つきの観光地一覧（いただいたもの） | 各都道府県の公式観光サイトの名前に、Yahoo!ローカルサーチ・コンテンツジオコーダ、国土地理院（住所検索API）、Wikipedia・Wikidata、Photon・Nominatim・Overpass API（OSM）で座標を付けた一覧から10,653件（`tools/import_tourism_coords.py`。`src="tourlist-geocoded"`、取得元は1件ずつ `geo`）。下の「座標つきの観光地一覧」を読んでください |
 
 再配布の条件がはっきりしているものだけを収録する方針です。
 観光資源台帳（日本観光振興協会）は、条件が曖昧なため収録していません
