@@ -33,6 +33,12 @@ const MAX_STARS = 320;
 /** 一言を入れ替える間隔（ms）。読み終わる前に変わると、読めません。 */
 const CAPTION_MS = 5200;
 
+/**
+ * 地図を消すまで待つ時間（ms）。Leaflet のズームの片付けは 250ms 後に
+ * 走ります。動きを始める1コマぶんの遅れも見込んで、それより長く待ちます。
+ */
+const MAP_SETTLE_MS = 400;
+
 function reduceMotion() {
   try {
     return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")
@@ -451,8 +457,20 @@ export function mountSketch(card, ctx = {}) {
     if (still) clearTimeout(frame); else cancelAnimationFrame(frame);
     // 地図は自分で後片付けします。放っておくと、札が消えたあとも
     // タイルを取りに行き続けます。
-    try { map?.remove(); } catch { /* もう消えています */ }
+    //
+    // **すぐには消しません。** 寄せる動き（ズーム）の途中で remove() すると、
+    // Leaflet 1.9.4 は動きの終わりの片付け（250ms 後のタイマー）を取り消さず、
+    // 消えた地図を動かそうとして例外を出します（"_leaflet_pos" を読めない）。
+    // 組み上がるのと寄せ直しが重なったときにだけ出るので、E2E が
+    // ときどき落ちていました。動きを止め、その片付けが済んでから消します。
+    const m = map;
     map = null;
+    if (m) {
+      try { m.stop(); } catch { /* 止める動きがありません */ }
+      setTimeout(() => {
+        try { m.remove(); } catch { /* もう消えています */ }
+      }, MAP_SETTLE_MS);
+    }
   }
 
   function update(patch) {
