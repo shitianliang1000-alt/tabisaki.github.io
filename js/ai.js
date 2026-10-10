@@ -209,7 +209,8 @@ export function noteAiError(e) {
  *
  * 「必ず行く」で入ったエリアは、動かしません。
  */
-export function coherentRegions(pool, limit, pinned = 0, groupById = null) {
+export function coherentRegions(pool, limit, pinned = 0, groupById = null,
+                                { enjoyTravel = false } = {}) {
   const out = pool.slice(0, pinned);
   const rest = pool.slice(pinned);
   const usedGroups = new Set(
@@ -219,7 +220,8 @@ export function coherentRegions(pool, limit, pinned = 0, groupById = null) {
     let bestScore = -Infinity;
     for (let i = 0; i < rest.length; i++) {
       const c = rest[i];
-      const detour = out.length
+      // 移動を楽しみたい人には、寄り道の遠さを減点しません。
+      const detour = out.length && !enjoyTravel
         ? Math.min(...out.map((o) => haversineKm(o.region, c.region)))
         : 0;
       // 「3大都市」のように街を名指しされたときは、まだ行っていない街を
@@ -941,7 +943,8 @@ export async function proposePlan(candidates, plan, note, maxSpots, tierTargets,
       c.spots.some((s) => mustIds.has(s.spot.id)));
     const rest = candidates.filter((c) => !mustFirst.includes(c));
     const chosen = coherentRegions([...mustFirst, ...rest], maxRegions,
-                                   mustFirst.length, opts.groupById);
+                                   mustFirst.length, opts.groupById,
+                                   { enjoyTravel: opts.enjoyTravel });
     const perRegion = Math.max(1, Math.ceil(maxSpots / chosen.length));
     const picks = [];
     const taken = new Set();
@@ -1027,6 +1030,20 @@ export async function proposePlan(candidates, plan, note, maxSpots, tierTargets,
       ? "・reason には、その場所までの道のどこがよいのかも書いてください"
         + "（「海沿いを30分走った先」など）。"
       : "",
+    // 「日本全国」「九州」のような広い指定。点の高い候補はたいてい
+    // 近くに固まっているので、言わないと1つの地方で終わります。
+    opts.spread && maxRegions > 1
+      ? "・行き先の指定が広い範囲（日本全国・地方全体など）です。"
+        + "1つの地方や県に固めず、離れた地方・県から選んでください。"
+      : "",
+    // 移動を楽しみたい人（青春18きっぷ・乗り鉄など）。
+    opts.enjoyTravel
+      ? "・**移動そのものを楽しみたい人です。** 移動時間が長いことや、"
+        + "遠いエリアであることは欠点ではありません。近場の1か所にまとめず、"
+        + "列車で長く乗り継いでいけるエリア、車窓のよい路線（海沿い・"
+        + "山あい・ローカル線）で結べるエリアを選んでください。"
+        + "headline と rationale では、移動の道中の楽しみにも触れてください。"
+      : "",
     "・利用者の言葉に地名や施設名があれば、それに当たる候補を必ず入れること。",
     "・reason には、その人の希望のどこに応えているかを書くこと。",
     "　どの場所にも書ける文（「有名です」「人気です」）は書かないこと。",
@@ -1062,6 +1079,14 @@ export async function proposePlan(candidates, plan, note, maxSpots, tierTargets,
     if (chosen.length >= maxRegions) break;
   }
   if (!chosen.length) return fallback();
+  // 広い範囲の指定なのに、選んだエリアが全部同じ地方なら、言いつけを
+  // 守っていません。散らして選ぶ手元の選びかたに切り替えます。
+  if (opts.spread && opts.groupById && maxRegions > 1 && chosen.length > 1) {
+    const groupOf = (c) => opts.groupById.get(c.region.id);
+    const picked = new Set(chosen.map(groupOf));
+    const offered = new Set(candidates.map(groupOf));
+    if (picked.size === 1 && offered.size > 1) return fallback();
+  }
 
   // 候補に存在するIDだけを採用する（作り話を通さない最後の関門）
   const allowed = new Map();

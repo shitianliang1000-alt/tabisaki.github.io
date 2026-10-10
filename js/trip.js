@@ -176,6 +176,15 @@ export function makeTrip(init = {}) {
       .includes(init.transport) ? init.transport : "any",
     hiddenBias: init.hiddenBias ?? 0.5,
     /**
+     * 移動そのものを楽しみたいか。
+     *
+     * 青春18きっぷや乗り鉄の旅では、乗っている時間が旅の中心です。
+     * 移動を短くするほど良い、という組みかたはこの人たちには逆で、
+     * 近場の1か所にまとまった旅程は「どこにも行っていない」になります。
+     * true のときは、遠いエリアや長い移動を減点しません（pipeline.js）。
+     */
+    enjoyTravel: init.enjoyTravel === true,
+    /**
      * 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
      *
      * 以前は「1日に動ける時間」を長さ（9時間）だけで聞いていました。

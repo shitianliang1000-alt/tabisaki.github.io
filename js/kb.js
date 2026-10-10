@@ -656,7 +656,8 @@ export function fittableSpots(oneWayMin, totalMinutes) {
 }
 
 export function rankRegions(kb, matches, topPerRegion = 8, opts = {}) {
-  const { oneWayByRegion, totalMinutes, wantedGenres = [], days = 1 } = opts;
+  const { oneWayByRegion, totalMinutes, wantedGenres = [], days = 1,
+          enjoyTravel = false } = opts;
   const wanted = new Set(wantedGenres);
   const spotsWanted = 5 * Math.max(1, days);   // 1日あたり5か所を目安に
   const byRegion = new Map();
@@ -719,13 +720,19 @@ export function rankRegions(kb, matches, topPerRegion = 8, opts = {}) {
         // 日帰りは取り返せません。往復5時間の旅先を選ぶと、その日は
         // 2〜3か所しか回れず、「行った気がしない」旅程になります。
         // 同じ重みで扱っていたときに、実際にそうなっていました。
+        //
+        // 移動を楽しみたい人には、逆にします。乗っている時間が旅なので、
+        // 遠いことは減点ではありません。旅全体の3割くらいまでは、遠いほど
+        // 少しずつ上げます（それ以上は、着いてから何もできなくなります）。
         const weight = days <= 1 ? 0.95 : 0.35;
-        score += weight * travelEfficiency(oneWay, totalMinutes);
+        score += enjoyTravel
+          ? 0.45 * Math.min(1, oneWay / (totalMinutes * 0.3))
+          : weight * travelEfficiency(oneWay, totalMinutes);
 
         // 「その日、実際に何か所まわれるか」を直接点にします。
         // 移動を引いた残り時間を、1か所あたり(滞在+移動)で割った数です。
         // 日帰りではここが体験の量そのものなので、重めに見ます。
-        const fitWeight = days <= 1 ? 0.55 : 0.25;
+        const fitWeight = enjoyTravel ? 0.15 : days <= 1 ? 0.55 : 0.25;
         score += fitWeight * Math.min(1, fittableSpots(oneWay, totalMinutes) / spotsWanted);
       }
     }

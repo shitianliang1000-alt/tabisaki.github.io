@@ -62,6 +62,9 @@ import { attachLuggage, luggagePlanFor } from "./luggage.js";
 import { storyFor } from "./story.js";
 import { longestGap, pickBest, scoreItinerary } from "./score.js";
 
+/** 旅のしかたを言う語。移動を楽しみたい人の希望文では、検索に使いません。 */
+const JOURNEY_WORDS = /^(移動|楽しみ|楽しむ|青春|18|きっぷ|切符|青春18きっぷ|鈍行|各駅|各駅停車|ローカル|ローカル線|車窓|乗り鉄|鉄旅|鉄道旅|列車旅|汽車旅|乗り継ぎ|乗りつぎ|遠く|日本一周|日本縦断|周遊)$/;
+
 /**
  * @param {object} args
  * @param {object} args.trip  makeTrip の結果（検証済み）
@@ -87,6 +90,9 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   if (intent.transport && trip.transport === "any") {
     trip = { ...trip, transport: intent.transport };
   }
+  // 移動そのものを楽しみたいか（画面で選んだか、希望文に書いてあるか）。
+  // 「青春18きっぷで」と書いた人に、移動の少ない近場の旅程を返さないためです。
+  const enjoyTravel = trip.enjoyTravel === true || intent.enjoyTravel === true;
   // 前回の失敗を持ち越さないようにします（3案を作るときは
   // 読み取りを使い回すので、最初の1回だけ数え直します）。
   if (!opts.query) resetAiStatus();
@@ -108,8 +114,12 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 地元の祭りばかりが上位に来ます（実際にそうなりました）。
   const areaWords = new Set(detectAreas(trip.note, kb)
     .flatMap((a) => [a.term, a.term.replace(/[都道府県]$/, "")]));
+  // 「移動を楽しみたい」「青春18きっぷで」の語も、行き先を探す語では
+  // ありません。残すと「移動」「青春」を名前や説明に含む数件だけが候補に
+  // なり、近畿の3エリアに固まっていました（実際にそうなりました）。
   const searchWords = [...query.keywords, ...query.interests]
-    .filter((w) => !areaWords.has(w));
+    .filter((w) => !areaWords.has(w))
+    .filter((w) => !(enjoyTravel && JOURNEY_WORDS.test(w)));
 
   // 必要なぶんの収録を、ここで読みます。
   //
@@ -287,6 +297,13 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   const nights = nightsOf(trip);
   const days = nights + 1;
 
+  // 移動を楽しみたい人で、地名の指定が無いなら、全国を地方ごとに散らします。
+  // 指定が無いまま点の高い順に選ぶと、近くに固まった数エリアで終わり、
+  // 「できるだけ移動したい」に応えられません。
+  if (enjoyTravel && days > 1 && !scope.regionIds && !opts.ignoreAreas) {
+    scope = { ...scope, spread: true, groupById: blockGroups(kb) };
+  }
+
   if (scope.regionIds) {
     // 語句に一致したものだけを残すと、「四国」という語を説明文に含む
     // 数件だけが候補になり、四国7エリアのうち3エリアしか検討されません
@@ -340,7 +357,11 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     : Math.max(4, Math.min(48, days * perDay)));
   // 宿の取りかたで、回るエリアの数が変わります。連泊なら絞り、
   // 周遊なら泊まるたびに土地が変わります（stays.js）。
-  const maxRegions = suggestRegionCount(days, null, trip.stayStyle);
+  //
+  // 移動を楽しみたい人には、宿の取りかたが「おまかせ」なら泊まり歩きにします。
+  // 毎日ちがう土地へ動くことが、この人たちの旅だからです。
+  const maxRegions = suggestRegionCount(days, null,
+    enjoyTravel && trip.stayStyle === "auto" ? "tour" : trip.stayStyle);
   const targets = mixTargets(maxSpots, trip.hiddenBias);
 
   // 「必ず行く」は絶対条件なので、地名の指定より優先します。
@@ -396,12 +417,18 @@ export async function planTrip({ trip, kb, onProgress = () => {},
 
   const travelByRegion = new Map(
     reachable.map((r) => [r.region.id, r.oneWay + r.toEnd]));
-  const candidates = rankRegions(kb, inRange, 12, {
+  const ranked = rankRegions(kb, inRange, 12, {
     oneWayByRegion: travelByRegion,
     totalMinutes: Math.round((trip.arriveBy - trip.departAt) / 60000),
     wantedGenres: [...new Set([...trip.interests, ...query.interests])],
-    days,
-  }).slice(0, 10).map((c) => {
+    days, enjoyTravel,
+  });
+  const spreadGroups = scope.spread ? scope.groupById : null;
+  const candidates = spreadCandidates(ranked, 10, spreadGroups, {
+    avoidRegionIds: opts.avoidRegionIds ?? [],
+    keepRegionIds: mustRegionIds,
+    need: maxRegions,
+  }).map((c) => {
     const matched = new Map(c.spots.map((s) => [s.spot.id, s]));
     const all = kb.spotsByRegion.get(c.region.id) ?? [];
     const pool = [
@@ -433,6 +460,9 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   onProgress(2, "", { picks: candidatePool(candidates).slice(0, 400) });
   const planOpts = { maxRegions, days, mustSpotIds, avoidSpotIds,
                      groupById: scope.groupById ?? null,
+                     // 広い範囲の指定（日本全国・九州など）。1つの地方に固めません。
+                     spread: Boolean(spreadGroups),
+                     enjoyTravel,
                      // 車で来ている人に、駅前だけを並べないための合図です。
                      touring: isTouring(trip) };
   let proposal = await proposePlan(candidates, query, trip.note,
@@ -491,7 +521,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
       const round0 = { key: `round${round}`, proposal: next, checked: recheck,
                        itin: draftItinerary(recheck, trip, kb) };
       const pick = pickBest([best, round0],
-                            { interests: trip.interests ?? [] });
+                            { interests: trip.interests ?? [], enjoyTravel });
       if (pick?.key === round0.key) {
         best = round0;
         repaired = true;
@@ -648,7 +678,12 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   itin.critique = critique(itin);
   // 旅程の質は、プログラム側で数えて採点します。AIに自己採点させると、
   // 同じ旅程でも聞くたびに点が変わり、案どうしを比べられません。
-  itin.score = scoreItinerary(itin, { interests: trip.interests ?? [] });
+  itin.score = scoreItinerary(itin, { interests: trip.interests ?? [],
+                                     enjoyTravel });
+  // 3案を作るとき、広い範囲の指定なら案ごとに別の地方を出すために使います。
+  itin.regionIds = [...new Set(chosenSpots.map((sp) => sp.regionId))];
+  itin.spread = Boolean(spreadGroups);
+  itin.enjoyTravel = enjoyTravel;
   // 帰りの余裕は verify.js が数えています。旅程にも持たせます
   // （どこまで裏が取れているかを出すのに要ります）。
   itin.slackMin = checked.result.slackMin;
@@ -809,8 +844,28 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     }
   }
 
+  const journeyNotes = [];
+  if (enjoyTravel) {
+    journeyNotes.push("移動も旅のうちとして組んでいます。遠いエリアや長い"
+      + "乗車を減点せず、日ごとに土地を移るようにしました。"
+      + (trip.transport === "local" ? ""
+        : "青春18きっぷで行くなら、移動手段を「普通列車のみ」にすると、"
+          + "新幹線と特急を使わずに組みます。"));
+  }
+  if (spreadGroups && itin.regionIds.length > 1) {
+    const blocks = [...new Set(itin.regionIds
+      .map((id) => spreadGroups.get(id)).filter(Boolean))];
+    if (blocks.length > 1) {
+      journeyNotes.push(scope.matched.length
+        ? `広い範囲のご指定なので、1か所に固めず${blocks.join("・")}に`
+          + "分けて回ります。"
+        : `${blocks.join("・")}と、地方をまたいで回ります。`);
+    }
+  }
+
   itin.warnings = [
     ...intent.notes,
+    ...journeyNotes,
     ...poolNote(kb, candidates),
     ...earlyStartNote(itin, trip),
     ...aiNotes(),
@@ -1683,6 +1738,49 @@ async function loadNeededSpots(kb, trip, opts = {}) {
       && unknownPlaceTerms(trip.note, kb).length) {
     await ensureNames(kb, signal);
   }
+}
+
+/**
+ * 候補のエリアを、地方ごとに散らして選びます。
+ *
+ * 点の高い順に10件取ると、たいてい同じ地方の10件になります（点の高い
+ * エリアは近くに固まります）。「日本全国」と書いた人に瀬戸内の10エリアを
+ * 見せても、選べるのは瀬戸内の旅だけです。
+ *
+ * まず各地方のいちばん良いエリアを点の順に1つずつ取り、残りを点の順に
+ * 足します。散らす指定が無いときは、これまでどおり上から取るだけです。
+ *
+ * avoidRegionIds は、ほかの案ですでに使った地方を外すためのものです
+ * （3案が同じ地方に固まらないように）。外すと足りなくなるときは外しません。
+ */
+export function spreadCandidates(ranked, limit, groupById,
+                                 { avoidRegionIds = [], keepRegionIds = new Set(),
+                                   need = 1 } = {}) {
+  if (!groupById) return ranked.slice(0, limit);
+  const groupOf = (c) => groupById.get(c.region.id) ?? c.region.id;
+  const usedGroups = new Set(avoidRegionIds
+    .map((id) => groupById.get(id)).filter(Boolean));
+  const keep = (c) => keepRegionIds.has?.(c.region.id);
+  const fresh = ranked.filter((c) => keep(c) || !usedGroups.has(groupOf(c)));
+  const freshGroups = new Set(fresh.map(groupOf));
+  // 別の地方だけで足りるなら、使った地方は見せません。足りないときは
+  // 全部から選びます（何も出せないよりよいので）。
+  const pool = fresh.length && freshGroups.size >= Math.max(1, need)
+    ? fresh : ranked;
+
+  const out = [];
+  const seen = new Set();
+  for (const c of pool) {
+    if (out.length >= limit) break;
+    if (seen.has(groupOf(c)) && !keep(c)) continue;
+    seen.add(groupOf(c));
+    out.push(c);
+  }
+  for (const c of pool) {
+    if (out.length >= limit) break;
+    if (!out.includes(c)) out.push(c);
+  }
+  return out;
 }
 
 /**
