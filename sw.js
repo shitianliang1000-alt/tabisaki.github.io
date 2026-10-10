@@ -78,6 +78,7 @@ const SHELL_FILES = [
   "./js/ai.js",
   "./js/app.js",
   "./js/areas.js",
+  "./js/areamap.js",
   "./js/arrive.js",
   "./js/art.js",
   "./js/backup.js",

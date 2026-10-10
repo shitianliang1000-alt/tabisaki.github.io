@@ -262,6 +262,15 @@
         <button type="button" class="md-chip md-chip--assist md-state"
                 data-example="美術館と建築をめぐりたい">アートと建築</button>
       </div>
+
+      <!-- エリアを地図で探す（js/areamap.js）。行き先をまだ決めていない人が、
+           どこへ行けるのかを地図で見て選べるようにします。押すと欄に
+           エリアの名前が入るだけで、勝手に組み始めません。 -->
+      <button type="button" class="md-btn md-btn--tonal md-state area-open"
+              id="open-area-map" aria-haspopup="dialog">
+        <svg class="ic" data-icon="map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 4 3 6.5V20l6-2.5M9 4l6 3M9 4v13.5M15 7l6-2.5V18l-6 2.5M15 7v13.5M9 17.5l6 3"/></svg><span>エリアを地図で探す</span>
+      </button>
+      <p class="area-picked" id="area-picked" role="status"></p>
     </section>
 
     <!-- ② いつ・どこから -->
@@ -960,6 +969,19 @@
      window.confirm は使いません。文面を日本語で整えられず、
      画面の作りからも浮きます（この画面にはすでに <dialog> の作法が
      あります）。何件消えるのかを数えて出します。 -->
+<!-- エリアを地図で探す。地図と同じエリアを、下に一覧でも並べます
+     （指で細かいピンを押せない人、読み上げで使う人のための道です）。 -->
+<dialog id="area-dialog" class="md-dialog area-dialog" aria-labelledby="area-dialog-title">
+  <h2 class="hig-title-2" id="area-dialog-title">エリアを地図で探す</h2>
+  <p class="area-help">ピンを押すか、下の一覧から選ぶと、そのエリアが
+    「どんな旅にしたい？」に入ります。</p>
+  <div class="area-map" role="region" aria-label="エリアの地図"></div>
+  <div class="area-list"></div>
+  <div class="md-dialog-actions">
+    <button type="button" class="md-btn md-btn--text md-state" id="area-close">閉じる</button>
+  </div>
+</dialog>
+
 <dialog id="confirm-dialog" class="md-dialog">
   <h2 class="hig-title-2" id="confirm-title">確認</h2>
   <p class="hig-subhead" id="confirm-detail" style="margin:0 0 4px"></p>

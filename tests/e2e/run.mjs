@@ -487,6 +487,49 @@ await check("そのまま使える例を押すと、欄が埋まる", async () =
   assert(got === want, `欄が埋まっていません: ${got}`);
 });
 
+await check("エリアを地図で探して、欄に入れられる", async () => {
+  // 行き先をまだ決めていない人のための入口です（js/areamap.js）。
+  // 地図のピンでも、下の一覧でも選べて、欄にエリアの名前が入ります。
+  await page.$eval("#note", (e) => {
+    e.value = "温泉でゆっくり";
+    e.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.click("#open-area-map");
+  await until(page, () => document.getElementById("area-dialog")?.open
+    && document.querySelectorAll("#area-dialog .area-pin").length > 0, { timeout: 15_000 });
+  const pins = await page.$$eval("#area-dialog .area-pin", (els) => els.map((e) => {
+    const r = e.getBoundingClientRect();
+    return [r.width, r.height];
+  }));
+  assert(pins.length >= 30, `ピンが ${pins.length} 本しかありません`);
+  assert(pins.every(([w, h]) => w >= 43.5 && h >= 43.5), "ピンが 44pt より小さい");
+  const listed = await page.$$eval("#area-dialog .area-list [data-area]", (els) => els.length);
+  assert(listed === pins.length, `一覧（${listed}）と地図（${pins.length}）の数が違います`);
+
+  // 地図のピンから選ぶ。札幌は周りにピンが無いので、確実に押せます。
+  await page.evaluate(() => {
+    document.querySelector('#area-dialog .area-pin[title="札幌"]')
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await page.waitForSelector("#area-dialog .area-pop [data-pick]", { timeout: 5000 });
+  await page.click("#area-dialog .area-pop [data-pick]");
+  let note = await page.$eval("#note", (e) => e.value);
+  const open = await page.$eval("#area-dialog", (e) => e.open);
+  assert(!open, "選んだあとも地図が開いたままです");
+  assert(note === "札幌で、温泉でゆっくり", `欄がこうなりました: ${note}`);
+
+  // 一覧から選び直すと、入れ替わる（積み上がらない）。
+  await page.click("#open-area-map");
+  await until(page, () => document.getElementById("area-dialog")?.open, { timeout: 5000 });
+  await page.click('#area-dialog .area-list [data-area="hakone"]');
+  note = await page.$eval("#note", (e) => e.value);
+  assert(note === "箱根で、温泉でゆっくり", `選び直した欄がこうなりました: ${note}`);
+  await page.$eval("#note", (e) => {
+    e.value = "";
+    e.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+});
+
 await check("カレンダーに入れられる（.ics）", async () => {
   // 当日に開くのはこのアプリではなくカレンダーです。そこまで届かないと、
   // 作った旅程は使われません。**実際に保存されるファイルを受け取って**

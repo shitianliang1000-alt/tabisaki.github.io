@@ -2915,3 +2915,34 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 /* 紙用の図は、画面では隠します。地図が出ているのに同じものが2つ並ぶと、
    どちらを見ればよいのか分かりません。 */
 .map-print { display: none; }
+
+/* ------------------------------------------------- エリアを地図で探す --- */
+/* js/areamap.js。ピンは見た目 14px、押せる範囲は 44px です。 */
+.area-open { margin-top: 12px; }
+.area-picked { margin: 6px 0 0; color: var(--hig-label-2);
+               font-size: var(--hig-t-footnote); }
+.area-picked:empty { display: none; }
+.area-dialog { width: min(96vw, 760px); max-height: 92vh; overflow: auto; }
+.area-help { margin: 0 0 10px; color: var(--hig-label-2);
+             font-size: var(--hig-t-subhead); text-align: center; }
+.area-map {
+  height: min(52vh, 440px); border-radius: var(--hig-r-sm, 10px);
+  overflow: hidden; background: var(--hig-fill-2);
+}
+.area-map.map-fallback { height: auto; padding: 12px; }
+.area-pin { background: none; border: 0; }
+.area-pin-dot {
+  position: absolute; left: 50%; top: 50%; width: 16px; height: 16px;
+  margin: -8px 0 0 -8px; border-radius: 50%;
+  background: var(--tabi-indigo); box-shadow: 0 0 0 3px #fff, 0 1px 4px #0006;
+}
+.area-pop { display: flex; flex-direction: column; gap: 4px; }
+/* Leaflet の吹き出しは、暗い配色でも白地です。色はここで決め打ちにします。 */
+.area-pop b { color: #1C1C1E; }
+.area-pop span { color: #4A4A4F; font-size: var(--hig-t-footnote); }
+.area-pop .md-btn { margin-top: 6px; min-height: 44px;
+                    background: #0F4C81; color: #fff; }
+.area-list { margin-top: 14px; }
+.area-block + .area-block { margin-top: 12px; }
+.area-block-title { margin: 0 0 6px; font-size: var(--hig-t-subhead);
+                    color: var(--hig-label-2); }
