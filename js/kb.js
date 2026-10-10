@@ -10,6 +10,7 @@ import { accessAppeal } from "./access.js";
 import { genresForCategory } from "./feasibility.js";
 import { SAMPLE_KB } from "./sample-data.js";
 import { betterOf, dedupeSpots, samePoint, sameThing } from "./dedupe.js";
+import { whyNotASpot } from "./notaspot.js";
 
 const FAME_SCORE = { major: 82, known: 55, hidden: 26 };
 
@@ -227,6 +228,9 @@ export async function loadKnowledgeBase(onProgress, signal, pre = null) {
     // （同じ文字列を全行に書くと、それだけで100KBを超えるため）。
     const from = doc.dataSource;
     for (const spot of doc.spots ?? []) {
+      // 宿や町の記事は、行き先として並べません（js/notaspot.js）。
+      // 収録からも外してありますが、取り込み直すと戻るので、ここでも見ます。
+      if (whyNotASpot(spot)) continue;
       if (from && !spot.dataSource) spot.dataSource = from;
       spots.push(spot);
     }
@@ -332,6 +336,7 @@ export async function ensureShards(kb, files, opts = {}) {
     const from = doc.dataSource;
     const spots = [];
     for (const spot of doc.spots ?? []) {
+      if (whyNotASpot(spot)) continue;
       if (from && !spot.dataSource) spot.dataSource = from;
       hydrate(spot, kb.regionsById.get(spot.regionId));
       spots.push(spot);
