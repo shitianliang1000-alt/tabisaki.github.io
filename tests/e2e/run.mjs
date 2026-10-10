@@ -640,6 +640,47 @@ await check("旅程のリンクを開くと、同じ旅程が出る", async () =
   }
 });
 
+// エリアのページ（areas/）のモデルコースから来たとき。
+//
+// 収録は県ごとに遅れて読むので、開いた直後は鎌倉の場所をまだ持って
+// いません。県を先に読んでから「必ず行く」に入れること。前の旅の
+// 「必ず行く」は残さないこと。
+async function pinnedOn(url) {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 },
+                                         serviceWorkers: "block" });
+  const pg = await ctx.newPage();
+  const errs = [];
+  pg.on("pageerror", (e) => errs.push(e.message));
+  try {
+    await pg.goto(`${BASE}/${url}`, { waitUntil: "domcontentloaded" });
+    await until(pg, () => document.querySelectorAll("#pinned .pin-chip").length > 0,
+               { timeout: 30_000 }).catch(() => {});
+    const got = await pg.evaluate(() => ({
+      pins: [...document.querySelectorAll("#pinned .pin-chip")]
+        .map((e) => e.firstChild.textContent.trim()),
+      note: document.querySelector("#note").value,
+    }));
+    assert(errs.length === 0, `例外: ${errs.join(" / ")}`);
+    return got;
+  } finally {
+    await ctx.close();
+  }
+}
+
+await check("モデルコースから開くと、コースの場所が「必ず行く」に入る", async () => {
+  const got = await pinnedOn("index.html?q=%E9%8E%8C%E5%80%89%E3%82%921%E6%97%A5%E3%81%A7%E3%82%81%E3%81%90%E3%82%8B"
+    + "&pin=kamakura-3%2Ckamakura-5&area=kamakura");
+  assert(got.note === "鎌倉を1日でめぐる", `欄に入っていません: ${got.note}`);
+  assert(got.pins.length === 2, `必ず行くが ${got.pins.length} か所です: ${got.pins.join("、")}`);
+});
+
+await check("条件のリンクの「必ず行く」は、まだ読んでいない県でも戻る", async () => {
+  const state = { note: "鎌倉で寺めぐり", pinned: ["kamakura-3"], pinR: ["kamakura"] };
+  const packed = Buffer.from(JSON.stringify(state)).toString("base64url");
+  const got = await pinnedOn(`index.html?p=${packed}`);
+  assert(got.pins.length === 1, `必ず行くが ${got.pins.length} か所です`);
+});
+
 await check("詳しい分析は、畳まれている", async () => {
   const more = await page.$(".more");
   if (!more) return;   // 詳細が1件も無い旅程なら、それでよい

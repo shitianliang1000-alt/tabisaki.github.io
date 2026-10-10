@@ -13,7 +13,7 @@ import { callModel, canGround, describeSpot, diagnoseGeminiKey, hasApiKey }
   from "./ai.js";
 import { proxyStatus } from "./endpoints.js";
 import { discoverArea } from "./discover.js";
-import { loadKnowledgeBase, loadRegionIndex, mergeIntoKb, stagedKb }
+import { ensureRegions, loadKnowledgeBase, loadRegionIndex, mergeIntoKb, stagedKb }
   from "./kb.js";
 
 import { clearRouteCache, diagnoseMapsKey, diagnoseYahooTransit,
@@ -1522,6 +1522,9 @@ async function resolvePlace(text) {
 }
 
 async function readTrip() {
+  // 「必ず行く」を、県の段を読みながら戻している途中かもしれません
+  // （restorePinned）。待たずに組むと、入れたはずの場所が抜けます。
+  await state.pinsReady;
   // **拾うのは興味のチップだけです。**
   //
   // ここは画面のチップを種類で選ばずに拾っていました。押されている
@@ -1617,6 +1620,9 @@ function formState() {
     dayStart: $("#day-start")?.value ?? "09:00",
     dayEnd: $("#day-end")?.value ?? "18:30",
     pinned: [...state.pinned.keys()],
+    // 「必ず行く」の場所のエリア。開く側でまだその県を読んでいなくても、
+    // 先に読んでから戻せるように（restorePinned）。
+    pinR: [...new Set([...state.pinned.values()].map((s) => s.regionId).filter(Boolean))],
     lodging: $("#lodging-place")?.value ?? "",
   };
 }
@@ -1651,8 +1657,29 @@ function applyFormState(v) {
     chip.setAttribute("aria-pressed", String(on));
     chip.classList.toggle("is-selected", on);
   }
-  for (const id of v.pinned ?? []) {
-    const spot = state.kb?.spotsById?.get(id);
+  if (v.pinned?.length) state.pinsReady = restorePinned(v.pinned, v.pinR);
+  renderPinned();
+  updateWindowHelp();
+}
+
+/**
+ * 「必ず行く」を id から戻します。
+ *
+ * 収録は県ごとに遅れて読みます（kb.js の stagedKb）。開いた直後は
+ * まだどの県も読んでいないので、id を引いても見つからず、共有された
+ * 条件やエリアのページから来た「必ず行く」が黙って消えていました。
+ * エリアが分かっていれば、その県の段を先に読んでから入れます。
+ * 分からない id（古いリンク）は、全国を読みにはいきません。
+ */
+async function restorePinned(ids, regionIds = []) {
+  const kb = state.kb;
+  if (!kb) return;
+  const want = [...new Set(ids ?? [])];
+  if (want.some((id) => !kb.spotsById?.has(id)) && regionIds?.length) {
+    try { await ensureRegions(kb, regionIds); } catch { /* 読めなければ、見つかったぶんだけ */ }
+  }
+  for (const id of want) {
+    const spot = kb.spotsById?.get(id);
     if (spot) state.pinned.set(id, spot);
   }
   renderPinned();
@@ -1691,8 +1718,25 @@ function restoreConditions() {
       box.dispatchEvent(new Event("input", { bubbles: true }));
       restored = "query";
     }
+    // モデルコースから来たときは、コースの場所を「必ず行く」に入れます。
+    // 前の旅の「必ず行く」は外します（よその土地の場所が混ざると、
+    // 組めない旅程になります）。
+    const pin = pinsFromQuery(location.search);
+    if (pin.ids.length) {
+      state.pinned.clear();
+      state.pinsReady = restorePinned(pin.ids, pin.regions);
+      restored = "course";
+    }
   } catch { /* 読めない欄は無視します */ }
   return restored;
+}
+
+/** `?pin=a,b&area=kamakura`。id は英数字と - _ だけ、20か所までにします。 */
+function pinsFromQuery(search) {
+  const q = new URLSearchParams(search ?? "");
+  const ok = (x) => /^[\w-]{1,80}$/.test(x);
+  const split = (v) => String(v ?? "").split(",").map((x) => x.trim()).filter(ok);
+  return { ids: split(q.get("pin")).slice(0, 20), regions: split(q.get("area")).slice(0, 5) };
 }
 
 /** `?q=` の文。長すぎるものは切ります（欄に貼れる長さで十分です）。 */

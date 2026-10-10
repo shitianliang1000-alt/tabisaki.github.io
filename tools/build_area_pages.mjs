@@ -69,6 +69,23 @@ export function appLink(rel, text) {
   return `${rel}index.html?q=${encodeURIComponent(text)}`;
 }
 
+/**
+ * モデルコースを、アプリで開くリンク。
+ *
+ * 「どんな旅にしたい？」の文に加えて、コースで寄る場所を「必ず行く」に
+ * 入れた状態で開きます（`pin`）。`area` は、その場所の入っている県の段を
+ * 先に読むためのものです（js/app.js の restorePinned）。日付と出発地は
+ * 入れません。その人の保存済みの条件のほうが合っています。
+ */
+export function courseLink(rel, text, regionId, spotIds) {
+  const q = new URLSearchParams({ q: text });
+  if (spotIds?.length) {
+    q.set("pin", spotIds.join(","));
+    q.set("area", regionId);
+  }
+  return `${rel}index.html?${q.toString().replace(/\+/g, "%20")}`;
+}
+
 const GENRE_PROMPT = {
   onsen: "温泉でゆっくり",
   nature: "自然の中を歩く",
@@ -229,13 +246,28 @@ export function courseItems(itin) {
       out.push({ kind: "free", time: fmtTime(it.start), minutes, title: "自由時間" });
     }
   }
-  return out.some((x) => x.kind === "spot") ? out : null;
+  if (!out.some((x) => x.kind === "spot")) return null;
+  // 最後の行は、どこに何時に着いて終わるのか。移動の行で終わると、
+  // 帰りの電車に乗ったまま旅程が切れたように読めます。
+  const last = day.items.at(-1);
+  const where = last.kind === "transit" ? last.to?.name : "";
+  out.push({ kind: "end", time: fmtTime(last.end), minutes: 0,
+             title: where ? `${where}着・解散` : "解散" });
+  return out;
+}
+
+/** モデルコースで寄る場所の id（順番どおり、重なりなし）。 */
+export function courseSpotIds(itin) {
+  const ids = (itin?.days?.[0]?.items ?? [])
+    .filter((i) => i.kind === "spot").map((i) => i.spotId ?? i.place?.id).filter(Boolean);
+  return [...new Set(ids)];
 }
 
 function courseHtml(items) {
   return `<ol class="course">
 ${items.map((x) => `  <li class="c-${x.kind}"><b class="c-time">${esc(x.time)}</b>`
-    + `<span class="c-title">${esc(x.title)}${x.kind === "move" ? `（約${x.minutes}分・目安）` : `<small>${x.minutes}分</small>`}</span>`
+    + `<span class="c-title">${esc(x.title)}${x.kind === "move" ? `（約${x.minutes}分・目安）`
+      : x.kind === "end" ? "" : `<small>${x.minutes}分</small>`}</span>`
     + (x.text ? `<span class="c-text">${esc(x.text)}</span>` : "")
     + "</li>").join("\n")}
 </ol>`;
@@ -258,7 +290,8 @@ ${items ? `<section>
 <h2>1日のモデルコース</h2>
 <p class="fine">${esc(fmtDate(date))}に${esc(region.station ?? "")}を9:00に出て、18:00までに戻る例です。旅さきのエンジンで組んでいます。移動時間は距離からの目安で、実際の便ではありません。</p>
 ${courseHtml(items)}
-<p><a class="cta primary" href="${esc(appLink(rel, `${region.name}を1日でめぐる`))}">この条件で、自分の日付の旅程をつくる</a></p>
+<p><a class="cta primary" href="${esc(courseLink(rel, `${region.name}を1日でめぐる`, region.id, courseSpotIds(course)))}">このコースを旅さきで開く</a></p>
+<p class="fine">コースの場所を「必ず行く」に入れて開きます。日付や出発地を変えて、自分の旅程に組み直せます。</p>
 </section>` : ""}
 <section>
 <h2>こんな旅もつくれます</h2>
