@@ -45,7 +45,7 @@ function esc(text) {
   return String(text ?? "")
     .replace(/\\/g, "\\\\")
     .replace(/\r\n|\r|\n/g, "\\n")
-    .replace(/;/g, "\;")
+    .replace(/;/g, "\\;")
     .replace(/,/g, "\\,");
 }
 

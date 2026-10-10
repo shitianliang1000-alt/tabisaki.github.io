@@ -114,9 +114,9 @@ test("記号を逃がす（説明文のカンマで壊れない）", () => {
       start: d("2026-09-17T10:00"), end: d("2026-09-17T11:00"),
     }] }],
   }, { now: NOW });
-  assert.match(ics, /SUMMARY:A\;B\\,C\\\\D/);
+  assert.match(ics, /SUMMARY:A\\;B\\,C\\\\D/);
   assert.match(ics, /DESCRIPTION:1行目\\n2行目/);
-  assert.match(ics, /カンマ\\, とセミコロン\;/);
+  assert.match(ics, /カンマ\\, とセミコロン\\;/);
 });
 
 test("長い行は75オクテットで折り、文字の途中で切らない", () => {
