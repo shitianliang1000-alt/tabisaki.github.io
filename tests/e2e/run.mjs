@@ -306,11 +306,15 @@ await check("出発日を「明日」「今週末」に飛ばせる", async () =
 });
 
 await check("何をしてくれるサイトかが書いてある", async () => {
-  // 見出しは画面に出しません（条件の入力が下がるため）。代わりに、
-  // 結果が出る場所に「つくりかた」を置いて、何が返ってくるかを先に
-  // 見せます。文書としての h1 も残っていること。
+  // 名前とひとことを条件の欄の上に1行出し、結果が出る場所に
+  // 「つくりかた」を置いて、何が返ってくるかを先に見せます。
+  // 文書としての h1 も残っていること。
   const h1 = await page.$eval("h1", (e) => e.textContent.trim()).catch(() => "");
   assert(h1.includes("旅さき"), "h1 がありません");
+  const brand = await page.$eval(".brand-line", (e) => ({
+    text: e.textContent.replace(/\s+/g, ""), h: e.getBoundingClientRect().height,
+  })).catch(() => null);
+  assert(brand && brand.h > 0 && brand.text.includes("旅さき"), "画面に名前が出ていません");
   const steps = await page.$$eval("#home-hint li", (els) =>
     els.map((e) => e.textContent.trim()));
   assert(steps.length >= 3, `つくりかたが ${steps.length} 段しかありません`);
