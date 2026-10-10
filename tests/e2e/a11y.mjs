@@ -112,7 +112,7 @@ async function audit(name, { dark = false, plan = false, width = 1280,
   await ctx.close();
 }
 
-/** 読むだけのページ（著作権・出典など）。スクリプトは無いので、開いてすぐ測ります。 */
+/** 読むだけのページ（著作権表記など）。スクリプトは無いので、開いてすぐ測ります。 */
 async function auditStatic(name, path, { dark = false, width = 1280 } = {}) {
   const ctx = await browser.newContext({
     viewport: { width, height: 900 },
@@ -233,8 +233,8 @@ await audit("旅の当日の画面（携帯の幅）",
 await audit("旅の当日の画面（暗い配色）",
             { dark: true, plan: true, today: true });
 
-await auditStatic("著作権・出典のページ（明るい配色）", "credits.html");
-await auditStatic("著作権・出典のページ（暗い配色・携帯の幅）", "credits.html",
+await auditStatic("著作権表記のページ（明るい配色）", "credits.html");
+await auditStatic("著作権表記のページ（暗い配色・携帯の幅）", "credits.html",
                   { dark: true, width: 390 });
 
 // axe が飛ばすところ（絵・押せないボタン・畳んだ中身）を、自分で測ります。
