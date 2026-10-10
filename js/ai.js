@@ -760,6 +760,22 @@ const UNDERSTAND_SCHEMA = {
   required: ["searchText", "interests", "pace", "budgetHint", "keywords", "avoid"],
   propertyOrdering: ["searchText", "interests", "pace", "budgetHint", "keywords", "avoid"],
 };
+// 複数の地名をひとまとめに言う呼び名（「三都心」「京阪神」）。js/areas.js の
+// 辞書に無い言い方を、具体的な地名に直すためのものです。
+UNDERSTAND_SCHEMA.properties.phrases = {
+  type: "ARRAY",
+  items: {
+    type: "OBJECT",
+    properties: {
+      phrase: S.str("利用者の言葉にある、そのままの呼び名"),
+      meaning: S.str("それが何を指すか、30字程度で"),
+      names: S.strList("指す日本の地名（市や観光地の名前）。2〜6個"),
+      ambiguous: { type: "BOOLEAN" },
+    },
+    required: ["phrase", "meaning", "names", "ambiguous"],
+    propertyOrdering: ["phrase", "meaning", "names", "ambiguous"],
+  },
+};
 
 const FALLBACK_PLAN = {
   searchText: "日帰りで楽しめる観光地",
@@ -816,6 +832,15 @@ export async function understandRequest(note, interests, hours, opts = {}) {
     "along は沿って訪れる日本の地名（市町村や観光地の名前）を順に入れます。",
     "知らない名前を推測で説明しないでください。分からなければ name を空にします。",
     "その名前は keywords に入れないでください（場所の名前ではないためです）。",
+    "",
+    "利用者の言葉に、複数の地名をひとまとめに言う呼び名",
+    "（例: 三都心、三大都市圏、京阪神、三都物語、日本三景、東海道メガロポリス）が",
+    "あれば、phrases に書いてください。phrase は言葉にあるとおり、",
+    "names はその呼び名が指す日本の地名を（市や観光地の名前で）入れます。",
+    "「さん都心」のようにひらがなや数字で書かれていても同じです。",
+    "読みかたが人によって分かれる呼び名は、最も一般的な読みで names を埋め、",
+    "ambiguous を true にしてください。知らない呼び名は推測せず、書かないでください。",
+    "単なる地名（京都、東京）や、地方名（関東、九州）は書かないでください。",
   ].join("\n");
 
   try {
@@ -834,6 +859,7 @@ export async function understandRequest(note, interests, hours, opts = {}) {
         .map((x) => String(x ?? "").trim())
         .filter((x) => x.length >= 2 && x.length <= 12).slice(0, 8),
       journey: p.journey?.name ? p.journey : null,
+      phrases: Array.isArray(p.phrases) ? p.phrases.slice(0, 4) : [],
     };
     if (understood.size >= UNDERSTOOD_MAX) {
       understood.delete(understood.keys().next().value);
