@@ -24,7 +24,6 @@ import { findStop, preloadStops, searchStops } from "./stops.js";
 import { END_MODES, formatHourField, makeTrip, parseHourField, validateTrip }
   from "./trip.js";
 import { TripMap, pointsFromItinerary } from "./map.js";
-import { planTrip } from "./pipeline.js";
 import { haversineKm } from "./feasibility.js";
 import { configureQuota, describeUsage, quota } from "./quota.js";
 import { artFor } from "./art.js";
@@ -40,7 +39,7 @@ import { spotFit, tripFit } from "./fit.js";
 import { paceBreakdown, slackLevel } from "./score.js";
 import { VARIANTS, distinguishOf, recommendOf, summaryOf, tripsFor }
   from "./variants.js";
-import { $, el, openSheet, renderItinerary, renderProgress, renderToday,
+import { $, el, loadSketch, openSheet, renderItinerary, renderProgress, renderToday,
          scrollBehavior, suggestionButton } from "./ui.js";
 import { catchUp } from "./today.js";
 import { isOffline, watchConnection } from "./online.js";
@@ -54,8 +53,32 @@ import { yahooFlags } from "./modes.js";
 import { addHistory, clearHistory, freezeItinerary, loadHistory, removeHistory,
          replaceHistory, savedLabel, thawItinerary } from "./history.js";
 import { applyTypeScale, initTypeScale, saveTypeScale } from "./typescale.js";
-import { mergeTrips, readTripFile, toBackupFile, toTripFile, tripFilename }
-  from "./transfer.js";
+
+// 旅程を組む部分（js/pipeline.js とその先の約20モジュール、450KBほど）
+// と、ファイルの書き出し・読み込み（js/transfer.js）は、開いた直後の
+// フォームには要りません。静的に import すると、画面が出る前に全部を
+// 取りに行って読み解くので、使うときに読みます。
+//
+// 「つくる」を押してから取りに行くと、そのぶん待たせます。画面が出て
+// 手が空いたら（requestIdleCallback）先に読み始めておきます。
+let pipelineModule = null;
+let transferModule = null;
+const loadPipeline = () => (pipelineModule ??= import("./pipeline.js")
+  .catch((e) => { pipelineModule = null; throw e; }));
+const loadTransfer = () => (transferModule ??= import("./transfer.js")
+  .catch((e) => { transferModule = null; throw e; }));
+async function planTrip(args) {
+  return (await loadPipeline()).planTrip(args);
+}
+function warmModules() {
+  const go = () => {
+    loadPipeline().catch(() => {});
+    loadSketch().catch(() => {});
+    loadTransfer().catch(() => {});
+  };
+  if ("requestIdleCallback" in globalThis) requestIdleCallback(go, { timeout: 4000 });
+  else setTimeout(go, 1500);
+}
 
 /** 待ち画面の絵に渡す、収録スポットの上限。読み込んだ順の末尾です
     （遅れて読むので、末尾が旅先の県のぶんになります）。 */
@@ -100,6 +123,8 @@ async function boot() {
   // あとから当てると、標準の大きさで一度描いてから大きくなるので、
   // 開いた瞬間に字が飛び跳ねます。
   initTypeScale();
+  // 画面が出たあと、手が空いたら旅程づくりの部品を読み始めます。
+  warmModules();
 
   state.map = new TripMap("map");
   state.map.configure({ tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION });
@@ -1625,7 +1650,8 @@ function unpack(code) {
  * どこにも送りません。ブラウザの中でファイルを作って、端末に保存する
  * だけです。
  */
-function exportTrip(itin, trip) {
+async function exportTrip(itin, trip) {
+  const { toTripFile, tripFilename } = await loadTransfer();
   const doc = toTripFile({
     id: null,
     title: itin?.title ?? "旅",
@@ -1634,27 +1660,28 @@ function exportTrip(itin, trip) {
     trip: freezeItinerary(trip ?? null),
     itin: freezeItinerary(itin ?? null),
   });
-  downloadJson(doc);
+  downloadJson(doc, tripFilename);
   setBadge("旅程のファイルを保存しました");
   setTimeout(() => setBadge(kbBadgeText()), 2600);
 }
 
 /** 履歴ぜんぶを、控えのファイルにします。 */
-function exportBackup() {
+async function exportBackup() {
   const list = loadHistory();
   if (!list.length) {
     setBadge("控えにする旅がまだありません");
     setTimeout(() => setBadge(kbBadgeText()), 2600);
     return;
   }
+  const { toBackupFile, tripFilename } = await loadTransfer();
   const doc = toBackupFile(list);
-  downloadJson(doc);
+  downloadJson(doc, tripFilename);
   setBadge(`${list.length}件を控えに書き出しました`);
   setTimeout(() => setBadge(kbBadgeText()), 2600);
 }
 
 /** JSON を端末に保存します（.ics と同じやりかたです）。 */
-function downloadJson(doc) {
+function downloadJson(doc, tripFilename) {
   const blob = new Blob([JSON.stringify(doc, null, 1)],
                         { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1684,6 +1711,15 @@ async function importTripFile(file) {
     setTimeout(() => setBadge(kbBadgeText()), 4000);
     return;
   }
+  let transfer;
+  try {
+    transfer = await loadTransfer();
+  } catch (e) {
+    setBadge(`ファイルを開けませんでした（${e?.message ?? e}）`);
+    setTimeout(() => setBadge(kbBadgeText()), 4000);
+    return;
+  }
+  const { mergeTrips, readTripFile } = transfer;
   const out = readTripFile(text);
   if (!out.ok) {
     // **黙って読み違えません。** 何が違うのかを言います。

@@ -17,8 +17,6 @@ import { photoFor, photoPageOf } from "./photos.js";
 import { estimatedTravel } from "./reliability.js";
 import { isTouring, longDriveNote, restSlots } from "./touring.js";
 import { itineraryText } from "./share.js";
-import { icsFilename, toIcs } from "./ical.js";
-import { mountSketch } from "./sketch.js";
 import { KIND_NOTE } from "./modes.js";
 import { icon } from "./icons.js";
 import { NOTICE_LIMITS } from "./notify.js";
@@ -195,6 +193,15 @@ export const STEPS = [
  */
 const SLOW_AFTER_SEC = 40;
 
+// 待ち画面の絵（js/sketch.js）と .ics の書き出し（js/ical.js）は、
+// 開いた直後には要りません。静的に import すると、フォームを出すだけの
+// 起動でも毎回取りに行って読み解くので、使う場面で初めて読みます。
+// 圏外でも sw.js が先に入れてあるので読めます。
+let sketchModule = null;
+let icalModule = null;
+export const loadSketch = () => (sketchModule ??= import("./sketch.js"));
+const loadIcal = () => (icalModule ??= import("./ical.js"));
+
 const fmtElapsed = (sec) =>
   `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 
@@ -231,13 +238,27 @@ export function renderProgress(container, step, detail = "", extra = null) {
     // **札を画面に置いてから**載せます。絵は「札が画面から消えたら
     // 止まる」作法で動くので、置く前に載せると最初の1コマで自分から
     // 止まります（実際そうなって、何も描かれませんでした）。
+    //
+    // 絵のモジュールは遅れて届きます。届くまでに来た材料は
+    // __sketchPending に貯めて、載せた直後にまとめて渡します。
     if (extra?.trip) {
-      card.__sketch = mountSketch(card, {
+      card.__sketchPending = {};
+      const ctx = {
         trip: extra.trip,
         // 地の形。点だけでは「どこを探しているのか」が読めません。
         // 地図が読めない環境では、これまでどおり点と線だけになります。
         tileUrl: extra.tileUrl ?? null,
         attribution: extra.attribution ?? "",
+      };
+      loadSketch().then(({ mountSketch }) => {
+        // 届く前に旅程ができて札が消えていたら、載せません。
+        if (!card.isConnected) return;
+        card.__sketch = mountSketch(card, ctx);
+        card.__sketch.update(card.__sketchPending);
+        card.__sketchPending = null;
+      }).catch(() => {
+        // 絵が無くても、段の一覧と経過時間で待てます。
+        card.__sketchPending = null;
       });
     }
   }
@@ -245,12 +266,13 @@ export function renderProgress(container, step, detail = "", extra = null) {
   card.querySelector(".step-detail").textContent =
     detail || STEPS[Math.min(step, STEPS.length - 1)];
   // 絵に、いまの段と材料を渡します。
-  if (card.__sketch) {
+  if (card.__sketch || card.__sketchPending) {
     const patch = { step };
     if (extra?.stars) patch.stars = extra.stars;
     if (extra?.picks) patch.picks = extra.picks;
     if (extra?.route) patch.route = extra.route;
-    card.__sketch.update(patch);
+    if (card.__sketch) card.__sketch.update(patch);
+    else Object.assign(card.__sketchPending, patch);
   }
   const bar = card.querySelector(".md-progress");
   bar.setAttribute("aria-valuenow", String(step + 1));
@@ -1041,8 +1063,20 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
   const calBtn = el("button", {
     type: "button", class: "md-btn md-btn--tonal md-state cal-ics",
   }, el("span", {}, "カレンダーに入れる"));
-  calBtn.addEventListener("click", () => {
+  // 押してから取りに行くと、端末によっては「押した直後」の扱いが切れて
+  // 保存が止められます。ボタンを出した時点で読み始めておきます。
+  loadIcal().catch(() => {});
+  calBtn.addEventListener("click", async () => {
     const label = calBtn.querySelector("span");
+    let toIcs, icsFilename;
+    try {
+      ({ toIcs, icsFilename } = await loadIcal());
+    } catch {
+      icalModule = null;
+      label.textContent = "書き出せませんでした";
+      setTimeout(() => { label.textContent = "カレンダーに入れる"; }, 2600);
+      return;
+    }
     const text = toIcs(itin);
     if (!text) { label.textContent = "予定がありません"; return; }
     let url = null;

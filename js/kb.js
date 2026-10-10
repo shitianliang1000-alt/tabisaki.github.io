@@ -8,9 +8,19 @@ import { KB_INDEX_URL } from "./config.js";
 import { drivingAppeal } from "./touring.js";
 import { accessAppeal } from "./access.js";
 import { genresForCategory } from "./feasibility.js";
-import { SAMPLE_KB } from "./sample-data.js";
 import { betterOf, dedupeSpots, samePoint, sameThing } from "./dedupe.js";
 import { whyNotASpot } from "./notaspot.js";
+
+/**
+ * 同梱データ（js/sample-data.js、約120KB）。
+ *
+ * 使うのは、公開知識ベースを読めなかったときだけです。静的に import
+ * すると、ふだんの起動でも毎回取りに行って読み解くので、要るときに
+ * 初めて読みます。圏外でも sw.js が先に入れてあるので読めます。
+ */
+async function sampleKb() {
+  return (await import("./sample-data.js")).SAMPLE_KB;
+}
 
 const FAME_SCORE = { major: 82, known: 55, hidden: 26 };
 
@@ -162,6 +172,7 @@ export async function loadKnowledgeBase(onProgress, signal, pre = null) {
     // 配列を複製してから返します。調べた結果を足す（mergeIntoKb）ときに
     // 同梱データそのものを書き換えてしまうと、読み込み直しても
     // 前回の結果が混ざったままになるためです。
+    const SAMPLE_KB = await sampleKb();
     const regions = [...SAMPLE_KB.regions];
     const spots = [...SAMPLE_KB.spots];
     onProgress?.(1, 1, "サンプルデータ");
@@ -189,7 +200,7 @@ export async function loadKnowledgeBase(onProgress, signal, pre = null) {
   } catch (e) {
     // 公開知識ベースを読めないときに、真っ白で終わらせない。
     // 同梱データでも旅程は組めるので、そちらに落ちて理由を伝えます。
-    const { regions, spots } = SAMPLE_KB;
+    const { regions, spots } = await sampleKb();
     onProgress?.(1, 1, "同梱データ");
     return {
       source: "sample",
