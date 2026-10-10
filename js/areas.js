@@ -68,6 +68,31 @@ export const NAMED_SETS = {
   京阪神: ["京都", "大阪", "神戸"],
 };
 
+/**
+ * 「三都心」は、文脈で指す先が変わる呼び名です。
+ *
+ * 地名が添えられていれば（「東京の三都心」）、その街の3つの中心を指します。
+ * 地名が無くても、出発地が東京なら東京の話だと読みます（東京の人が
+ * 「三都心」と書くとき、東京・大阪・名古屋のことはまずありません）。
+ * どちらでもなければ、いちばん多い読みの三大都市にします。
+ *
+ * 収録のエリア名で当てるので、池袋は豊島区です。
+ */
+const CITY_CENTERS = {
+  東京: { regions: ["新宿", "渋谷", "豊島"], label: "東京の新宿・渋谷・池袋",
+          cue: /東京|都内|首都圏/ },
+};
+
+/** 出発地から、その人の街を決めます（収録に3つの中心がある街だけ）。 */
+export function originCity(origin) {
+  const lat = Number(origin?.lat);
+  const lng = Number(origin?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  // 東京駅から約40km。
+  const km = Math.hypot((lat - 35.681) * 111, (lng - 139.767) * 91);
+  return km <= 40 ? "東京" : null;
+}
+
 /** 読みが複数ありうる言い回しの、組んだ読みの説明。 */
 export const NAMED_READINGS = {
   三都心: "「三都心」は、東京・大阪・名古屋の三大都市として読みました"
@@ -191,7 +216,7 @@ export function variantsOf(name) {
   return out;
 }
 
-export function detectAreas(text, kb) {
+export function detectAreas(text, kb, ctx = {}) {
   // ローマ字で書かれた地名を、収録の表記に足してから探します。
   //
   // 「I want to visit around Sendai」と書かれて、**旭川市・函館市**が
@@ -259,14 +284,29 @@ export function detectAreas(text, kb) {
   // 長い言い回しから順に見ます。「3大都市」を拾ったあとで「大都市」も
   // 拾うと、6エリアの指定が13エリアに広がって、指定した意味が消えます。
   const namedHits = [];
+  let dropCityTerm = null;
   const canon = canonNumbers(s);
-  for (const [term, names] of Object.entries(NAMED_SETS)
+  for (const [term, setNames] of Object.entries(NAMED_SETS)
     .sort((a, b) => b[0].length - a[0].length)) {
+    let names = setNames;
     if (!canon.includes(term) && !s.includes(term)) continue;
     if (namedHits.some((t) => t.includes(term))) continue;
     // 「3大都市」と「三大都市」は同じ言い回しです。2つ目は数えません。
     if (namedHits.some((t) => canonNumbers(t) === canonNumbers(term))) continue;
     namedHits.push(term);
+    let reading = NAMED_READINGS[term];
+    if (term === "三都心") {
+      // 文脈に合わせて、どの街の3つの中心かを決めます。
+      const city = Object.entries(CITY_CENTERS).find(([name, c]) =>
+        c.cue.test(s) || (!/大阪|名古屋|京都/.test(s) && ctx.originCity === name));
+      if (city) {
+        // 「東京の三都心」の「東京」は街の名前で、東京全体の指定ではありません。
+        if (city[1].cue.test(s)) dropCityTerm = city[0];
+        names = city[1].regions;
+        reading = `「三都心」は、${city[1].label}として読みました`
+          + "（別の街のことなら、街の名前を足して書いてください）。";
+      }
+    }
     const ids = [];
     const prefs = new Set();
     // どのエリアが、どの地名（東京・大阪・名古屋）に属するか。
@@ -283,7 +323,6 @@ export function detectAreas(text, kb) {
     }
     if (ids.length) {
       push(term, "region", [...prefs], ids, groups);
-      const reading = NAMED_READINGS[term];
       if (reading) seen.get(term).reading = reading;
     }
   }
@@ -311,6 +350,10 @@ export function detectAreas(text, kb) {
     const ids = (kb?.regions ?? [])
       .filter((r) => !r.country || r.country === "日本").map((r) => r.id);
     push(nation[0], "nation", [...PREFECTURES], ids, blockGroups(kb, ids));
+  }
+  if (dropCityTerm) {
+    return found.filter((a) => a.term === "三都心"
+      || !(a.term.startsWith(dropCityTerm) || a.term === `${dropCityTerm}都`));
   }
   return found;
 }

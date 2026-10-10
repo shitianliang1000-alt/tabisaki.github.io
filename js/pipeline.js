@@ -17,7 +17,7 @@ import {
   resolvedModel, understandRequest,
 } from "./ai.js";
 import { areaNote, areaScope, blockGroups, detectAreas, namedSpotAreas,
-         phraseAreas,
+         originCity, phraseAreas,
   placeCandidates, unknownPlaceTerms }
   from "./areas.js";
 import { isTouring } from "./touring.js";
@@ -142,7 +142,8 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 案ごとに読み取り直すと、同じ文をモデルに3回投げることになります
   // （変わるのはペースと穴場の割合だけで、希望文は同じです）。
   const query = opts.query
-    ?? await understandRequest(trip.note, trip.interests, hours, { signal });
+    ?? await understandRequest(trip.note, trip.interests, hours,
+      { signal, origin: trip.origin?.name });
   stop();
   // ペースは、利用者が選んでいればそちらを使います。
   // 希望文からの推測で上書きすると、「もっとゆっくり」を押したのに
@@ -167,10 +168,12 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 地元の祭りばかりが上位に来ます（実際にそうなりました）。
   // AIが具体的な地名に直した呼び名（辞書に無い「三都心」のような言い方）。
   // 辞書で当たったものがあれば、そちらを使います。
+  // 「三都心」のように、書いた人の街で指す先が変わる呼び名のための文脈。
+  const actx = { originCity: originCity(trip.origin) };
   const phraseHits = opts.ignoreAreas ? []
     : phraseAreas(query.phrases, kb).filter((a) =>
-      !detectAreas(trip.note, kb).some((d) => d.term === a.term));
-  const areaWords = new Set([...detectAreas(trip.note, kb), ...phraseHits]
+      !detectAreas(trip.note, kb, actx).some((d) => d.term === a.term));
+  const areaWords = new Set([...detectAreas(trip.note, kb, actx), ...phraseHits]
     .flatMap((a) => [a.term, a.term.replace(/[都道府県]$/, "")]));
   // 「移動を楽しみたい」「青春18きっぷで」の語も、行き先を探す語では
   // ありません。残すと「移動」「青春」を名前や説明に含む数件だけが候補に
@@ -236,7 +239,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     .filter(Boolean).join(" ");
   let scope = opts.ignoreAreas
     ? { regionIds: null, matched: [], missing: [] }
-    : areaScope([...detectAreas(towardText, kb), ...phraseHits]);
+    : areaScope([...detectAreas(towardText, kb, actx), ...phraseHits]);
   // 地名は当たらないが、収録にある場所の名前（「琵琶湖」）が書かれて
   // いるなら、そこから決めます。広い場所なら、まわりのエリアごと
   // （js/areas.js の namedSpotAreas）。
@@ -331,7 +334,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   if (discovered.some((d) => d.ok)) {
     // 調べたぶんを含めて解釈し直す
     const before = scope.regionIds;
-    scope = areaScope(detectAreas(trip.note, kb));
+    scope = areaScope(detectAreas(trip.note, kb, actx));
     if (!scope.regionIds) {
       // 収録の地名として解釈できない場合は、調べたエリアに絞る
       const ids = new Set(kb.regions.filter((r) => r.source === "ai")
@@ -1807,7 +1810,8 @@ async function loadNeededSpots(kb, trip, opts = {}) {
     if (total > 1) onProgress(1, label);
   };
 
-  const areas = opts.ignoreAreas ? [] : detectAreas(trip.note, kb);
+  const areas = opts.ignoreAreas ? []
+    : detectAreas(trip.note, kb, { originCity: originCity(trip.origin) });
   const scope = areaScope(areas);
   const wanted = new Set(scope.regionIds ?? []);
   // 「必ず行く」のエリアは、地名が書かれていなくても要ります。

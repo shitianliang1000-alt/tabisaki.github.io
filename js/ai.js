@@ -802,7 +802,8 @@ export async function understandRequest(note, interests, hours, opts = {}) {
   if (!text && interests.length === 0) return { ...FALLBACK_PLAN, interests };
   if (!hasApiKey()) return keywordFallback(text, interests);
 
-  const key = JSON.stringify([text, [...interests].sort(), Math.round(hours)]);
+  const origin = String(opts.origin ?? "").trim();
+  const key = JSON.stringify([text, [...interests].sort(), Math.round(hours), origin]);
   if (understood.has(key)) return { ...understood.get(key) };
 
   const prompt = [
@@ -810,6 +811,7 @@ export async function understandRequest(note, interests, hours, opts = {}) {
     "",
     `利用可能な時間: 約${Math.round(hours)}時間`,
     `選択済みの興味: ${interests.length ? interests.join(", ") : "（なし）"}`,
+    `利用者の出発地: ${origin || "（不明）"}`,
     `利用者の言葉: 「${text || "（記述なし）"}」`,
     "",
     "searchText は、この人が喜びそうな場所の特徴を描写する1〜2文にしてください。",
@@ -838,6 +840,9 @@ export async function understandRequest(note, interests, hours, opts = {}) {
     "あれば、phrases に書いてください。phrase は言葉にあるとおり、",
     "names はその呼び名が指す日本の地名を（市や観光地の名前で）入れます。",
     "「さん都心」のようにひらがなや数字で書かれていても同じです。",
+    "呼び名の指す先が文脈で変わるとき（例: 「東京の三都心」は新宿・渋谷・池袋、",
+    "「大阪の三都心」は梅田・難波・天王寺）は、書かれた地名に合わせて names を決めます。",
+    "地名が書かれていなければ、利用者の出発地の街のこととして読みます。",
     "読みかたが人によって分かれる呼び名は、最も一般的な読みで names を埋め、",
     "ambiguous を true にしてください。知らない呼び名は推測せず、書かないでください。",
     "単なる地名（京都、東京）や、地方名（関東、九州）は書かないでください。",
