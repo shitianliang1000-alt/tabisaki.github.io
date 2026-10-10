@@ -7,7 +7,7 @@
      スクリプトは動かしません。 -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'none'; base-uri 'self'; form-action 'none'">
 <title>著作権表記 | 旅さき</title>
-<meta name="description" content="旅さきが使っている地図・写真・観光地のデータ・経路や天気のサービス・ライブラリと、それぞれのライセンスと出典の一覧です。">
+<meta name="description" content="旅さきが使っている地図・写真・データ・サービスの著作権表記です。">
 <link rel="canonical" href="https://shitianliang1000-alt.github.io/tabisaki.github.io/credits.html">
 <meta name="theme-color" content="#F4F1EB">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -21,36 +21,22 @@
   <a class="bar-link" href="index.html">旅程をつくる</a>
 </header>
 <main class="area credits-page">
-<!-- 中身を変えたら（データや外部サービスを足した・外した）、ここも直してください。
-     件数は kb/ の src ごとの数です（2026年10月時点）。 -->
+<!-- 各ライセンス・利用規約が表示を求めているものだけを書いています。
+     データや外部サービスを足した・外したら、ここも直してください。 -->
 <h1>著作権表記</h1>
-<p class="lead">旅さきは、次の地図・写真・データ・サービス・ライブラリを使っています。
-それぞれの著作権は各提供元・作成者にあり、表示はそれぞれのライセンスの求めに沿っています。</p>
-<nav class="toc" aria-label="このページの見出し">
-  <ul>
-    <li><a href="#map">地図</a></li>
-    <li><a href="#photo">写真</a></li>
-    <li><a href="#data">観光地・駅のデータ</a></li>
-    <li><a href="#service">経路・天気・AI</a></li>
-    <li><a href="#app">このアプリ自体</a></li>
-  </ul>
-</nav>
-
-<section id="map" aria-labelledby="h-map">
-  <h2 id="h-map">地図</h2>
-  <dl class="src">
-    <dt>OpenStreetMap（地図のタイル）</dt>
-    <dd>
-      <p>© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a></p>
-      <p>地図のデータは <a href="https://opendatacommons.org/licenses/odbl/1-0/">Open Database License（ODbL 1.0）</a>、
-      タイルの絵は CC BY-SA 2.0 です。タイルは OpenStreetMap 財団のサーバーから、
-      <a href="https://operations.osmfoundation.org/policies/tiles/">タイル利用方針</a>に沿って読み込んでいます。</p>
-    </dd>
-    <dt>Leaflet 1.9.4（地図の表示）</dt>
-    <dd>
-      <p>Copyright (c) 2010-2023, Volodymyr Agafonkin / Copyright (c) 2010-2011, CloudMade.
-      <a href="https://github.com/Leaflet/Leaflet/blob/v1.9.4/LICENSE">BSD 2-Clause License</a></p>
-      <details>
+<dl class="src">
+  <dt>地図・位置のデータ</dt>
+  <dd>
+    <p>© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>（<a href="https://opendatacommons.org/licenses/odbl/1-0/">ODbL</a>）</p>
+    <p><a href="https://docs.overturemaps.org/attribution/">© Overture Maps Foundation, overturemaps.org</a></p>
+    <p><a href="https://developer.yahoo.co.jp/sitemap/">Web Services by Yahoo! JAPAN</a></p>
+    <p>出典：<a href="https://www.gsi.go.jp/">国土地理院</a></p>
+  </dd>
+  <dt>Leaflet</dt>
+  <dd>
+    <p>Copyright (c) 2010-2023, Volodymyr Agafonkin / Copyright (c) 2010-2011, CloudMade
+    （<a href="https://github.com/Leaflet/Leaflet/blob/v1.9.4/LICENSE">BSD 2-Clause License</a>）</p>
+    <details>
         <summary>ライセンスの全文</summary>
         <pre class="license">BSD 2-Clause License
 
@@ -79,147 +65,35 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.</pre>
       </details>
-    </dd>
-  </dl>
-</section>
-
-<section id="photo" aria-labelledby="h-photo">
-  <h2 id="h-photo">写真</h2>
-  <dl class="src">
-    <dt>Wikimedia Commons・Wikipedia 日本語版</dt>
-    <dd>
-      <p>立ち寄り先のカードの写真は、その場所の Wikipedia 記事の代表画像を
-      <a href="https://ja.wikipedia.org/api/rest_v1/">Wikipedia の API</a> から読み込んで表示しています。
-      写真は旅さきのものではありません。著作権は撮影者にあり、多くは CC BY-SA などのライセンスで公開されています。</p>
-      <p>撮影者とライセンスは写真ごとに違います。<strong>写真の隅の「写真: Wikimedia Commons」</strong>から、
-      その写真の説明ページ（撮影者・ライセンス・元の画像）を開けます。</p>
-    </dd>
-  </dl>
-</section>
-
-<section id="data" aria-labelledby="h-data">
-  <h2 id="h-data">観光地・駅のデータ</h2>
-  <p class="fine">旅程の候補にする観光地（約5万4千件）と、駅・バス停の位置です。件数は出どころごとのおおよその数です。</p>
-  <dl class="src">
-    <dt>国土数値情報「観光資源」（国土交通省）</dt>
-    <dd>
-      <p>出典：<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P12.html">国土数値情報（観光資源データ）（国土交通省）</a>を加工して作成。約9,500件。</p>
-      <p class="terms">使用許諾条件：非商用（<a href="https://nlftp.mlit.go.jp/ksj/other/agreement_02.html">国土数値情報ダウンロードサイト 利用規約</a>）</p>
-    </dd>
-    <dt>国土数値情報「文化施設」（国土交通省）</dt>
-    <dd>
-      <p>出典：<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P27.html">国土数値情報（文化施設データ）（国土交通省）</a>を加工して作成。約3,600件。</p>
-      <p class="terms">使用許諾条件：非商用</p>
-    </dd>
-    <dt>国土数値情報「鉄道」「バス停留所」（国土交通省）</dt>
-    <dd>
-      <p>出典：<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-v3_1.html">国土数値情報（鉄道データ）（国土交通省）</a>・<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P11.html">国土数値情報（バス停留所データ）（国土交通省）</a>を加工して作成。
-      経路が取れない区間の移動時間の目安に、駅（2008年度版）とバス停（2010年度版の一部）の位置を使っています。</p>
-      <p class="terms">使用許諾条件：鉄道は商用可、バス停留所は非商用</p>
-    </dd>
-    <dt>Wikipedia 日本語版</dt>
-    <dd>
-      <p>各地の一覧記事（温泉地・山・寺院・島・史跡・都道府県の観光地など）から、記事名・座標・冒頭の説明を使っています。約8,900件。
-      文章の著作権は <a href="https://ja.wikipedia.org/">Wikipedia</a> の各記事の執筆者にあります（執筆者は各記事の履歴にあります）。</p>
-      <p class="terms">ライセンス：<a href="https://creativecommons.org/licenses/by-sa/4.0/deed.ja">CC BY-SA 4.0</a>。
-      Wikipedia から写した説明文は、同じ CC BY-SA 4.0 のもとで再利用できます。</p>
-    </dd>
-    <dt>Wikidata</dt>
-    <dd>
-      <p><a href="https://www.wikidata.org/">Wikidata</a> の名前・座標・分類。約14,800件。</p>
-      <p class="terms">ライセンス：<a href="https://creativecommons.org/publicdomain/zero/1.0/deed.ja">CC0 1.0</a>（表示の義務はありませんが、出典として記しています）</p>
-    </dd>
-    <dt>OpenStreetMap</dt>
-    <dd>
-      <p>© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>。
-      座標が分からなかった観光地に、名前と都道府県の一致で付けた座標です。約4,200件。</p>
-      <p class="terms">ライセンス：<a href="https://opendatacommons.org/licenses/odbl/1-0/">ODbL 1.0</a>。
-      これらの座標を含む旅さきの観光地データ（<code>kb/</code>）は ODbL の派生データベースにあたり、その部分は ODbL のもとで
-      <a href="https://github.com/shitianliang1000-alt/tabisaki.github.io/tree/main/kb">公開しています</a>。</p>
-    </dd>
-    <dt>Overture Maps</dt>
-    <dd>
-      <p><a href="https://docs.overturemaps.org/attribution/">Overture Maps Foundation, overturemaps.org</a>。
-      座標が分からなかった観光地に付けた座標です。約1,300件。</p>
-      <p class="terms">ライセンス：<a href="https://cdla.dev/permissive-2-0/">CDLA Permissive 2.0</a>／Apache License 2.0（1件ずつの出どころによります）</p>
-    </dd>
-    <dt>座標つきの観光地一覧</dt>
-    <dd>
-      <p>各都道府県の公式観光サイトに挙がっている観光地の名前に、次のサービスで座標を付けた一覧です。約10,600件。
-      件数は、旅さきに入っている座標がどのサービスから取ったものかの内訳です。</p>
-      <ul>
-        <li><a href="https://developer.yahoo.co.jp/sitemap/">Web Services by Yahoo! JAPAN</a>：Yahoo!ローカルサーチ API（店舗・施設の検索。約8,800件）、Yahoo!コンテンツジオコーダ API（寺社・公園・史跡などの地名。約1,100件）</li>
-        <li>出典：<a href="https://www.gsi.go.jp/">国土地理院</a>（住所検索 API。山・湖・滝・海岸などの地名。約480件）</li>
-        <li>Photon・Nominatim・Overpass API（OpenStreetMap のデータを検索するサービス）。© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>、ODbL 1.0。約230件</li>
-        <li>Wikipedia の記事の座標（CC BY-SA 4.0）・Wikidata（CC0）による検索</li>
-      </ul>
-    </dd>
-    <dt>川の防災情報 ダムデータ（国土交通省）</dt>
-    <dd>
-      <p>出典：<a href="https://www.river.go.jp/">川の防災情報（国土交通省）</a>のダムの名前・位置・型式・管理者を加工して作成。約770件。</p>
-    </dd>
-    <dt>各都道府県の公式観光サイト</dt>
-    <dd>
-      <p>観光地の名前の一覧を「観光地として挙がっているか」の確認にだけ使っています。名前・座標・説明は写していません。</p>
-    </dd>
-    <dt>旅さきの収録データ</dt>
-    <dd>
-      <p>主な観光地のエリア分けや紹介文の一部は、旅さきで用意したものです。</p>
-    </dd>
-  </dl>
-</section>
-
-<section id="service" aria-labelledby="h-service">
-  <h2 id="h-service">経路・天気・AI</h2>
-  <dl class="src">
-    <dt>経路・所要時間（徒歩・車）</dt>
-    <dd>
-      <p>Google Maps Platform（Routes API）。© Google。
-      <a href="https://cloud.google.com/maps-platform/terms">Google Maps Platform 利用規約</a>に沿って使っています。</p>
-    </dd>
-    <dt>電車・バスの乗り換え</dt>
-    <dd>
-      <p><a href="https://transit.yahoo.co.jp/">Yahoo!路線情報</a>（LINEヤフー株式会社）の検索結果を、旅さきの中継サーバーを通して使っています。</p>
-    </dd>
-    <dt>天気</dt>
-    <dd>
-      <p><a href="https://open-meteo.com/">Weather data by Open-Meteo.com</a>（予報と過去の天気）。
-      ライセンス：<a href="https://creativecommons.org/licenses/by/4.0/deed.ja">CC BY 4.0</a></p>
-    </dd>
-    <dt>AI（希望の読み取り・行き先の選定）</dt>
-    <dd>
-      <p>Google の <a href="https://ai.google.dev/">Gemini API</a> で、Gemma などのモデルを使っています
-      （<a href="https://ai.google.dev/gemma/terms">Gemma 利用規約</a>）。AI の答えは間違うことがあります。</p>
-    </dd>
-    <dt>外部へのリンク</dt>
-    <dd>
-      <p>Google マップなどへのリンクは、各サービスのページを開くだけで、その内容を旅さきに取り込んではいません。</p>
-    </dd>
-  </dl>
-</section>
-
-<section id="app" aria-labelledby="h-app">
-  <h2 id="h-app">このアプリ自体</h2>
-  <dl class="src">
-    <dt>プログラム</dt>
-    <dd>
-      <p>旅さきのプログラム（HTML・CSS・JavaScript）は <a href="https://unlicense.org/">The Unlicense</a> でパブリックドメインにしています
-      （<a href="https://github.com/shitianliang1000-alt/tabisaki.github.io">ソースコード</a>）。
-      <strong>観光地のデータ（<code>kb/</code>）は対象外</strong>で、上に書いたそれぞれのライセンスに従います。</p>
-    </dd>
-    <dt>アイコン・字体</dt>
-    <dd>
-      <p>画面の記号とアプリのアイコンは、旅さきで描いたものです。字体は端末に入っているものだけを使い、Web フォントは読み込んでいません。</p>
-    </dd>
-    <dt>開発用のツール（公開しているアプリには含まれません）</dt>
-    <dd>
-      <p>テストに <a href="https://playwright.dev/">Playwright</a>（Apache License 2.0）と
-      <a href="https://github.com/dequelabs/axe-core">axe-core</a>（Mozilla Public License 2.0）を使っています。</p>
-    </dd>
-  </dl>
-</section>
-
-<p class="fine">表示に誤りや漏れがあれば、<a href="https://github.com/shitianliang1000-alt/tabisaki.github.io/issues">GitHub の Issues</a> でお知らせください。</p>
+  </dd>
+  <dt>写真</dt>
+  <dd>
+    <p><a href="https://commons.wikimedia.org/">Wikimedia Commons</a>。撮影者とライセンスは、各写真の「写真: Wikimedia Commons」から見られます。</p>
+  </dd>
+  <dt>国土数値情報（国土交通省）</dt>
+  <dd>
+    <p>出典：<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P12.html">国土数値情報（観光資源データ）（国土交通省）</a>を加工して作成</p>
+    <p>出典：<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P27.html">国土数値情報（文化施設データ）（国土交通省）</a>を加工して作成</p>
+    <p>出典：<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-v3_1.html">国土数値情報（鉄道データ）（国土交通省）</a>を加工して作成</p>
+    <p>出典：<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P11.html">国土数値情報（バス停留所データ）（国土交通省）</a>を加工して作成</p>
+  </dd>
+  <dt>川の防災情報（国土交通省）</dt>
+  <dd>
+    <p>出典：<a href="https://www.river.go.jp/">川の防災情報（国土交通省）</a>を加工して作成</p>
+  </dd>
+  <dt>Wikipedia</dt>
+  <dd>
+    <p><a href="https://ja.wikipedia.org/">Wikipedia</a> の執筆者（<a href="https://creativecommons.org/licenses/by-sa/4.0/deed.ja">CC BY-SA 4.0</a>）</p>
+  </dd>
+  <dt>天気</dt>
+  <dd>
+    <p><a href="https://open-meteo.com/">Weather data by Open-Meteo.com</a>（<a href="https://creativecommons.org/licenses/by/4.0/deed.ja">CC BY 4.0</a>）</p>
+  </dd>
+  <dt>電車・バスの乗り換え</dt>
+  <dd>
+    <p><a href="https://transit.yahoo.co.jp/">Yahoo!路線情報</a></p>
+  </dd>
+</dl>
 </main>
 <footer class="area-foot">
   <p><a href="index.html">旅さき</a> — 行きたいことから旅程をつくる</p>
