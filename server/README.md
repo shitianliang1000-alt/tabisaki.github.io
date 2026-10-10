@@ -165,6 +165,11 @@ Origin が無いリクエストは弾きます。ブラウザはクロスオリ�
 
 件数は Workers Analytics Engine のデータセット `tabisaki_metrics` に入ります
 （`wrangler.jsonc` の `analytics_engine_datasets`）。無料枠の範囲で使えます。
+
+**最初はバインディングを外してあります。** アカウントで Analytics Engine を
+有効にしていないと、Worker のデプロイそのものが失敗するためです。使うときは、
+ダッシュボードの Workers & Pages → Analytics Engine → Set up を一度押してから、
+`wrangler.jsonc` の該当行のコメントを外してください。
 `blob1` が出来事、`blob2` が補足（移動手段や組めなかった理由）です。
 
 見るときは、Cloudflare の API トークン（Account Analytics: Read）で SQL API を叩きます。
