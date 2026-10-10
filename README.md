@@ -531,8 +531,8 @@ AIから返ったIDをそのまま信用せず、候補集合と照合します�
 `tools/import_osm_tourlist.py` が入れた座標（`src="osm-tourlist"`、元の番号は
 `osm="node/123"`）は、**OpenStreetMap のデータで、ODbL 1.0 です**。
 
-- **「© OpenStreetMap contributors」の表示が必須です。** 画面の下の
-  「データ: …」に出しています（`kb/index.json` の `sources`）。消さないでください
+- **「© OpenStreetMap contributors」の表示が必須です。** 著作権表記の
+  ページ（`credits.html`、画面の下のリンク）に出しています。消さないでください
 - **同じ条件で共有する義務があります**（share-alike）。これらの座標を含む
   `kb/` は、ODbL の派生データベースにあたります。再配布するときは、その部分
   を ODbL で共有してください
@@ -546,7 +546,7 @@ AIから返ったIDをそのまま信用せず、候補集合と照合します�
 `tools/import_tourism_coords.py` が入れたもの（`src="tourlist-geocoded"`）は、
 いただいた一覧の座標です。
 
-- **Yahoo! JAPAN の API で取った座標が9割です。** 画面の下に「Web Services by
+- **Yahoo! JAPAN の API で取った座標が9割です。** 著作権表記のページに「Web Services by
   Yahoo! JAPAN」を出しています。**取った座標を保存して配ってよいかは、
   Yahoo! の利用規約を確かめていません。** 公開の前に確かめてください。
   外すときは `src="tourlist-geocoded"`（取得元ごとなら `geo`）の印で消えます
