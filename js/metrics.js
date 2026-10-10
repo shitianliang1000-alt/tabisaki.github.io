@@ -14,7 +14,8 @@
 //
 // 送らないとき
 // ------------
-//   - 設定で「使われかたの集計に協力する」を外したとき
+//   - 設定で「使われかたの集計に協力する」を入れていないとき（既定は
+//     入れていません。数えてよいかは、利用者が自分で決めます）
 //   - ブラウザが Global Privacy Control / Do Not Track を出しているとき
 //   - 中継（PROXY_URL）が無いとき（自分のキーで動かしている人の分は
 //     数えません。そもそも届け先がありません）
@@ -42,12 +43,19 @@ export const DETAILS = new Set([
 
 export const METRICS_KEY = "tabisaki.metrics";
 
-/** 集計に協力するか（既定は「する」。設定で外せます）。 */
+/**
+ * 集計に協力するか。
+ *
+ * **既定は「しない」です。** 設定で入れた人のぶんだけ数えます。
+ * 名前の無い件数でも、開いただけで送り始めるのは、頼まれていないことを
+ * 先にしていることになります。以前の既定（する）のまま何も触って
+ * いない人も、ここで「しない」に戻ります（"on" を保存した人だけが数えます）。
+ */
 export function metricsEnabled(storage = globalThis.localStorage) {
   try {
-    return storage?.getItem(METRICS_KEY) !== "off";
+    return storage?.getItem(METRICS_KEY) === "on";
   } catch {
-    return true;
+    return false;
   }
 }
 

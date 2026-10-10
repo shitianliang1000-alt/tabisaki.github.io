@@ -24,7 +24,6 @@ import { findStop, preloadStops, searchStops } from "./stops.js";
 import { END_MODES, formatHourField, makeTrip, parseHourField, validateTrip }
   from "./trip.js";
 import { TripMap, pointsFromItinerary } from "./map.js";
-import { planTrip } from "./pipeline.js";
 import { haversineKm } from "./feasibility.js";
 import { configureQuota, describeUsage, quota } from "./quota.js";
 import { artFor } from "./art.js";
@@ -40,7 +39,7 @@ import { spotFit, tripFit } from "./fit.js";
 import { paceBreakdown, slackLevel } from "./score.js";
 import { VARIANTS, distinguishOf, recommendOf, summaryOf, tripsFor }
   from "./variants.js";
-import { $, el, openSheet, renderItinerary, renderProgress, renderToday,
+import { $, el, loadSketch, openSheet, renderItinerary, renderProgress, renderToday,
          scrollBehavior, suggestionButton } from "./ui.js";
 import { catchUp } from "./today.js";
 import { isOffline, watchConnection } from "./online.js";
@@ -49,13 +48,39 @@ import { watchArrival } from "./arrive.js";
 import { armNotices, askNotifyPermission, scheduleNotices }
   from "./notify.js";
 import { requeryNextLeg } from "./nextleg.js";
+import { orderDiff } from "./orderdiff.js";
+import { clearTripMode, loadTripMode, saveTripMode } from "./tripmode.js";
 import { searchYahooTransit } from "./yahoo-transit.js";
 import { yahooFlags } from "./modes.js";
 import { addHistory, clearHistory, freezeItinerary, loadHistory, removeHistory,
          replaceHistory, savedLabel, thawItinerary } from "./history.js";
 import { applyTypeScale, initTypeScale, saveTypeScale } from "./typescale.js";
-import { mergeTrips, readTripFile, toBackupFile, toTripFile, tripFilename }
-  from "./transfer.js";
+
+// 旅程を組む部分（js/pipeline.js とその先の約20モジュール、450KBほど）
+// と、ファイルの書き出し・読み込み（js/transfer.js）は、開いた直後の
+// フォームには要りません。静的に import すると、画面が出る前に全部を
+// 取りに行って読み解くので、使うときに読みます。
+//
+// 「つくる」を押してから取りに行くと、そのぶん待たせます。画面が出て
+// 手が空いたら（requestIdleCallback）先に読み始めておきます。
+let pipelineModule = null;
+let transferModule = null;
+const loadPipeline = () => (pipelineModule ??= import("./pipeline.js")
+  .catch((e) => { pipelineModule = null; throw e; }));
+const loadTransfer = () => (transferModule ??= import("./transfer.js")
+  .catch((e) => { transferModule = null; throw e; }));
+async function planTrip(args) {
+  return (await loadPipeline()).planTrip(args);
+}
+function warmModules() {
+  const go = () => {
+    loadPipeline().catch(() => {});
+    loadSketch().catch(() => {});
+    loadTransfer().catch(() => {});
+  };
+  if ("requestIdleCallback" in globalThis) requestIdleCallback(go, { timeout: 4000 });
+  else setTimeout(go, 1500);
+}
 
 /** 待ち画面の絵に渡す、収録スポットの上限。読み込んだ順の末尾です
     （遅れて読むので、末尾が旅先の県のぶんになります）。 */
@@ -69,6 +94,8 @@ const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
                 // ペースは、利用者が「もっとゆっくり」等を押したときだけ
                 // 指定します。既定では希望文からの読み取りに任せます。
                 pace: null, clearArea: false, avoidIds: [], editNote: "",
+                // 旅行中モード（js/tripmode.js）。開き直しても続きます。
+                tripMode: false,
                 // avoidIds のうち、「外す」で件数ごと減らしたぶんと、
                 // そのときの上限。条件を組み直しても残します（残さないと、
                 // 外したはずの枠を別の場所が埋めて、押しても減りません）。
@@ -100,6 +127,8 @@ async function boot() {
   // あとから当てると、標準の大きさで一度描いてから大きくなるので、
   // 開いた瞬間に字が飛び跳ねます。
   initTypeScale();
+  // 画面が出たあと、手が空いたら旅程づくりの部品を読み始めます。
+  warmModules();
 
   state.map = new TripMap("map");
   state.map.configure({ tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION });
@@ -150,6 +179,17 @@ async function boot() {
     // 無いとき（同梱データ、古い索引）は、これまでどおりまとめて読みます。
     return stagedKb(pre) ?? await loadKnowledgeBase(undefined, undefined, pre);
   })();
+
+  // 旅行中モードのまま閉じていたら、開いた瞬間から旅行中の画面にします
+  // （js/tripmode.js）。収録の読み込みは待ちません。旅程は覚えてあります。
+  const kept = loadTripMode();
+  if (kept?.trip) {
+    kept.itin.restored = true;
+    state.trip = kept.trip;
+    state.tripMode = true;
+    $("#placeholder").hidden = true;
+    show(kept.itin, kept.trip);
+  }
 
   try {
     state.kb = await state.kbPromise;
@@ -1625,7 +1665,8 @@ function unpack(code) {
  * どこにも送りません。ブラウザの中でファイルを作って、端末に保存する
  * だけです。
  */
-function exportTrip(itin, trip) {
+async function exportTrip(itin, trip) {
+  const { toTripFile, tripFilename } = await loadTransfer();
   const doc = toTripFile({
     id: null,
     title: itin?.title ?? "旅",
@@ -1634,27 +1675,28 @@ function exportTrip(itin, trip) {
     trip: freezeItinerary(trip ?? null),
     itin: freezeItinerary(itin ?? null),
   });
-  downloadJson(doc);
+  downloadJson(doc, tripFilename);
   setBadge("旅程のファイルを保存しました");
   setTimeout(() => setBadge(kbBadgeText()), 2600);
 }
 
 /** 履歴ぜんぶを、控えのファイルにします。 */
-function exportBackup() {
+async function exportBackup() {
   const list = loadHistory();
   if (!list.length) {
     setBadge("控えにする旅がまだありません");
     setTimeout(() => setBadge(kbBadgeText()), 2600);
     return;
   }
+  const { toBackupFile, tripFilename } = await loadTransfer();
   const doc = toBackupFile(list);
-  downloadJson(doc);
+  downloadJson(doc, tripFilename);
   setBadge(`${list.length}件を控えに書き出しました`);
   setTimeout(() => setBadge(kbBadgeText()), 2600);
 }
 
 /** JSON を端末に保存します（.ics と同じやりかたです）。 */
-function downloadJson(doc) {
+function downloadJson(doc, tripFilename) {
   const blob = new Blob([JSON.stringify(doc, null, 1)],
                         { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1684,6 +1726,15 @@ async function importTripFile(file) {
     setTimeout(() => setBadge(kbBadgeText()), 4000);
     return;
   }
+  let transfer;
+  try {
+    transfer = await loadTransfer();
+  } catch (e) {
+    setBadge(`ファイルを開けませんでした（${e?.message ?? e}）`);
+    setTimeout(() => setBadge(kbBadgeText()), 4000);
+    return;
+  }
+  const { mergeTrips, readTripFile } = transfer;
   const out = readTripFile(text);
   if (!out.ok) {
     // **黙って読み違えません。** 何が違うのかを言います。
@@ -2015,6 +2066,9 @@ function reorderSpots(req, trip, itin) {
   state.trip = next;
   state.editNote = "回る順を変えて、組み直しました"
     + "（その順で入らない立ち寄りは落ちます）。";
+  // 組み直したあとに、前と比べて移動がどう変わったかを出します
+  // （js/orderdiff.js）。比べる相手は、いま画面に出ている旅程です。
+  state.orderFrom = { itin, trip: next };
   run(next);
 }
 
@@ -2405,6 +2459,29 @@ async function switchVariant(key) {
 }
 
 /**
+ * 旅行中モードに入る・出る（js/tripmode.js）。
+ *
+ * 入ると、画面は「今日の旅」の札だけになります（css の
+ * body[data-trip-mode]）。旅程は端末に覚えておくので、閉じて開き
+ * 直しても旅行中の画面から始まります。出ると、ふだんの結果の画面に
+ * 戻ります（旅程はそのままです）。
+ */
+function setTripMode(on, itin, trip) {
+  state.tripMode = on;
+  applyTripModeView();
+  if (on) saveTripMode(itin, trip);
+  else clearTripMode();
+  renderTodayBox(itin, trip);
+  if (on) showView("result");
+  else globalThis.scrollTo?.({ top: 0, behavior: scrollBehavior() });
+}
+
+function applyTripModeView() {
+  if (state.tripMode) document.body.dataset.tripMode = "on";
+  else delete document.body.dataset.tripMode;
+}
+
+/**
  * 「今日の旅」を出すかどうかを決め、出します。
  * 旅の当日でなければ、何も出しません（当日でないのに
  * 「次はここです」と出しても、混乱するだけです）。
@@ -2418,8 +2495,9 @@ function renderTodayBox(itin, trip) {
   const during = first && last
     && now >= new Date(new Date(first).setHours(0, 0, 0, 0))
     && now <= new Date(new Date(last).getTime() + 6 * 3600000);
-  box.hidden = !during;
-  if (!during) return;
+  // 旅行中モードにしたら、当日でなくても出します（前日に試す人がいます）。
+  box.hidden = !during && !state.tripMode;
+  if (box.hidden) return;
 
   // 遅れているかどうか。押された「着いた」から数えます。
   itin.catchUp = state.arrivedAtId
@@ -2429,6 +2507,8 @@ function renderTodayBox(itin, trip) {
 
   renderToday(box, itin, trip, {
     now,
+    tripMode: state.tripMode,
+    onTripMode: (on) => setTripMode(on, itin, trip),
     // 現在地から分かったこと（js/arrive.js）。**旅程は変えません。**
     arrivedHint: state.today.hint,
     notifyOn: Boolean(state.today.notices),
@@ -2554,6 +2634,11 @@ function show(itin, trip) {
   // 直前に言葉で直した内容を、組み直したあとの画面にも残します
   itin.editNote = state.editNote ?? "";
   state.editNote = "";
+  // 並べ替えの結果なら、前の旅程と比べた差を添えます。組み直しが
+  // 失敗して別の操作の結果が来たときは、比べません（別物どうしです）。
+  const from = state.orderFrom;
+  state.orderFrom = null;
+  itin.orderDiff = from && from.trip === trip ? orderDiff(from.itin, itin) : null;
   // 外した場所は、名前を残しておきます。押し間違えたときに戻せないと、
   // 「外す」を押すのが怖くなり、結局使われません。
   itin.dropped = (trip.must?.avoidSpotIds ?? [])
@@ -2631,9 +2716,19 @@ function show(itin, trip) {
     // 数え直すので、混んでいて外した区間が入ることがあります）。
     onRecheck: () => run(trip),
     onSpot: openSpotSheet,
+    // 当日でなく「今日の旅」が出ていないときは、旅程の上から入れます。
+    onTripMode: $("#today")?.hidden ? () => setTripMode(true, itin, trip) : null,
   });
 
-  rememberTrip(itin, trip);
+  // 旅行中モードで開き直したときは、一覧に足し直しません（足すと、
+  // 開くたびに一覧のいちばん上へ動きます）。
+  if (!itin.restored) rememberTrip(itin, trip);
+  // 旅行中モードのまま組み直した（「削る」など）ら、新しいほうを覚えます。
+  if (state.tripMode) {
+    if (!itin.restored) saveTripMode(itin, trip);
+    applyTripModeView();
+    showView("result");
+  }
 
   // ピンを押したときも、旅程の行と同じシートを開きます（往復できます）。
   const points = pointsFromItinerary(itin, trip, { onSpot: openSpotSheet });

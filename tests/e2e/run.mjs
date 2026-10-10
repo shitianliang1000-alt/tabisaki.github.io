@@ -937,6 +937,11 @@ await check("回る順を、その場で入れ替えられる", async () => {
   const sorted = [...times].sort();
   assert(times.join(",") === sorted.join(","),
     `時刻が前後しています: ${times.join(" / ")}`);
+
+  // 前と比べて、移動がどう変わったかが出ていること（js/orderdiff.js）。
+  const diff = await page.$eval(".order-diff", (e) => e.textContent)
+    .catch(() => "");
+  assert(diff.includes("移動の合計"), `移動の差が出ていません: ${diff}`);
 });
 
 await check("掴んで動かしても、入れ替わる", async () => {
@@ -1452,6 +1457,30 @@ await check("旅の当日は、次の一手が大きく出る", async () => {
     // **押されてから聞きます。**
     assert(!got.geoAsked, "押していないのに現在地を求めています");
     assert(!got.notifyAsked, "押していないのに通知を求めています");
+
+    // 旅行中モード（js/tripmode.js）。ワンタップで「今日の旅」だけになり、
+    // 開き直してもそのまま始まること。
+    await day.click("#today .trip-mode-btn");
+    const visible = (sel) => {
+      const e = document.querySelector(sel);
+      return Boolean(e) && e.getClientRects().length > 0;
+    };
+    const mode = () => document.body.dataset.tripMode === "on";
+    assert(await day.evaluate(mode), "旅行中モードに入っていません");
+    assert(!(await day.evaluate(visible, "#itinerary")),
+      "旅行中モードなのに、旅程の一覧が出ています");
+    assert(await day.evaluate(visible, "#today .today-next"),
+      "旅行中モードで、次の予定が見えていません");
+    await day.reload({ waitUntil: "domcontentloaded" });
+    await until(day, () => document.body.dataset.tripMode === "on"
+      && Boolean(document.querySelector("#today .today-next")),
+      { timeout: 30_000 });
+    // 出ると、ふだんの画面に戻り、覚えていたものも消えます。
+    await day.click("#today .trip-mode-btn");
+    assert(!(await day.evaluate(mode)), "旅行中モードから出られません");
+    assert(await day.evaluate(visible, "#itinerary"), "旅程の一覧に戻っていません");
+    assert(!(await day.evaluate(() => localStorage.getItem("tabisaki.tripMode"))),
+      "出たのに、旅行中モードを覚えたままです");
   } finally {
     clearInterval(answering);
     await ctx.close();

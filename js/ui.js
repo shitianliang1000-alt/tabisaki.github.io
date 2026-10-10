@@ -17,11 +17,11 @@ import { photoFor, photoPageOf } from "./photos.js";
 import { estimatedTravel } from "./reliability.js";
 import { isTouring, longDriveNote, restSlots } from "./touring.js";
 import { itineraryText } from "./share.js";
-import { icsFilename, toIcs } from "./ical.js";
-import { mountSketch } from "./sketch.js";
 import { KIND_NOTE } from "./modes.js";
 import { icon } from "./icons.js";
 import { NOTICE_LIMITS } from "./notify.js";
+import { describeOrderDiff } from "./orderdiff.js";
+import { laterToday } from "./tripmode.js";
 
 // 行の先頭の記号の「名前」です。形は js/icons.js が持っています。
 //
@@ -215,6 +215,15 @@ export function phaseOf(step) {
  */
 const SLOW_AFTER_SEC = 40;
 
+// 待ち画面の絵（js/sketch.js）と .ics の書き出し（js/ical.js）は、
+// 開いた直後には要りません。静的に import すると、フォームを出すだけの
+// 起動でも毎回取りに行って読み解くので、使う場面で初めて読みます。
+// 圏外でも sw.js が先に入れてあるので読めます。
+let sketchModule = null;
+let icalModule = null;
+export const loadSketch = () => (sketchModule ??= import("./sketch.js"));
+const loadIcal = () => (icalModule ??= import("./ical.js"));
+
 const fmtElapsed = (sec) =>
   `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 
@@ -256,13 +265,27 @@ export function renderProgress(container, step, detail = "", extra = null) {
     // **札を画面に置いてから**載せます。絵は「札が画面から消えたら
     // 止まる」作法で動くので、置く前に載せると最初の1コマで自分から
     // 止まります（実際そうなって、何も描かれませんでした）。
+    //
+    // 絵のモジュールは遅れて届きます。届くまでに来た材料は
+    // __sketchPending に貯めて、載せた直後にまとめて渡します。
     if (extra?.trip) {
-      card.__sketch = mountSketch(card, {
+      card.__sketchPending = {};
+      const ctx = {
         trip: extra.trip,
         // 地の形。点だけでは「どこを探しているのか」が読めません。
         // 地図が読めない環境では、これまでどおり点と線だけになります。
         tileUrl: extra.tileUrl ?? null,
         attribution: extra.attribution ?? "",
+      };
+      loadSketch().then(({ mountSketch }) => {
+        // 届く前に旅程ができて札が消えていたら、載せません。
+        if (!card.isConnected) return;
+        card.__sketch = mountSketch(card, ctx);
+        card.__sketch.update(card.__sketchPending);
+        card.__sketchPending = null;
+      }).catch(() => {
+        // 絵が無くても、段の一覧と経過時間で待てます。
+        card.__sketchPending = null;
       });
     }
   }
@@ -281,12 +304,13 @@ export function renderProgress(container, step, detail = "", extra = null) {
     li.firstChild.replaceChildren(...(i < ph ? [icon("check")] : [String(i + 1)]));
   });
   // 絵に、いまの段と材料を渡します。
-  if (card.__sketch) {
+  if (card.__sketch || card.__sketchPending) {
     const patch = { step };
     if (extra?.stars) patch.stars = extra.stars;
     if (extra?.picks) patch.picks = extra.picks;
     if (extra?.route) patch.route = extra.route;
-    card.__sketch.update(patch);
+    if (card.__sketch) card.__sketch.update(patch);
+    else Object.assign(card.__sketchPending, patch);
   }
   const bar = card.querySelector(".md-progress");
   bar.setAttribute("aria-valuenow", String(step + 1));
@@ -388,6 +412,30 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       // 「松江 2日 → 出雲 1日」だけでは、宿を動かすのかどうかが
       // 分かりません。連泊はそこが要点なので、1行で言います。
       stayLine(itin)));
+
+  // 旅行中モードの入口（当日は「今日の旅」の札の中にあります）。
+  if (handlers.onTripMode) {
+    const go = el("button", {
+      type: "button", class: "md-chip md-chip--assist md-state trip-mode-entry",
+    }, el("span", {}, "旅行中モードで開く"));
+    go.addEventListener("click", () => handlers.onTripMode());
+    container.append(go);
+  }
+
+  // 回る順を変えた直後なら、前と比べて移動がどう変わったかを出します。
+  // 新しい旅程が出るだけでは、入れ替えて得だったのかが分かりません。
+  const change = describeOrderDiff(itin.orderDiff);
+  if (change) {
+    container.append(el("section", {
+      class: `panel order-diff order-diff--${change.tone}`, role: "status",
+    },
+      el("p", { class: "order-diff-head" },
+        el("span", { class: "order-diff-badge" },
+          change.tone === "better" ? "短くなりました"
+            : change.tone === "worse" ? "長くなりました" : "移動は同じです"),
+        el("b", {}, change.head)),
+      ...change.lines.map((t) => el("p", { class: "fine" }, t))));
+  }
 
   // 判断を、数字より先に置きます。
   //
@@ -1077,8 +1125,20 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
   const calBtn = el("button", {
     type: "button", class: "md-btn md-btn--tonal md-state cal-ics",
   }, el("span", {}, "カレンダーに入れる"));
-  calBtn.addEventListener("click", () => {
+  // 押してから取りに行くと、端末によっては「押した直後」の扱いが切れて
+  // 保存が止められます。ボタンを出した時点で読み始めておきます。
+  loadIcal().catch(() => {});
+  calBtn.addEventListener("click", async () => {
     const label = calBtn.querySelector("span");
+    let toIcs, icsFilename;
+    try {
+      ({ toIcs, icsFilename } = await loadIcal());
+    } catch {
+      icalModule = null;
+      label.textContent = "書き出せませんでした";
+      setTimeout(() => { label.textContent = "カレンダーに入れる"; }, 2600);
+      return;
+    }
     const text = toIcs(itin);
     if (!text) { label.textContent = "予定がありません"; return; }
     let url = null;
@@ -1180,6 +1240,21 @@ export function renderToday(container, itin, trip, handlers = {}) {
   const step = currentStep(itin, now);
   const box = el("section", { class: "today" });
 
+  // 旅行中モード（js/tripmode.js）。ワンタップで、画面をこの札と
+  // 「このあとの予定」だけにします。開き直しても、そのまま始まります。
+  if (handlers.onTripMode) {
+    const on = handlers.tripMode === true;
+    const b = el("button", {
+      type: "button", "aria-pressed": String(on),
+      class: `md-btn md-state trip-mode-btn ${on ? "md-btn--text" : "md-btn--filled"}`,
+    }, el("span", {}, on ? "ふだんの画面に戻る" : "旅行中モードにする"));
+    b.addEventListener("click", () => handlers.onTripMode(!on));
+    box.append(el("div", { class: "trip-mode-bar" },
+      el("p", { class: "trip-mode-label" },
+        on ? "旅行中モード" : "旅の当日は、次の予定だけを大きく出せます"),
+      b));
+  }
+
   if (step.phase === "before") {
     box.append(el("p", { class: "today-when" }, "旅はまだ始まっていません"),
                el("p", { class: "today-next" },
@@ -1255,6 +1330,18 @@ export function renderToday(container, itin, trip, handlers = {}) {
         el("span", {}, `「${arrivable.title}」に着いた`));
       btn.addEventListener("click", () => handlers.onArrived(arrivable.id));
       box.append(el("div", { class: "today-actions" }, btn));
+    }
+  }
+
+  // 旅行中モードでは、旅程の一覧を隠すので、その日の残りをここに
+  // 短く並べます。「次の次」が見えないと、時間の配りかたが決められません。
+  if (handlers.tripMode) {
+    const later = laterToday(itin, step);
+    if (later.length) {
+      box.append(el("p", { class: "today-label today-later-label" }, "このあとの予定"),
+        el("ol", { class: "today-later" }, later.map((i) =>
+          el("li", {}, el("span", { class: "time" }, fmtTime(i.start)),
+                       el("span", {}, i.title)))));
     }
   }
 
