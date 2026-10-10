@@ -55,13 +55,19 @@ section {
 .prompts li { margin: 8px 0; }
 
 .spots li {
-  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 2px 10px;
   padding: 12px 0; border-top: 1px solid var(--hig-separator);
 }
 .spots li:first-child { border-top: 0; }
 .sp-name { font-weight: 600; }
 .sp-meta { font-size: var(--hig-t-footnote); color: var(--hig-label-2); white-space: nowrap; }
-.sp-desc { grid-column: 1 / -1; font-size: var(--hig-t-subhead); color: var(--hig-label-2); }
+/* 分類の記号。写真の無い一覧でも、温泉・寺社・海…が形で見分けられます。 */
+.sp-ic {
+  width: 32px; height: 32px; padding: 6px; border-radius: 10px;
+  background: var(--hig-fill); color: var(--tabi-indigo);
+}
+.c-title .sp-ic { width: 1.25em; height: 1.25em; padding: 0; background: none; margin-right: 6px; vertical-align: -.2em; }
+.sp-desc { grid-column: 2 / -1; font-size: var(--hig-t-subhead); color: var(--hig-label-2); }
 
 .regions, .prefs { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .regions a, .prefs a {

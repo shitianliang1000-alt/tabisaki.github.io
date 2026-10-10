@@ -125,6 +125,18 @@ p, li { text-wrap: pretty; }
   padding: 24px max(20px, env(safe-area-inset-right))
            0 max(20px, env(safe-area-inset-left));
 }
+/* 名前とひとこと（index.html の .brand-line）。条件の欄が下がりすぎない
+   よう、1行・小さめに収めます。右上の設定ボタンとは重ねません。 */
+.brand-line {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px;
+  margin: 0 0 16px; padding-right: 48px;
+}
+.brand-mark { flex: none; width: 28px; height: 28px; border-radius: 7px; }
+.brand-name {
+  font-size: var(--hig-t-title3, 1.25rem); font-weight: 700; letter-spacing: .02em;
+  color: var(--hig-label);
+}
+.brand-tag { font-size: var(--hig-t-footnote); color: var(--hig-label-2); }
 .pane-result {
   position: relative;
   background: var(--md-sys-color-surface);

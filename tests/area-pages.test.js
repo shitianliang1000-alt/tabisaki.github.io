@@ -11,7 +11,8 @@ import assert from "node:assert/strict";
 
 import {
   appLink, breadcrumbLd, buildAll, courseFits, courseItems, courseLink, courseSpotIds, curatedRegions, esc,
-  examplePrompts, nearbySpots, nextSaturday, pickPrefSpots, shardSlug, sitemapXml,
+  examplePrompts, nearbySpots, nextSaturday, pickPrefSpots, readableDescription, shardSlug,
+  sitemapXml, spotIcon,
 } from "../tools/build_area_pages.mjs";
 
 const BASE = "https://example.test/app/";
@@ -80,6 +81,69 @@ test("説明の無い穴場は並べない", () => {
   ]);
   assert.deepEqual(major.map((s) => s.id), ["a"]);
   assert.deepEqual(hidden.map((s) => s.id), ["b"]);
+});
+
+test("説明: 名前と分類と住所を並べただけのもの・住所だけのものは載せない", () => {
+  assert.equal(readableDescription({ name: "アイヌ民族博物館",
+    description: "アイヌ民族博物館（博物館）。若草町2-3-4" }), "");
+  assert.equal(readableDescription({ name: "新星館（美術館）",
+    description: "新星館（美術館）（美術館）。新星の丘" }), "");
+  assert.equal(readableDescription({ name: "輪島工房長屋", src: "kokudo",
+    description: "河井町4-66-1" }), "");
+  assert.equal(readableDescription({ name: "某ダム",
+    description: "北海道小樽市に所在するダム。型式:gravity 管理者:北海道" }), "");
+  assert.equal(readableDescription({ name: "扇町公園",
+    description: "扇町公園は、大阪府大阪市北区扇町にある都市公園である。" }), "");
+  assert.equal(readableDescription({ name: "九戸城",
+    description: "岩手県二戸市にある城跡・史跡。日本の城郭・城館跡のひとつ。" }), "");
+});
+
+test("説明: 読みがなを落とし、文の切れ目で短くし、別のものの記事は載せない", () => {
+  assert.equal(readableDescription({ name: "胎内スキー場",
+    description: "胎内スキー場（たいないスキーじょう）は、新潟県胎内市にあるスキー場で、春まで滑れる。" }),
+  "胎内スキー場は、新潟県胎内市にあるスキー場で、春まで滑れる。");
+  const long = readableDescription({ name: "長い場所",
+    description: `長い場所は、${"あ".repeat(60)}。${"い".repeat(60)}。${"う".repeat(60)}。` });
+  assert.ok(long.length <= 111 && long.endsWith("。"), long);
+  assert.equal(readableDescription({ name: "CIAL鎌倉",
+    description: "鎌倉駅は、神奈川県鎌倉市小町一丁目にある駅である。" }), "");
+  assert.notEqual(readableDescription({ name: "暗門の滝",
+    description: "暗門滝は青森県中津軽郡西目屋村に位置する滝。白神山地の暗門川にかかる。" }), "");
+});
+
+test("穴場: 定番の表記違い・同じ記事・駐車場・閉じた場所・隣の県は並べない", () => {
+  const ok = (id, extra) => spot(id, { description: `場所${id}は、谷あいの静かな寺。`, ...extra });
+  const { major, hidden } = pickPrefSpots([
+    spot("a", { name: "高徳院", fame_tier: "major", fame_score: 90 }),
+    ok("b", { name: "鎌倉大仏 高徳院", description: "鎌倉大仏 高徳院は、露座の大仏で知られる寺。" }),
+    ok("c", { name: "八戸鉱山", description: "露天掘りの鉱山。今も石灰石を掘っています。" }),
+    ok("d", { name: "住金鉱業", description: "露天掘りの鉱山。今も石灰石を掘っています。" }),
+    ok("e", { name: "智恩寺 駐車場" }),
+    ok("f", { name: "さるふつ温泉", description: "さるふつ温泉は、北海道宗谷郡猿払村にあった温泉。" }),
+    ok("g", { name: "くずはモール", description: "くずはモールは、大阪府枚方市にある大きな商業施設。駅に近い。" }),
+    ok("h"),
+  ], "神奈川県");
+  assert.deepEqual(major.map((s) => s.id), ["a"]);
+  // 同じ記事を持つ c と d は、どちらか1つだけ。
+  const ids = hidden.map((s) => s.id).sort();
+  assert.equal(ids.length, 2);
+  assert.ok(ids.includes("h") && (ids.includes("c") || ids.includes("d")), ids.join(","));
+});
+
+test("穴場: 同じ分類は3つまで", () => {
+  const list = ["a", "b", "c", "d", "e"].map((id) =>
+    spot(id, { category: "スキー場", description: `場所${id}は、雪の多い山の斜面。` }));
+  list.push(spot("f", { category: "温泉", description: "場所fは、川沿いの湯。" }));
+  const { hidden } = pickPrefSpots(list, "神奈川県");
+  assert.equal(hidden.filter((s) => s.category === "スキー場").length, 3);
+  assert.ok(hidden.some((s) => s.id === "f"));
+});
+
+test("分類の記号は、読み上げない線の SVG", () => {
+  const svg = spotIcon({ category: "温泉" });
+  assert.match(svg, /^<svg class="sp-ic"[^>]*aria-hidden="true"/);
+  assert.match(svg, /<path d="[^"]+"\/><\/svg>$/);
+  assert.notEqual(svg, spotIcon({ category: "神社" }));
 });
 
 test("紹介できるのは、説明と駅を持つエリアだけ", () => {

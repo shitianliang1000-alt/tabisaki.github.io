@@ -26,6 +26,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { artFor } from "../js/art.js";
+import { sameThing } from "../js/dedupe.js";
+import { iconPath, STROKE_WIDTH } from "../js/icons.js";
+import { onlySpots } from "../js/notaspot.js";
+
 const ROOT = new URL("../", import.meta.url).pathname;
 
 /** 公開URLの根。sitemap.xml の1件目から読みます（無ければこれ）。 */
@@ -147,19 +152,153 @@ function byFame(a, b) {
     || String(a.name).localeCompare(String(b.name), "ja");
 }
 
+/** 説明として長すぎる目安（字）。Wikipedia の書き出しは数百字のことがあります。 */
+const DESC_MAX = 110;
+
 /**
- * 県のページに並べる場所。定番は有名な順、穴場は説明のあるものから。
- * 説明の無い穴場を並べても、読む人には名前しか分かりません。
+ * ページに載せられる説明。載せられなければ空。
+ *
+ * 収録の説明には、読んでも何も分からないものが混ざっています。
+ *
+ *   アイヌ民族博物館（博物館）。若草町2-3-4      名前と分類と住所を並べただけ
+ *   河井町4-66-1                                住所だけ
+ *   北海道小樽市に所在するダム。型式:gravity …   機械で作った文
+ *   扇町公園は、大阪府大阪市北区扇町にある都市公園である。
+ *                                               「どこにある何か」だけ
+ *
+ * 穴場の欄がこれで埋まり、名前の繰り返しと住所が並んでいました。
+ * 載せずに、名前と分類だけにします。Wikipedia の書き出しは、読みがな
+ * のかっこを落とし、文の切れ目で短くします（途中で切りません）。
  */
-export function pickPrefSpots(spots) {
-  const list = (spots ?? []).filter((s) => s?.name);
-  const major = list.filter((s) => s.fame_tier === "major" || s.fame_tier === "known")
-    .sort(byFame).slice(0, PREF_MAJOR);
-  const taken = new Set(major.map((s) => s.id));
-  const hidden = list.filter((s) => s.fame_tier === "hidden" && s.description
-                                    && !taken.has(s.id))
-    .sort(byFame).slice(0, PREF_HIDDEN);
+export function readableDescription(spot) {
+  const name = String(spot?.name ?? "").trim();
+  let d = String(spot?.description ?? "").replace(/\s+/g, " ").trim();
+  if (!d) return "";
+  if (name && d.startsWith(name) && /^(（[^）]*）)+。/.test(d.slice(name.length))) return "";
+  if (aboutSomethingElse(name, d)) return "";
+  // 書き出しの読みがな:「胎内スキー場（たいないスキーじょう）は、」
+  d = d.replace(/^([^（。]{1,40})（[^）]*）(は)/, "$1$2");
+  // 句点の無い説明は、国土数値情報の住所の欄です（収録の8,121件がすべてそう）。
+  const parts = d.match(/[^。]+。/g) ?? (spot?.src === "kokudo" ? [] : [d]);
+  const sentences = parts
+    .map((x) => x.trim())
+    // 「型式:gravity 管理者:北海道」のような、項目を並べただけの文。
+    .filter((x) => !/[:：]/.test(x))
+    // 決まり文句（城跡の記事の2文目に必ず付いています）。
+    .filter((x) => !/^日本の城郭・城館跡のひとつ。$/.test(x));
+  if (!sentences.length) return "";
+  const generic = /^([^。、]{0,40}は、)?[^。]{0,40}(にある|に所在する|に位置する)[^。、]{0,30}?(である)?。$/;
+  if (sentences.length === 1 && generic.test(sentences[0])) return "";
+  let out = "";
+  for (const x of sentences) {
+    if (out && (out + x).length > DESC_MAX) break;
+    out += x;
+    if (out.length >= DESC_MAX * 0.6) break;
+  }
+  if (out.length > DESC_MAX) {
+    const cut = out.lastIndexOf("、", DESC_MAX);
+    out = `${out.slice(0, cut > 40 ? cut : DESC_MAX)}…`;
+  }
+  return out;
+}
+
+/** 名前を比べるための形。かっこ・空白・「の」を落とします（「暗門の滝」と「暗門滝」）。 */
+function looseName(name) {
+  return String(name ?? "").normalize("NFKC").replace(/[(（][^)）]*[)）]/g, "")
+    .replace(/[\s・の]/g, "").toLowerCase();
+}
+
+/**
+ * 説明が、別のものの記事か。「CIAL鎌倉」に「鎌倉駅は、…」、「宮ノ下温泉」に
+ * 「箱根温泉は、…」が付いています。その場所の説明として読むと誤りです。
+ * 書き出しの「〇〇は」と名前が、どちらにも含まれないときだけそう見ます。
+ */
+function aboutSomethingElse(name, d) {
+  const m = /^([^、。（(]{1,30})(?:[（(][^）)]*[）)])?は/.exec(d);
+  if (!m) return false;
+  const a = looseName(name);
+  const b = looseName(m[1]);
+  if (!a || !b) return false;
+  return !a.includes(b) && !b.includes(a);
+}
+
+const PREFS = /北海道|東京都|京都府|大阪府|(青森|岩手|宮城|秋田|山形|福島|茨城|栃木|群馬|埼玉|千葉|神奈川|新潟|富山|石川|福井|山梨|長野|岐阜|静岡|愛知|三重|滋賀|兵庫|奈良|和歌山|鳥取|島根|岡山|広島|山口|徳島|香川|愛媛|高知|福岡|佐賀|長崎|熊本|大分|宮崎|鹿児島|沖縄)県/;
+
+/**
+ * 説明の1文目に出てくる都道府県が、その県でない。県の境の近くの場所が、
+ * 隣の県の収録に入っています（京都府のページに大阪の「くずはモール」）。
+ */
+function inOtherPrefecture(spot, prefName = spot?.prefecture) {
+  const first = String(spot?.description ?? "").split("。")[0];
+  const m = PREFS.exec(first);
+  return Boolean(m && prefName && m[0] !== prefName);
+}
+
+/** 行き先として並べないもの（駐車場・ゴルフ場）。収録の観光施設の表に入っています。 */
+const NOT_DESTINATION = /駐車場|ゴルフ|カントリークラブ/;
+
+/**
+ * もう無い場所の説明（「〜にあった温泉」「閉館」）。穴場として勧めると、行っても
+ * 何もありません。定番の欄は手で選んだものが多いので、穴場の欄だけで見ます。
+ */
+const GONE = /^[^。]*(にあった|に存在した)[^。]{0,24}。|かつて(あった|存在した)|閉館|閉園|廃業|休館中|営業を終了/;
+
+/** 同じ分類を、1つの欄にいくつまで並べるか。穴場がスキー場と資料館だけになっていました。 */
+const PER_CATEGORY = 3;
+
+/** 2つが同じ場所の別名か。名前が同じことを言っていて、2km 以内（座標が無ければ名前だけ）。 */
+function sameSpot(a, b) {
+  if (a.id && a.id === b.id) return true;
+  // 同じ記事を、別の名前の2件が持っていることがあります（「住金鉱業」と「八戸鉱山」）。
+  if (a.description && a.description === b.description) return true;
+  if (!sameThing(a.name, b.name)) return false;
+  if (!Number.isFinite(a.lat) || !Number.isFinite(b.lat)) return true;
+  return distanceKm(a.lat, a.lng, b.lat, b.lng) <= 2;
+}
+
+/** 有名な順に、同じ場所の別名と、同じ分類の出すぎを除いて n 件。 */
+function pickDistinct(list, n, taken) {
+  const out = [];
+  const perCat = new Map();
+  for (const s of list) {
+    if (out.length >= n) break;
+    if (taken.some((t) => sameSpot(t, s))) continue;
+    const cat = s.category ?? "";
+    if ((perCat.get(cat) ?? 0) >= PER_CATEGORY) continue;
+    perCat.set(cat, (perCat.get(cat) ?? 0) + 1);
+    out.push(s);
+    taken.push(s);
+  }
+  return out;
+}
+
+/**
+ * 県のページに並べる場所。定番は有名な順、穴場は読める説明のあるものから。
+ * 説明の無い穴場を並べても、読む人には名前しか分かりません。
+ * 定番に出した場所を、表記違いで穴場にもう一度出すことはしません。
+ */
+export function pickPrefSpots(spots, prefName) {
+  const list = onlySpots(spots).filter((s) => s?.name && !NOT_DESTINATION.test(s.name))
+    .sort(byFame);
+  const taken = [];
+  const major = pickDistinct(
+    list.filter((s) => s.fame_tier === "major" || s.fame_tier === "known"), PREF_MAJOR, taken);
+  const hidden = pickDistinct(
+    list.filter((s) => s.fame_tier === "hidden" && readableDescription(s)
+                       && !GONE.test(s.description) && !inOtherPrefecture(s, prefName)),
+    PREF_HIDDEN, taken);
   return { major, hidden };
+}
+
+/**
+ * 分類の記号（アプリの旅程と同じ形。js/art.js が分類から選び、js/icons.js が描きます）。
+ * 読み上げません。分類は横に字で書いてあります。
+ */
+export function spotIcon(spot) {
+  const d = iconPath(artFor(spot).icon) || iconPath("spot");
+  return `<svg class="sp-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"`
+    + ` stroke-width="${STROKE_WIDTH}" stroke-linecap="round" stroke-linejoin="round"`
+    + ` aria-hidden="true" focusable="false"><path d="${esc(d)}"/></svg>`;
 }
 
 function fmtDate(d) {
@@ -227,11 +366,14 @@ ${body}
 function spotList(spots) {
   if (!spots.length) return "";
   return `<ul class="spots">
-${spots.map((s) => `  <li><span class="sp-name">${esc(s.name)}</span>`
-    + `<span class="sp-meta">${esc(s.category ?? "")}`
-    + `${s.fame_tier ? `・${esc(TIER_LABEL[s.fame_tier] ?? "")}` : ""}</span>`
-    + (s.description ? `<span class="sp-desc">${esc(s.description)}</span>` : "")
-    + "</li>").join("\n")}
+${spots.map((s) => {
+    const desc = readableDescription(s);
+    return `  <li>${spotIcon(s)}<span class="sp-name">${esc(s.name)}</span>`
+      + `<span class="sp-meta">${esc(s.category ?? "")}`
+      + `${s.fame_tier ? `・${esc(TIER_LABEL[s.fame_tier] ?? "")}` : ""}</span>`
+      + (desc ? `<span class="sp-desc">${esc(desc)}</span>` : "")
+      + "</li>";
+  }).join("\n")}
 </ul>`;
 }
 
@@ -250,7 +392,8 @@ export function courseItems(itin) {
     const minutes = Math.round((new Date(it.end) - new Date(it.start)) / 60000);
     if (it.kind === "spot") {
       out.push({ kind: "spot", time: fmtTime(it.start), minutes, title: it.title,
-                 text: it.place?.description ?? "", category: it.place?.category ?? "" });
+                 text: readableDescription(it.place), category: it.place?.category ?? "",
+                 icon: spotIcon(it.place ?? {}) });
     } else if (it.kind === "transit") {
       out.push({ kind: "move", time: fmtTime(it.start), minutes, title: "移動" });
     } else if (it.kind === "meal") {
@@ -279,7 +422,7 @@ export function courseSpotIds(itin) {
 function courseHtml(items) {
   return `<ol class="course">
 ${items.map((x) => `  <li class="c-${x.kind}"><b class="c-time">${esc(x.time)}</b>`
-    + `<span class="c-title">${esc(x.title)}${x.kind === "move" ? `（約${x.minutes}分・目安）`
+    + `<span class="c-title">${x.icon ?? ""}${esc(x.title)}${x.kind === "move" ? `（約${x.minutes}分・目安）`
       : x.kind === "end" ? "" : `<small>${x.minutes}分</small>`}</span>`
     + (x.text ? `<span class="c-text">${esc(x.text)}</span>` : "")
     + "</li>").join("\n")}
@@ -355,7 +498,7 @@ ${siblingLinks(region, siblings)}
 export function renderPrefPage({ prefName, prefSlug, spots, regions, base }) {
   const rel = "../../";
   const canonical = `${base}areas/${prefSlug}/index.html`;
-  const { major, hidden } = pickPrefSpots(spots);
+  const { major, hidden } = pickPrefSpots(spots, prefName);
   const title = `${prefName}の観光地・定番と穴場｜旅さき`;
   const description = `${prefName}の定番の観光地と、知る人ぞ知る穴場。収録${spots.length.toLocaleString("ja-JP")}か所から、`
     + "行きたいことに合わせて旅程をつくれます。";
