@@ -116,7 +116,7 @@ AI                     プログラム
 ```text
 .
 ├── index.html                 # アプリ本体
-├── credits.html               # 著作権・出典のページ（使っている地図・写真・データ・サービス）
+├── credits.html               # 著作権表記のページ（使っている地図・写真・データ・サービス）
 ├── icon.svg                   # アプリアイコン（ブラウザのタブ用）
 ├── icon-180.png               # iOS のホーム画面用（SVG は読まれません）
 ├── icon-192.png               # Android / PWA
