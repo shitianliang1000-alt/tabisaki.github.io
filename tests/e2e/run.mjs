@@ -180,7 +180,7 @@ await check("自分の言葉が先、書きかたの見本はその次", async (
   assert(cards === 0, `きっかけが2か所に分かれています（カード ${cards} 枚）`);
   // 押したら、欄がその文で埋まること（下の別の確認と合わせて二重に
   // 見ています。ここは「まとめたあとも押せる」を見ます）。
-  const want = await page.$eval("[data-example]", (e) => e.dataset.example);
+  const want = await page.$eval(".note-examples [data-example]", (e) => e.dataset.example);
   await page.click(".note-examples .md-chip");
   const got = await page.$eval("#note", (e) => e.value);
   assert(got === want, `札を押しても欄が埋まりません: ${got}`);
@@ -470,7 +470,7 @@ await check("旅程の下の操作が、ほかと同じ部品でできている"
 await check("そのまま使える例を押すと、欄が埋まる", async () => {
   // 自由入力の枠は、何を書いてよいか分からないと空のままです。
   // 押すと入る一文があれば、書き換えるところから始められます。
-  const chip = await page.$("[data-example]");
+  const chip = await page.$(".note-examples [data-example]");
   assert(chip, "例の札がありません");
   const want = await chip.getAttribute("data-example");
   await chip.click();
@@ -1292,6 +1292,38 @@ await check("指で押した跡が、残らない", async () => {
 //
 // **押されてから聞きます。** 開いた瞬間に通知と現在地の許可を求めるのは
 // いちばん断られる聞きかたなので、そうなっていないことも見ます。
+await check("携帯の最初の画面に、できあがりの見本が出る", async () => {
+  // 携帯では結果の面が隠れるので、初めての人には入力欄しか見えません
+  // でした。見本が欄より上にあり、押すとそのまま試せることを見ます。
+  // 前につくった旅が残っていない、まっさらな画面で見ます。
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const pg = await ctx.newPage();
+  const origin = new URL(BASE).origin;
+  await pg.route((u) => u.origin !== origin,
+    (route) => route.abort("connectionrefused"));
+  try {
+    await pg.goto(`${BASE}/index.html`, { waitUntil: "domcontentloaded" });
+    const box = await pg.$eval(".preview", (e) => {
+      const r = e.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, h: r.height };
+    });
+    assert(box.h > 0, "見本が出ていません");
+    assert(box.bottom < 844, "見本が最初の画面に収まっていません");
+    const noteTop = await pg.$eval("#note", (e) => e.getBoundingClientRect().top);
+    assert(box.top < noteTop, "見本が入力欄より下にあります");
+    const want = await pg.$eval(".preview-try", (e) => e.dataset.example);
+    await pg.click(".preview-try");
+    const got = await pg.$eval("#note", (e) => e.value);
+    assert(got === want, `見本を押しても欄が埋まりません: ${got}`);
+    // 広い画面では右半分が同じ役目をするので、出しません。
+    await pg.setViewportSize({ width: 1280, height: 900 });
+    const wide = await pg.$eval(".preview", (e) => e.getBoundingClientRect().height);
+    assert(wide === 0, "広い画面にも見本が出ています");
+  } finally {
+    await ctx.close();
+  }
+});
+
 await check("旅の当日は、次の一手が大きく出る", async () => {
   // **まっさらな画面で見ます。**
   //
