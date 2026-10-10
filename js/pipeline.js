@@ -16,8 +16,8 @@ import {
   aiStatus, embedQuery, hasApiKey, noteAiError, proposePlan, resetAiStatus,
   resolvedModel, understandRequest,
 } from "./ai.js";
-import { areaNote, areaScope, detectAreas, namedSpotAreas, placeCandidates,
-  unknownPlaceTerms }
+import { areaNote, areaScope, blockGroups, detectAreas, namedSpotAreas,
+  placeCandidates, unknownPlaceTerms }
   from "./areas.js";
 import { isTouring } from "./touring.js";
 import { readIntent } from "./intent.js";
