@@ -533,7 +533,7 @@ const cacheKey = (points, mode, departAt) =>
   `${mode}|${departAt ? Math.floor(departAt.getTime() / 600000) : "-"}|`
   + points.map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join(";");
 
-export function clearRouteCache() { routeCache.clear(); }
+export function clearRouteCache() { routeCache.clear(); legCache.clear(); }
 
 /**
  * 公共交通の区間を、駅の位置から組み立てます。
@@ -787,12 +787,47 @@ async function computeViaStations(points, opts) {
 }
 
 /**
+ * 区間ごとの控え。
+ *
+ * 控えは旅程まるごと（全地点＋全区間の出発時刻）の鍵でしたが、5泊の
+ * ように長いと、調べ直しの2周目で1区間でも出発時刻が動くだけで鍵が
+ * 変わり、**43区間をすべて聞き直していました**。回数は旅程全体で
+ * 数えているので、1周目で使い切って、2周目の区間は全部「目安」に
+ * 落ちます。区間ごとに控えれば、動いていない区間は回数を使いません。
+ */
+const legCache = new Map();
+const LEG_CACHE_MAX = 600;
+
+export function clearYahooLegCache() { legCache.clear(); }
+
+const legKey = (a, b, opts) =>
+  [a, b].map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join(">")
+  + `|${opts.departAt instanceof Date
+      ? Math.floor(opts.departAt.getTime() / 600000) : "-"}`
+  + `|${opts.transport ?? "any"}`;
+
+async function yahooLeg(a, b, opts) {
+  const key = legKey(a, b, opts);
+  const cached = legCache.get(key);
+  if (cached) return { ...cached, spent: 0 };
+  const res = await yahooLegUncached(a, b, opts);
+  // 引けたもの（時刻・歩き・停留所なし）だけ控えます。外したものは
+  // 控えません。通信の失敗や断りは次に聞けば通るかもしれず、「経路なし」
+  // も、あとの拾い直しで別の名前を試すためです。
+  if (res && !res.miss) {
+    if (legCache.size >= LEG_CACHE_MAX) legCache.delete(legCache.keys().next().value);
+    legCache.set(key, res);
+  }
+  return res;
+}
+
+/**
  * 1区間を、Yahoo!路線情報で調べます。引けなければ null。
  *
  * 出発地・目的地そのものは駅名ではないことが多いので、収録の停留所から
  * 最寄りを引いて名前にします（「箱根湯本駅」「大涌谷」）。
  */
-async function yahooLeg(a, b, opts) {
+async function yahooLegUncached(a, b, opts) {
   // 使った回数は、途中で失敗しても数えます。投げたものは投げたものです。
   let spent = 0;
   try {

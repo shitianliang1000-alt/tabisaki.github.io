@@ -739,6 +739,9 @@ const UNDERSTAND_SCHEMA = {
     budgetHint: S.enum(["cheap", "normal", "generous"]),
     keywords: S.strList("説明文と照合するための日本語の語（3〜8語）"),
     avoid: S.strList("利用者が明確に避けたいと言ったもの。無ければ空"),
+    // 「三都心」「京阪神」「北陸三県」のような、略した言い方・俗称が
+    // 指す日本の地名。辞書に無い言い回しを、モデルが読み替えます。
+    places: S.strList("略した言い方・俗称が指す、日本の都市・地域の名前（例: 三都心→東京・大阪・名古屋）。普通の地名は入れない。無ければ空"),
     // 名前のある旅のしかた（「最長片道切符」「国道1号線の旅」など）。
     // 行き先ではなく旅の形なので、地名と同じには扱えません（js/journeys.js）。
     journey: {
@@ -800,6 +803,11 @@ export async function understandRequest(note, interests, hours, opts = {}) {
     "avoid には、利用者が明確に断ったものだけを入れてください。",
     "書かれていないことを推測で足さないでください。",
     "",
+    "利用者の言葉に、略した言い方・俗称・数え方（例: 三都心、3大都市、京阪神、",
+    "北陸三県、東海道沿い）があれば、それが指す日本の都市・地域の名前を",
+    "places に入れてください。ふつうの地名（京都、箱根）は入れません。",
+    "指す先が決まっていなければ空にします。",
+    "",
     "利用者の言葉に、名前のある旅のしかた（切符・道・路線・街道・巡礼など。",
     "例: 最長片道切符、国道1号線の旅、東海道五十三次、四国八十八か所、",
     "只見線、しまなみ海道）があれば、journey に書いてください。",
@@ -822,6 +830,9 @@ export async function understandRequest(note, interests, hours, opts = {}) {
         ? p.budgetHint : "normal",
       keywords: Array.isArray(p.keywords) ? p.keywords : [],
       avoid: Array.isArray(p.avoid) ? p.avoid : [],
+      places: (Array.isArray(p.places) ? p.places : [])
+        .map((x) => String(x ?? "").trim())
+        .filter((x) => x.length >= 2 && x.length <= 12).slice(0, 8),
       journey: p.journey?.name ? p.journey : null,
     };
     if (understood.size >= UNDERSTOOD_MAX) {
