@@ -564,8 +564,16 @@ const FIELD_WEIGHT = {
 export function searchSpotsByKeyword(kb, keywords,
   { limit = 260, hiddenBias = 0, touring = false, companions = [] } = {}) {
   const terms = (keywords ?? []).map((k) => String(k).trim()).filter(Boolean);
+  // 語が無いときは、知名度の高い順に返します。
+  //
+  // 読み込んだ順の先頭を返していたので、県の並び（北海道から）がそのまま
+  // 出ていました。「最長往復切符で旅したい」のように探す語が残らない
+  // 希望で、候補が北海道と青森だけになっていました。
   if (!terms.length) {
-    return kb.spots.slice(0, limit).map((spot) => ({ spot, score: 0.1 }));
+    return kb.spots
+      .map((spot, i) => ({ spot, i, fame: spot.fame_score ?? 50 }))
+      .sort((a, b) => b.fame - a.fame || a.i - b.i)
+      .slice(0, limit).map(({ spot }) => ({ spot, score: 0.1 }));
   }
   const out = [];
   for (const spot of kb.spots) {

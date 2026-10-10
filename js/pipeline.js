@@ -16,10 +16,11 @@ import {
   aiStatus, embedQuery, hasApiKey, noteAiError, proposePlan, resetAiStatus,
   resolvedModel, understandRequest,
 } from "./ai.js";
-import { areaNote, areaScope, detectAreas, namedSpotAreas, placeCandidates,
-  unknownPlaceTerms }
+import { areaNote, areaScope, blockGroups, detectAreas, namedSpotAreas,
+  placeCandidates, unknownPlaceTerms }
   from "./areas.js";
 import { isTouring } from "./touring.js";
+import { journeyNote, pickJourney, stripJourney } from "./journeys.js";
 import { readIntent } from "./intent.js";
 import { nightTrainLeg } from "./trains.js";
 import { TUNING } from "./config.js";
@@ -62,6 +63,38 @@ import { attachLuggage, luggagePlanFor } from "./luggage.js";
 import { storyFor } from "./story.js";
 import { longestGap, pickBest, scoreItinerary } from "./score.js";
 
+/** 旅のしかたの名前に含まれる語か（「国道1号線」の「国道」「号線」など）。 */
+function isJourneyWord(w, journey) {
+  const word = String(w ?? "");
+  if (!word) return false;
+  return journey.name.includes(word) || word.includes(journey.name)
+    || /^(国道|号線|最長|片道|往復|切符|きっぷ|街道|五十三次|宿場|旧道)$/.test(word);
+}
+
+/**
+ * 沿って訪れる地名から、絞り込みの範囲を作ります。
+ * 地名ごとに内訳（groupById）を持たせ、街ごとに1つずつ選べるようにします。
+ */
+function alongRegions(along, kb) {
+  const ids = new Set();
+  const groupById = new Map();
+  for (const place of along) {
+    for (const a of detectAreas(place, kb)) {
+      // 県名で当たったものは広すぎます（「静岡」→静岡県全体）。
+      // その名前のエリアだけを使います。
+      // 県全体に広げると、道から外れた土地まで入るので使いません。
+      const named = a.regionIds.filter((id) =>
+        String(kb.regionsById.get(id)?.name ?? "").includes(place));
+      for (const id of named) {
+        ids.add(id);
+        if (!groupById.has(id)) groupById.set(id, place);
+      }
+    }
+  }
+  if (!ids.size) return null;
+  return { regionIds: ids, groupById, spread: true };
+}
+
 /** 旅のしかたを言う語。移動を楽しみたい人の希望文では、検索に使いません。 */
 const JOURNEY_WORDS = /^(移動|楽しみ|楽しむ|青春|18|きっぷ|切符|青春18きっぷ|鈍行|各駅|各駅停車|ローカル|ローカル線|車窓|乗り鉄|鉄旅|鉄道旅|列車旅|汽車旅|乗り継ぎ|乗りつぎ|遠く|日本一周|日本縦断|周遊)$/;
 
@@ -92,7 +125,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   }
   // 移動そのものを楽しみたいか（画面で選んだか、希望文に書いてあるか）。
   // 「青春18きっぷで」と書いた人に、移動の少ない近場の旅程を返さないためです。
-  const enjoyTravel = trip.enjoyTravel === true || intent.enjoyTravel === true;
+  let enjoyTravel = trip.enjoyTravel === true || intent.enjoyTravel === true;
   // 前回の失敗を持ち越さないようにします（3案を作るときは
   // 読み取りを使い回すので、最初の1回だけ数え直します）。
   if (!opts.query) resetAiStatus();
@@ -105,6 +138,15 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 希望文からの推測で上書きすると、「もっとゆっくり」を押したのに
   // 何も変わらない、ということが起きます（実際に起きていました）。
   if (!trip.paceChosen) trip.pace = query.pace;
+
+  // 名前のある旅のしかた（「最長往復切符」「国道1号線の旅」）。
+  // 行き先ではなく旅の形なので、乗り物・移動の楽しみかた・沿う道に
+  // 読み替えます（js/journeys.js）。画面で選んだ乗り物は上書きしません。
+  const journey = opts.ignoreAreas ? null : pickJourney(trip.note, query.journey);
+  if (journey?.transport && trip.transport === "any") {
+    trip = { ...trip, transport: journey.transport };
+  }
+  if (journey?.enjoyTravel) enjoyTravel = true;
 
   onProgress(1);
   const vector = opts.vector !== undefined ? opts.vector
@@ -119,7 +161,8 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // なり、近畿の3エリアに固まっていました（実際にそうなりました）。
   const searchWords = [...query.keywords, ...query.interests]
     .filter((w) => !areaWords.has(w))
-    .filter((w) => !(enjoyTravel && JOURNEY_WORDS.test(w)));
+    .filter((w) => !(enjoyTravel && JOURNEY_WORDS.test(w)))
+    .filter((w) => !journey || !isJourneyWord(w, journey));
 
   // 必要なぶんの収録を、ここで読みます。
   //
@@ -165,8 +208,10 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 列車の名前はどのエリア名とも一致しないので、これまでは地名の指定が
   // 無いことになり、点の高い順に返っていました。時刻は知らなくても、
   // **どこへ向かう列車かは分かります**。そこを行き先にします。
+  // 旅のしかたの名前（「東海道五十三次」の「東海」）は地名として読みません。
+  const areaText = journey ? stripJourney(trip.note, journey) : trip.note;
   const towardText = intent.toward.length
-    ? `${trip.note} ${intent.toward.join(" ")}` : trip.note;
+    ? `${areaText} ${intent.toward.join(" ")}` : areaText;
   let scope = opts.ignoreAreas
     ? { regionIds: null, matched: [], missing: [] }
     : areaScope(detectAreas(towardText, kb));
@@ -302,6 +347,17 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 「できるだけ移動したい」に応えられません。
   if (enjoyTravel && days > 1 && !scope.regionIds && !opts.ignoreAreas) {
     scope = { ...scope, spread: true, groupById: blockGroups(kb) };
+  }
+  // 沿う道が決まっていない全国の旅（最長片道切符・日本一周）も同じです。
+  if (journey?.spread && !scope.regionIds && !opts.ignoreAreas) {
+    scope = { ...scope, spread: true, groupById: blockGroups(kb) };
+  }
+  // 沿う道が決まっている旅（国道1号線・東海道など）は、その道沿いの街から
+  // 選びます。街ごとに内訳を持たせ、1つの街に固まらないようにします。
+  // 書かれた地名があるときは、そちらを優先します（「国道1号線で静岡へ」）。
+  if (journey?.along.length && !scope.matched?.length) {
+    const alongScope = alongRegions(journey.along, kb);
+    if (alongScope) scope = { ...scope, ...alongScope };
   }
 
   if (scope.regionIds) {
@@ -576,7 +632,9 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     ...scope.missing.map((a) => a.term),
   ]);
   const wanted = extractKeywords(trip.note).keywords
-    .filter((t) => !areaTerms.has(t) && !areaTerms.has(`${t}県`));
+    .filter((t) => !areaTerms.has(t) && !areaTerms.has(`${t}県`))
+    // 旅のしかたの名前（「国道」「最長往復切符」）は、場所ではありません。
+    .filter((t) => !journey || !isJourneyWord(t, journey));
   const coverage = analyzeCoverage(wanted, chosenSpots, kb.spots);
   itin.coverage = coverageMessage(coverage, itin.regionName,
                                   { sampleData: kb.source === "sample" });
@@ -845,14 +903,15 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   }
 
   const journeyNotes = [];
+  if (journey) journeyNotes.push(journeyNote(journey));
   if (enjoyTravel) {
     journeyNotes.push("移動も旅のうちとして組んでいます。遠いエリアや長い"
       + "乗車を減点せず、日ごとに土地を移るようにしました。"
-      + (trip.transport === "local" ? ""
+      + (!["any", "transit"].includes(trip.transport) ? ""
         : "青春18きっぷで行くなら、移動手段を「普通列車のみ」にすると、"
           + "新幹線と特急を使わずに組みます。"));
   }
-  if (spreadGroups && itin.regionIds.length > 1) {
+  if (spreadGroups && itin.regionIds.length > 1 && !journey?.along.length) {
     const blocks = [...new Set(itin.regionIds
       .map((id) => spreadGroups.get(id)).filter(Boolean))];
     if (blocks.length > 1) {

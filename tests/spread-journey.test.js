@@ -135,3 +135,14 @@ test("移動を楽しむ旅では、移動が長いことを減点しない", ()
   assert.ok(move({ enjoyTravel: true }) > move({}) + 30,
     `${move({ enjoyTravel: true })} vs ${move({})}`);
 });
+
+test("「日本全国有名なところ」を、地名「日本全国有名」として扱わない", async () => {
+  const { extractKeywords } = await import("../js/keywords.js");
+  assert.deepEqual(extractKeywords("日本全国有名なところに行きたい").keywords,
+                   ["日本全国"]);
+  assert.deepEqual(extractKeywords("四国観光地めぐり").keywords, ["四国"]);
+  const itin = await planTrip({ kb, trip: trip("日本全国有名なところに行きたい",
+    "2026-09-01T09:00", "2026-09-04T19:00") });
+  assert.ok(!/日本全国有名/.test(itin.coverage?.text ?? ""),
+    itin.coverage?.text);
+});
