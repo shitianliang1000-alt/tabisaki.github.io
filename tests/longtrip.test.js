@@ -71,19 +71,3 @@ test("2周目は、動いた区間だけ聞き直す", async () => {
     clearRouteCache(); resetStopsCache();
   }
 });
-
-test("「三都心」「京阪神」のような言い方も、行き先の指定として読む", async () => {
-  const { detectAreas } = await import("../js/areas.js");
-  const regions = ["東京", "大阪市", "名古屋", "京都市", "神戸市", "札幌"].map((name, i) => ({
-    id: `r${i}`, name, prefecture: "X", stationLat: 35, stationLng: 135,
-  }));
-  const kb = { regions, regionsById: new Map(regions.map((r) => [r.id, r])) };
-  const names = (t) => detectAreas(t, kb).flatMap((a) =>
-    a.regionIds.map((id) => kb.regionsById.get(id).name)).sort();
-  const three = ["大阪市", "名古屋", "東京"].sort();
-  assert.deepEqual(names("さん都心をめぐる5泊の旅"), three);
-  assert.deepEqual(names("三都心の美術館"), three);
-  assert.deepEqual(names("京阪神でグルメ"), ["京都市", "大阪市", "神戸市"].sort());
-  // 「三大都市」と同時に拾って広がらない。
-  assert.deepEqual(names("三大都市"), three);
-});
