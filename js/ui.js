@@ -13,15 +13,15 @@ import { paceBreakdown, slackLevel } from "./score.js";
 import { VARIANTS } from "./variants.js";
 import { qualityOf, spotFit, tripFit } from "./fit.js";
 import { currentStep } from "./today.js";
-import { photoFor } from "./photos.js";
+import { photoFor, photoPageOf } from "./photos.js";
 import { estimatedTravel } from "./reliability.js";
 import { isTouring, longDriveNote, restSlots } from "./touring.js";
 import { itineraryText } from "./share.js";
-import { icsFilename, toIcs } from "./ical.js";
-import { mountSketch } from "./sketch.js";
 import { KIND_NOTE } from "./modes.js";
 import { icon } from "./icons.js";
 import { NOTICE_LIMITS } from "./notify.js";
+import { describeOrderDiff } from "./orderdiff.js";
+import { laterToday } from "./tripmode.js";
 
 // 行の先頭の記号の「名前」です。形は js/icons.js が持っています。
 //
@@ -181,6 +181,26 @@ export const STEPS = [
 ];
 
 /**
+ * 6つの段を、利用者にとっての3つの区切りにまとめたもの。
+ *
+ * 6段の一覧だけだと、どれも同じ太さの行で、「いまどこか」は小さな
+ * 丸の色でしか分かりませんでした。待っている人が知りたいのは
+ * 「いま何をしていて、全体のどのあたりか」なので、大きな区切りを
+ * 札のいちばん上に出し、細かい6段はその下に残します。
+ */
+export const PHASES = [
+  { label: "行き先えらび", doing: "行き先を選んでいます", steps: [0, 1, 2] },
+  { label: "時間の照合", doing: "営業時間と照合しています", steps: [3, 4] },
+  { label: "経路と時刻", doing: "経路と時刻を組んでいます", steps: [5] },
+];
+
+/** 段（0〜5）が、3つの区切りのどこにあたるか。 */
+export function phaseOf(step) {
+  const s = Math.max(0, Math.min(step, STEPS.length - 1));
+  return PHASES.findIndex((p) => p.steps.includes(s));
+}
+
+/**
  * 待っているあいだの画面。
  *
  * 回る輪だけだと、進んでいるのか固まったのかが分かりません。
@@ -194,6 +214,15 @@ export const STEPS = [
  * 黙っていると「固まった」に見えます。書いてあれば、待つ理由になります。
  */
 const SLOW_AFTER_SEC = 40;
+
+// 待ち画面の絵（js/sketch.js）と .ics の書き出し（js/ical.js）は、
+// 開いた直後には要りません。静的に import すると、フォームを出すだけの
+// 起動でも毎回取りに行って読み解くので、使う場面で初めて読みます。
+// 圏外でも sw.js が先に入れてあるので読めます。
+let sketchModule = null;
+let icalModule = null;
+export const loadSketch = () => (sketchModule ??= import("./sketch.js"));
+const loadIcal = () => (icalModule ??= import("./ical.js"));
 
 const fmtElapsed = (sec) =>
   `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
@@ -209,6 +238,11 @@ export function renderProgress(container, step, detail = "", extra = null) {
     container.textContent = "";
     card = el("div", { class: "plan-card" });
     card.append(
+      el("ol", { class: "phase-row", "aria-label": "旅程づくりの進み具合" },
+        PHASES.map((p, i) => el("li", {},
+          el("span", { class: "phase-num", "aria-hidden": "true" }, String(i + 1)),
+          el("span", { class: "phase-label" }, p.label)))),
+      el("p", { class: "step-count" }, ""),
       el("p", { class: "step-text" }, "旅を組み立てています"),
       el("p", { class: "step-detail" }, ""),
       el("div", { class: "md-progress", role: "progressbar",
@@ -231,26 +265,52 @@ export function renderProgress(container, step, detail = "", extra = null) {
     // **札を画面に置いてから**載せます。絵は「札が画面から消えたら
     // 止まる」作法で動くので、置く前に載せると最初の1コマで自分から
     // 止まります（実際そうなって、何も描かれませんでした）。
+    //
+    // 絵のモジュールは遅れて届きます。届くまでに来た材料は
+    // __sketchPending に貯めて、載せた直後にまとめて渡します。
     if (extra?.trip) {
-      card.__sketch = mountSketch(card, {
+      card.__sketchPending = {};
+      const ctx = {
         trip: extra.trip,
         // 地の形。点だけでは「どこを探しているのか」が読めません。
         // 地図が読めない環境では、これまでどおり点と線だけになります。
         tileUrl: extra.tileUrl ?? null,
         attribution: extra.attribution ?? "",
+      };
+      loadSketch().then(({ mountSketch }) => {
+        // 届く前に旅程ができて札が消えていたら、載せません。
+        if (!card.isConnected) return;
+        card.__sketch = mountSketch(card, ctx);
+        card.__sketch.update(card.__sketchPending);
+        card.__sketchPending = null;
+      }).catch(() => {
+        // 絵が無くても、段の一覧と経過時間で待てます。
+        card.__sketchPending = null;
       });
     }
   }
 
   card.querySelector(".step-detail").textContent =
     detail || STEPS[Math.min(step, STEPS.length - 1)];
+  // いまの区切りを、札の見出しにします。
+  const ph = phaseOf(step);
+  card.querySelector(".step-text").textContent = PHASES[ph].doing;
+  card.querySelector(".step-count").textContent =
+    `${PHASES.length}つのうち${ph + 1}つ目・${PHASES[ph].label}`;
+  card.querySelectorAll(".phase-row li").forEach((li, i) => {
+    li.className = i < ph ? "done" : i === ph ? "active" : "";
+    if (i === ph) li.setAttribute("aria-current", "step");
+    else li.removeAttribute("aria-current");
+    li.firstChild.replaceChildren(...(i < ph ? [icon("check")] : [String(i + 1)]));
+  });
   // 絵に、いまの段と材料を渡します。
-  if (card.__sketch) {
+  if (card.__sketch || card.__sketchPending) {
     const patch = { step };
     if (extra?.stars) patch.stars = extra.stars;
     if (extra?.picks) patch.picks = extra.picks;
     if (extra?.route) patch.route = extra.route;
-    card.__sketch.update(patch);
+    if (card.__sketch) card.__sketch.update(patch);
+    else Object.assign(card.__sketchPending, patch);
   }
   const bar = card.querySelector(".md-progress");
   bar.setAttribute("aria-valuenow", String(step + 1));
@@ -352,6 +412,30 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       // 「松江 2日 → 出雲 1日」だけでは、宿を動かすのかどうかが
       // 分かりません。連泊はそこが要点なので、1行で言います。
       stayLine(itin)));
+
+  // 旅行中モードの入口（当日は「今日の旅」の札の中にあります）。
+  if (handlers.onTripMode) {
+    const go = el("button", {
+      type: "button", class: "md-chip md-chip--assist md-state trip-mode-entry",
+    }, el("span", {}, "旅行中モードで開く"));
+    go.addEventListener("click", () => handlers.onTripMode());
+    container.append(go);
+  }
+
+  // 回る順を変えた直後なら、前と比べて移動がどう変わったかを出します。
+  // 新しい旅程が出るだけでは、入れ替えて得だったのかが分かりません。
+  const change = describeOrderDiff(itin.orderDiff);
+  if (change) {
+    container.append(el("section", {
+      class: `panel order-diff order-diff--${change.tone}`, role: "status",
+    },
+      el("p", { class: "order-diff-head" },
+        el("span", { class: "order-diff-badge" },
+          change.tone === "better" ? "短くなりました"
+            : change.tone === "worse" ? "長くなりました" : "移動は同じです"),
+        el("b", {}, change.head)),
+      ...change.lines.map((t) => el("p", { class: "fine" }, t))));
+  }
 
   // 判断を、数字より先に置きます。
   //
@@ -1041,8 +1125,20 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
   const calBtn = el("button", {
     type: "button", class: "md-btn md-btn--tonal md-state cal-ics",
   }, el("span", {}, "カレンダーに入れる"));
-  calBtn.addEventListener("click", () => {
+  // 押してから取りに行くと、端末によっては「押した直後」の扱いが切れて
+  // 保存が止められます。ボタンを出した時点で読み始めておきます。
+  loadIcal().catch(() => {});
+  calBtn.addEventListener("click", async () => {
     const label = calBtn.querySelector("span");
+    let toIcs, icsFilename;
+    try {
+      ({ toIcs, icsFilename } = await loadIcal());
+    } catch {
+      icalModule = null;
+      label.textContent = "書き出せませんでした";
+      setTimeout(() => { label.textContent = "カレンダーに入れる"; }, 2600);
+      return;
+    }
     const text = toIcs(itin);
     if (!text) { label.textContent = "予定がありません"; return; }
     let url = null;
@@ -1085,6 +1181,15 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     el("button", { type: "button", class: "md-btn md-btn--outlined md-state",
                    onClick: () => window.print() },
       el("span", {}, "印刷 / PDFで保存")),
+    // **いま画面に出ているとおりの旅程**を、リンクで渡します
+    // （js/snapshot.js）。受け取った人の画面にも同じ時刻・同じ場所が
+    // 出ます。条件のリンクは、受け取った側で組み直すので別の旅程になります。
+    handlers.onShareTrip
+      ? el("button", { type: "button",
+                       class: "md-btn md-btn--tonal md-state share-trip",
+                       onClick: handlers.onShareTrip },
+          el("span", {}, "この旅程のリンクを共有"))
+      : null,
     handlers.onShare
       ? el("button", { type: "button", class: "md-btn md-btn--outlined md-state",
                        onClick: handlers.onShare },
@@ -1143,6 +1248,21 @@ export function renderToday(container, itin, trip, handlers = {}) {
   const now = handlers.now ?? new Date();
   const step = currentStep(itin, now);
   const box = el("section", { class: "today" });
+
+  // 旅行中モード（js/tripmode.js）。ワンタップで、画面をこの札と
+  // 「このあとの予定」だけにします。開き直しても、そのまま始まります。
+  if (handlers.onTripMode) {
+    const on = handlers.tripMode === true;
+    const b = el("button", {
+      type: "button", "aria-pressed": String(on),
+      class: `md-btn md-state trip-mode-btn ${on ? "md-btn--text" : "md-btn--filled"}`,
+    }, el("span", {}, on ? "ふだんの画面に戻る" : "旅行中モードにする"));
+    b.addEventListener("click", () => handlers.onTripMode(!on));
+    box.append(el("div", { class: "trip-mode-bar" },
+      el("p", { class: "trip-mode-label" },
+        on ? "旅行中モード" : "旅の当日は、次の予定だけを大きく出せます"),
+      b));
+  }
 
   if (step.phase === "before") {
     box.append(el("p", { class: "today-when" }, "旅はまだ始まっていません"),
@@ -1219,6 +1339,18 @@ export function renderToday(container, itin, trip, handlers = {}) {
         el("span", {}, `「${arrivable.title}」に着いた`));
       btn.addEventListener("click", () => handlers.onArrived(arrivable.id));
       box.append(el("div", { class: "today-actions" }, btn));
+    }
+  }
+
+  // 旅行中モードでは、旅程の一覧を隠すので、その日の残りをここに
+  // 短く並べます。「次の次」が見えないと、時間の配りかたが決められません。
+  if (handlers.tripMode) {
+    const later = laterToday(itin, step);
+    if (later.length) {
+      box.append(el("p", { class: "today-label today-later-label" }, "このあとの予定"),
+        el("ol", { class: "today-later" }, later.map((i) =>
+          el("li", {}, el("span", { class: "time" }, fmtTime(i.start)),
+                       el("span", {}, i.title)))));
     }
   }
 
@@ -1488,11 +1620,27 @@ function cardArt(spot, { tall = false } = {}) {
                           class: tall ? "" : "card-photo" });
   photoFor(spot).then((url) => {
     if (!url) return;
-    img.addEventListener("load", () => img.classList.add("on"), { once: true });
+    img.addEventListener("load", () => {
+      img.classList.add("on");
+      const credit = photoCredit(url);
+      if (credit) box.append(credit);
+    }, { once: true });
     img.src = url;
   }).catch(() => { /* 写真は飾りです。取れなくても絵のままで十分です */ });
   box.prepend(img);
   return box;
+}
+
+/**
+ * 写真の隅に置く出典のリンク。撮った人とライセンスは、その先の
+ * 説明ページに書いてあります（Wikimedia の写真は表示が条件です）。
+ */
+function photoCredit(url) {
+  const page = photoPageOf(url);
+  if (!page) return null;
+  return el("a", { class: "photo-credit", href: page,
+                   target: "_blank", rel: "noreferrer" },
+    "写真: Wikimedia Commons");
 }
 
 /**
@@ -1504,12 +1652,18 @@ function cardArt(spot, { tall = false } = {}) {
  */
 function spotPhoto(spot) {
   if (!spot?.wikipedia) return null;
-  const box = el("div", { class: "card-photo-band", "aria-hidden": "true" });
+  // 写真そのものは飾り（alt は空）。出典のリンクだけは読み上げにも
+  // 出すので、箱ごと aria-hidden にはしません。
+  const box = el("div", { class: "card-photo-band" });
   const img = el("img", { alt: "", decoding: "async" });
   box.append(img);
   photoFor(spot).then((url) => {
     if (!url) return;
-    img.addEventListener("load", () => box.classList.add("on"), { once: true });
+    img.addEventListener("load", () => {
+      box.classList.add("on");
+      const credit = photoCredit(url);
+      if (credit) box.append(credit);
+    }, { once: true });
     // 要約APIの縮小版は幅320pxです。カードの幅いっぱいに敷くと粗いので、
     // 640px 版を先に頼みます。元の写真がそれより小さいと Wikimedia は
     // 返さないので、そのときは届いた縮小版に戻します。
@@ -2303,7 +2457,10 @@ export function openSheet(item, { onClose, describe }) {
   body.append(el("div", { class: "card" },
     row("目安の滞在時間", fmtDuration(prof.dwell)),
     row(day.closed ? "この日は" : "見学できる時間", hours),
-    row("入場料", prof.fee === 0 ? "無料" : `¥${prof.fee.toLocaleString()}`)));
+    row("入場料", prof.fee === 0 ? "無料" : `¥${prof.fee.toLocaleString()}`),
+    // いつの情報か。出どころ（下の印）と鮮度は別のことなので、並べて出します。
+    // 収録の日付は「取り込んだ日」です（js/kb.js の FETCHED_ON）。
+    row("情報の日付", freshnessOf(spot.fetchedAt).text)));
 
   // 情報の出どころ。営業時間と料金で違うことがあるので、分けて出します。
   body.append(el("div", { class: "links", style: "margin-top:12px" },

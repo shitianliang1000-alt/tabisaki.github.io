@@ -199,7 +199,7 @@ p, li { text-wrap: pretty; }
   animation-delay: calc(var(--i, 0) * 90ms + 120ms);
 }
 .checked-stars b { color: var(--md-sys-color-primary); font-weight: 600; }
-.checked-stars i { color: var(--hig-separator-opaque); font-style: normal; }
+.checked-stars i { color: var(--hig-label-3); font-style: normal; }
 @keyframes star-pop {
   from { opacity: 0; transform: scale(.4) rotate(-18deg); }
   60%  { opacity: 1; transform: scale(1.18) rotate(4deg); }
@@ -247,7 +247,7 @@ p, li { text-wrap: pretty; }
   display: inline-flex; align-items: center; justify-content: center;
   flex: none; width: 22px; height: 22px;
   border-radius: 50%;
-  background: var(--hig-blue); color: #fff;
+  background: var(--hig-blue-fill); color: #fff;
   font-size: var(--hig-t-caption1); font-weight: 700; letter-spacing: 0;
 }
 
@@ -542,6 +542,19 @@ p, li { text-wrap: pretty; }
 .tune[open] > summary::after { transform: rotate(-90deg); }
 .tune[open] { padding-bottom: 16px; }
 .tune[open] > summary { color: var(--hig-label); }
+.tune-sum { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; }
+.tune-sum-sub {
+  font-size: var(--hig-t-caption1); font-weight: 400; color: var(--hig-label-2);
+}
+.tune[open] .tune-sum-sub { display: none; }
+/* こだわりの中の区切り。細い線と小見出しで、どこからが次の話かを示します。 */
+.tune-sec {
+  margin: 8px 0 12px; padding-top: 14px;
+  border-top: .5px solid var(--hig-separator);
+  font-size: var(--hig-t-subhead); font-weight: 700; letter-spacing: -.1px;
+  color: var(--hig-label);
+}
+.tune > summary + .tune-sec { border-top: 0; padding-top: 4px; }
 .tune-group { margin-bottom: 20px; }
 .tune-group > .tune-label {
   display: block; margin-bottom: 8px;
@@ -780,6 +793,8 @@ p, li { text-wrap: pretty; }
   background: var(--hig-card);
   box-shadow: var(--hig-shadow-1);
 }
+/* 組み立てをやめる。札のいちばん下に、目立たせずに置きます。 */
+.plan-card .plan-cancel { display: flex; margin: 16px auto 0; min-height: 44px; }
 /* 待っているあいだの絵（js/sketch.js）。札の上いっぱいに置きます。 */
 .sketch {
   position: relative;
@@ -834,6 +849,41 @@ p, li { text-wrap: pretty; }
   border-top: .5px solid var(--hig-separator);
 }
 .sketch-caption:empty { padding: 0; min-height: 0; border: 0; }
+/* 大きな区切り（js/ui.js の PHASES）。いまの区切りだけを塗ります。
+   色だけで分けないよう、済んだものにはチェック、いまのものには
+   太字と下線を付けます。 */
+.phase-row {
+  list-style: none; margin: 0 0 14px; padding: 0;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+}
+.phase-row li {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 8px 4px 6px; border-radius: var(--md-sys-shape-corner-small);
+  border-bottom: 3px solid var(--hig-separator-opaque);
+  font-size: var(--hig-t-caption1); text-align: center;
+  color: var(--hig-label-2);
+}
+.phase-num {
+  display: grid; place-items: center; width: 22px; height: 22px;
+  border-radius: 50%; background: var(--hig-fill);
+  font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--hig-label);
+}
+.phase-num .ic { width: 13px; height: 13px; stroke-width: 3; }
+.phase-row li.done { color: var(--hig-label); border-bottom-color: var(--md-sys-color-tertiary); }
+.phase-row li.done .phase-num {
+  background: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary, #fff);
+}
+.phase-row li.active {
+  color: var(--hig-label); font-weight: 700;
+  background: var(--hig-blue-tint);
+  border-bottom-color: var(--hig-blue-fill);
+}
+.phase-row li.active .phase-num { background: var(--hig-blue-fill); color: #fff; }
+.plan-card .step-count {
+  margin: 0 0 2px; font-size: var(--hig-t-footnote); font-weight: 600;
+  color: var(--hig-label-2);
+}
 .plan-card .step-text {
   margin: 0 0 4px; font-size: var(--hig-t-title2); font-weight: 700; letter-spacing: -.3px;
 }
@@ -966,6 +1016,33 @@ p, li { text-wrap: pretty; }
 /* 浮いている操作（戻る・設定）のぶんだけ、寄せたときに余白を残します。
    scrollIntoView で上端に寄せると、地図が帯の下に入って
    「押したのに隠れた」ように見えていました。 */
+/* 旅程の地図の操作（Leaflet）。
+   Leaflet の既定は 30px 四方で、指では押しにくい大きさです。地図の部品を
+   自分のところから配るようにして（vendor/）、画面のテストでも地図が
+   出るようになり、ここで引っかかりました。指で使う端末では 44pt にします。
+   出どころのリンクは字を小さいままにして、押せる範囲だけ広げます。 */
+/* 出どころの欄は、Leaflet の既定（薄い灰の上に #0078A8）だと字が
+   読みにくく、暗い配色では背景だけが白く浮きます。札と同じ色にします。 */
+.leaflet-container .leaflet-control-attribution {
+  background: var(--hig-card);
+  color: var(--hig-label);
+}
+.leaflet-container .leaflet-control-attribution a {
+  color: var(--hig-label);
+  text-decoration: underline;
+}
+@media (pointer: coarse) {
+  #map .leaflet-bar a { width: 44px; height: 44px; line-height: 44px; }
+  #map .leaflet-control-attribution a { position: relative; }
+  #map .leaflet-control-attribution a::after {
+    content: "";
+    position: absolute; left: 50%; top: 50%;
+    width: 100%; height: 100%;
+    min-width: var(--hig-touch); min-height: var(--hig-touch);
+    transform: translate(-50%, -50%);
+    background: transparent;
+  }
+}
 .map { scroll-margin-top: 64px; }
 
 .map {
@@ -1056,6 +1133,43 @@ p, li { text-wrap: pretty; }
   background: var(--md-sys-color-surface-container-high);
   border-bottom: .5px solid var(--hig-separator);
 }
+/* 旅行中モード（js/tripmode.js）。画面を「今日の旅」の札だけにします。
+   入力欄・地図・旅程の一覧・分析は隠すだけで、消しません。 */
+.trip-mode-bar {
+  display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: 8px 12px;
+  margin: 0 0 14px;
+}
+.trip-mode-label {
+  margin: 0; font-size: var(--hig-t-footnote); font-weight: 600;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.trip-mode-btn { min-height: 44px; }
+.trip-mode-entry { margin: 0 0 12px; min-height: 44px; }
+.today .today-later-label { margin-top: 20px; }
+.today-later {
+  list-style: none; margin: 6px 0 0; padding: 0;
+  display: grid; gap: 6px;
+}
+.today-later li {
+  display: grid; grid-template-columns: 4em 1fr; gap: 8px;
+  font-size: var(--hig-t-body);
+}
+.today-later .time {
+  font-variant-numeric: tabular-nums;
+  color: var(--md-sys-color-on-surface-variant);
+}
+body[data-trip-mode="on"] .layout { grid-template-columns: 1fr; }
+body[data-trip-mode="on"] .pane-form,
+body[data-trip-mode="on"] .make,
+body[data-trip-mode="on"] .back-to-form,
+body[data-trip-mode="on"] #placeholder,
+body[data-trip-mode="on"] #map,
+body[data-trip-mode="on"] #itinerary { display: none !important; }
+body[data-trip-mode="on"] .pane-result { display: block !important; }
+body[data-trip-mode="on"] .result { display: block; max-width: 720px; margin: 0 auto; }
+body[data-trip-mode="on"] .today { margin-top: 0; min-height: 60vh; }
+
 .today-when {
   margin: 0 0 10px; font-size: var(--hig-t-footnote);
   color: var(--md-sys-color-on-surface-variant);
@@ -1296,7 +1410,7 @@ p, li { text-wrap: pretty; }
 .variant .v-badge {
   margin-left: auto; padding: 2px 9px;
   border-radius: var(--hig-r-full);
-  background: var(--hig-blue); color: #fff;
+  background: var(--hig-blue-fill); color: #fff;
   font-size: var(--hig-t-caption2); font-weight: 600; letter-spacing: 0;
 }
 .variant-why {
@@ -1433,7 +1547,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   flex: none; letter-spacing: 2px;
   color: var(--md-sys-color-primary); font-size: var(--hig-t-subhead);
 }
-.ax-stars .off { color: var(--md-sys-color-outline-variant); }
+/* 灯っていない星も、形が読めるだけの濃さにします（絵の基準 3:1）。 */
+.ax-stars .off { color: var(--hig-label-3); }
 .ax-score {
   flex: none; margin-left: auto; text-align: right;
   font-variant-numeric: tabular-nums;
@@ -1696,6 +1811,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 /* 旅程のカードの写真。届くまでは高さ0で、届いたら開きます
    （js/ui.js の spotPhoto）。取れなかったカードに空の枠は残しません。 */
 .card-photo-band {
+  position: relative;
   height: 0; overflow: hidden;
   transition: height var(--md-sys-motion-medium, 300ms) var(--md-sys-motion-standard, ease);
 }
@@ -1708,6 +1824,19 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 @media (max-width: 860px) {
   .card-photo-band.on, .card-photo-band img { height: 120px; }
 }
+
+/* 写真の出典（撮った人とライセンスが書いてある説明ページへ）。
+   写真の明暗に関係なく読めるよう、濃い地に白い字で置きます。 */
+.photo-credit {
+  position: absolute; right: 6px; bottom: 6px; z-index: 2;
+  padding: 1px 6px; border-radius: 6px;
+  font-size: var(--hig-t-caption2, 11px); line-height: 1.6;
+  color: #fff; background: rgba(0, 0, 0, .72);
+  text-decoration: none;
+}
+.photo-credit:focus-visible { text-decoration: underline; }
+@media (hover: hover) { .photo-credit:hover { text-decoration: underline; } }
+.md-sheet .sheet-art .photo-credit { right: auto; bottom: auto; left: 12px; top: 12px; }
 
 /* 立ち寄りの補足を畳んだもの（js/ui.js の renderItem）。 */
 .spot-more { margin-top: 10px; }
@@ -2058,7 +2187,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border: .5px solid color-mix(in srgb, var(--hig-label) 20%, transparent);
   border-radius: var(--md-sys-shape-corner-small);
   background: color-mix(in srgb, var(--hig-label) 7%, transparent);
-  color: var(--md-sys-color-on-surface-variant);
+  /* 色を敷いたカードの上に載るので、2段目の灰色では暗い配色で
+     4.5:1 を割ります。押せる言葉なので、本文の色にします。 */
+  color: var(--hig-label);
   font: inherit; font-size: var(--hig-t-footnote); font-weight: 500;
   cursor: pointer;
   transition: background-color var(--hig-fast) var(--hig-ease);
@@ -2069,6 +2200,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
 }
 .spot-action[data-action="remove"] { color: var(--md-sys-color-error, #b3261e); }
+/* 暗い配色の赤（#FF453A）は、色を敷いたカードの上で 3.6:1 です。
+   字として使うときは、明るい赤に寄せます。 */
+@media (prefers-color-scheme: dark) {
+  .spot-action[data-action="remove"] { color: var(--hig-red-deep); }
+}
 
 /* 「まだ目安があります。もう一度調べますか」の1行。
    確かめたことの下に、そのまま押せる形で置きます。 */
@@ -2158,6 +2294,29 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-top: .5px solid var(--hig-separator);
 }
 .saved-note .md-chip { margin-top: 10px; }
+
+/* 回る順を変えた直後の差（js/orderdiff.js）。色だけに頼らず、
+   札の言葉（短くなりました／長くなりました）でも分かるようにします。 */
+.order-diff-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin: 0;
+}
+.order-diff-badge {
+  display: inline-flex; align-items: center; min-height: 28px;
+  padding: 2px 12px; border-radius: 999px;
+  font-size: var(--hig-t-footnote); font-weight: 600;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+}
+.order-diff--better .order-diff-badge {
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+}
+.order-diff--worse .order-diff-badge {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+.order-diff .fine { margin: 6px 0 0; }
 
 .talk-row { display: flex; gap: 12px; align-items: flex-start; }
 /* min-width: 0 が無いと、入力欄が中身の幅より縮まず、
@@ -2423,6 +2582,60 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 @media (max-width: 1100px) {
   .layout { grid-template-columns: minmax(320px, 380px) 1fr; }
 }
+
+/* できあがりの見本（index.html の .preview）。携帯の条件の画面だけに
+   出します。広い画面では右半分が同じ役目をしています。 */
+.preview { display: none; }
+@media (max-width: 860px) {
+  .preview {
+    display: block; margin: 0 0 24px; padding: 14px 16px 12px;
+    border-radius: var(--hig-r-lg, 16px);
+    background: var(--hig-card); box-shadow: var(--hig-shadow-1);
+  }
+  /* 前につくった旅がある人は、もう何ができるかを知っています。 */
+  .pane-form:has(#recent:not([hidden])) .preview { display: none; }
+}
+.preview-kicker {
+  /* 右上の設定ボタンと重ならないように。 */
+  margin: 0; padding-right: 48px; font-size: var(--hig-t-caption1); font-weight: 700;
+  color: var(--hig-blue-deep); letter-spacing: .04em;
+}
+.preview-title {
+  margin: 2px 0 10px; padding-right: 40px; font-size: var(--hig-t-headline, 17px); font-weight: 700;
+  color: var(--hig-label);
+}
+.preview-body { display: flex; gap: 14px; align-items: center; }
+.preview-map {
+  flex: none; width: 84px; height: 84px; border-radius: var(--hig-r-md, 12px);
+  background: var(--hig-fill);
+}
+.pv-coast { fill: color-mix(in srgb, var(--tabi-teal) 30%, var(--hig-fill)); }
+.pv-route { fill: none; stroke: var(--hig-blue-fill); stroke-width: 2.5;
+            stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 4 3; }
+.pv-start { fill: var(--hig-card); stroke: var(--hig-blue-fill); stroke-width: 2.5; }
+.pv-pin circle { fill: var(--hig-blue-fill); }
+.pv-pin.pv-hidden circle { fill: #9A5B12; }
+.pv-pin text { fill: #fff; font-weight: 700; text-anchor: middle; }
+.preview-list {
+  list-style: none; margin: 0; padding: 0; flex: 1; min-width: 0;
+  display: grid; gap: 4px; font-size: var(--hig-t-footnote); color: var(--hig-label);
+}
+.preview-list li { display: flex; gap: 10px; align-items: baseline; }
+.preview-list time {
+  flex: none; width: 3.2em; font-variant-numeric: tabular-nums;
+  color: var(--hig-label-2); font-weight: 600;
+}
+.pv-tag {
+  font-style: normal; font-size: var(--hig-t-caption2); font-weight: 600;
+  padding: 1px 6px; border-radius: var(--hig-r-full);
+  background: color-mix(in srgb, var(--tabi-amber) 22%, var(--hig-card));
+  color: var(--hig-label);
+}
+.preview-note {
+  margin: 10px 0 6px; font-size: var(--hig-t-footnote); line-height: 1.6;
+  color: var(--hig-label-2);
+}
+.preview-try { width: 100%; justify-content: center; }
 
 /* 携帯の「条件を変更する」。広い画面では左右に並ぶので出しません。 */
 .back-to-form { display: none; }

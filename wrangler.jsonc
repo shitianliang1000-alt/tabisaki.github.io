@@ -22,6 +22,22 @@
   "main": "server/worker.js",
   "compatibility_date": "2026-01-01",
 
+  // --- 管理画面 ----------------------------------------------------------
+  // admin/ は GitHub Pages に置きません（認証が無く、誰でも開けるため）。
+  // この Worker が /admin で、合言葉（secret ADMIN_PASSWORD）を聞いてから
+  // 見せます（server/admin.js）。合言葉を入れていなければ 404 のままです。
+  //
+  //     npx wrangler secret put ADMIN_PASSWORD
+  //
+  // ファイルは直接は配りません（run_worker_first）。必ず上の確認を通ります。
+  "assets": {
+    "directory": "./admin",
+    "binding": "ADMIN_FILES",
+    "run_worker_first": true,
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+
   // --- Workers AI ------------------------------------------------------
   // AIをこのWorkerの中で動かします。**Googleのキーは要りません。**
   // js/config.js の MODEL_PROVIDER を "cloudflare" にすると、こちらを
@@ -35,9 +51,17 @@
   //
   // Durable Object は、1つのIPにつき1つの実体が1本ずつ処理します。
   "durable_objects": {
-    "bindings": [{ "name": "RATE", "class_name": "RateLimiter" }]
+    "bindings": [
+      { "name": "RATE", "class_name": "RateLimiter" },
+      // 管理画面のための件数・設定・変更待ち（server/stats.js）。
+      // Durable Object なので、ダッシュボードで有効にする作業は要りません。
+      { "name": "STATS", "class_name": "Stats" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RateLimiter"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },
+    { "tag": "v2", "new_sqlite_classes": ["Stats"] }
+  ]
 
   // --- 使われかたの件数（Workers Analytics Engine） ---------------------
   // 「旅程ができた」「組めなかった（圏外で）」のような出来事を、件数だけ

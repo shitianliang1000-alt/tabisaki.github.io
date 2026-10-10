@@ -45,7 +45,6 @@
      万一どこかに script が紛れ込んでも、ここに無い先へは出られません。
 
      ここに並んでいるのが、このアプリの外部依存のすべてです。
-       unpkg          … 地図の部品（Leaflet）
        tile.osm       … 地図のタイル
        upload.wikimedia … スポットの写真
        *.googleapis   … AI と経路（キーを直に持つ場合）
@@ -63,8 +62,8 @@
      公開時は HTTP ヘッダーでも付けてください（server/README.md）。 -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
-  script-src 'self' https://unpkg.com;
-  style-src 'self' 'unsafe-inline' https://unpkg.com;
+  script-src 'self';
+  style-src 'self' 'unsafe-inline';
   font-src 'self';
   worker-src 'self';
   manifest-src 'self';
@@ -81,7 +80,11 @@
   form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<!-- 地図の部品（Leaflet 1.9.4）は、自分のところから配ります。
+     unpkg から読んでいた頃は、圏外で開くと地図の部品が届かず、
+     保存した旅程を開いても地図だけ出ませんでした。中身は
+     tools/vendor.sh で取ってきたものそのままです（SRI と同じハッシュ）。 -->
+<link rel="stylesheet" href="vendor/leaflet.css">
 <!-- 字は端末に入っているものだけを使います。Web フォントは読みません。
      San Francisco は配布できず、和文は Apple ならヒラギノ、Windows なら
      游ゴシック、Android なら Noto が最初から入っています。
@@ -126,6 +129,40 @@
 
   <!-- ===================== 左: 条件 ===================== -->
   <section class="pane pane-form" id="form-pane">
+
+    <!-- できあがりの見本（携帯だけ）。
+         ------------------------------------------------------------
+         携帯では条件と結果を別の画面にしているので、初めて開くと
+         入力欄が並んでいるだけに見えました。広い画面なら右半分に
+         地図と「つくりかた」が出ますが、携帯にはそれがありません。
+         **何が返ってくるのか**を、入力の前に小さく1枚だけ見せます。
+         中身は固定の見本です（通信しません）。押すと同じ旅の一文が
+         欄に入るので、そのまま試せます。前につくった旅がある人には
+         もう要らないので、そのときは出しません（css）。 -->
+    <section class="preview" aria-labelledby="preview-title">
+      <p class="preview-kicker">できあがりの例</p>
+      <h2 class="preview-title" id="preview-title">鎌倉を日帰りで・東京駅から</h2>
+      <div class="preview-body">
+        <svg class="preview-map" viewBox="0 0 96 96" aria-hidden="true" focusable="false">
+          <path class="pv-coast" d="M0 70 C20 62 34 74 52 68 S84 58 96 64 V96 H0Z"/>
+          <path class="pv-route" d="M78 12 L70 30 L58 44 L44 60 L22 62"/>
+          <circle class="pv-start" cx="78" cy="12" r="5"/>
+          <g class="pv-pin"><circle cx="70" cy="30" r="7"/><text x="70" y="33.5" font-size="9">1</text></g>
+          <g class="pv-pin"><circle cx="58" cy="44" r="7"/><text x="58" y="47.5" font-size="9">2</text></g>
+          <g class="pv-pin"><circle cx="44" cy="60" r="7"/><text x="44" y="63.5" font-size="9">3</text></g>
+          <g class="pv-pin pv-hidden"><circle cx="22" cy="62" r="7"/><text x="22" y="65.5" font-size="9">4</text></g>
+        </svg>
+        <ol class="preview-list">
+          <li><time>9:52</time><span>鶴岡八幡宮</span></li>
+          <li><time>11:30</time><span>小町通りで昼ごはん</span></li>
+          <li><time>13:20</time><span>長谷寺</span></li>
+          <li><time>15:00</time><span>由比ヶ浜 <em class="pv-tag">穴場</em></span></li>
+        </ol>
+      </div>
+      <p class="preview-note">行き先・まわる順・電車の時刻・帰りの時間まで、1枚にまとめます。</p>
+      <button type="button" class="md-btn md-btn--tonal md-state preview-try"
+              data-example="鎌倉を日帰りで、食べ歩きもしたい">この例で試す</button>
+    </section>
 
     <!-- 前につくった旅程。
          旅行サイトでいちばん戻ってくる導線がここです。中身（時刻の
@@ -312,7 +349,16 @@
          最初に出すのは「どんな旅・どこから・いつ・定番と穴場」の4つで、
          残りはここへ畳みます。触らなくても旅程は組めます。 -->
     <details class="tune" id="tune">
-      <summary><span>こだわりを追加する</span></summary>
+      <!-- 開く前に、中に何があるかを見せます。「こだわり」だけでは、
+           人数や宿のことがここにあると分かりません。中は4つの区切りに
+           分け、それぞれに見出しを付けます（縦に13項目が続くと、
+           どこまでが何の話か追えませんでした）。 -->
+      <summary><span class="tune-sum">
+        <span>こだわりを追加する（任意）</span>
+        <small class="tune-sum-sub">時間と興味・人数と移動・同行者と宿・食事と帰り</small>
+      </span></summary>
+
+      <h3 class="tune-sec">時間と興味</h3>
 
       <!-- 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
            長さ（9時間）だけでは「いつ動くのか」が決まりません。同じ9時間
@@ -358,6 +404,7 @@
         </div>
       </div>
 
+      <h3 class="tune-sec">人数・予算・移動</h3>
       <!-- 予算と移動手段。
            どちらも「あとから直せない」たぐいの前提です。特に車が
            使えるかどうかは、バスが1日3本の土地で旅程が成立するか
@@ -476,6 +523,7 @@
           青春18きっぷなら、上の移動手段で「普通列車のみ」も選んでください。</p>
       </div>
 
+      <h3 class="tune-sec">同行者と宿</h3>
       <!-- 同行者。
            ------------------------------------------------------------
            旅程は「ふつうに歩ける大人ひとり」を前提に組まれていました。
@@ -540,6 +588,7 @@
           毎朝まとめ直すことになります。</p>
       </div>
 
+      <h3 class="tune-sec">食事と旅の終わり</h3>
       <!-- 食べたいもの。
            ------------------------------------------------------------
            6択でした。ガイドラインのセグメンテッドコントロールは
@@ -623,6 +672,11 @@
       <p><a href="areas/index.html">エリアから探す（都道府県の観光地とモデルコース）</a></p>
       <p id="ph-data"></p>
       <p id="attribution" hidden></p>
+      <!-- 後ろの地図（#bg-map）は飾りなので地図の上に表示を出していません。
+           OpenStreetMap のタイルは表示が条件なので、ここに出します。 -->
+      <p>地図 © <a href="https://www.openstreetmap.org/copyright" target="_blank"
+         rel="noreferrer">OpenStreetMap contributors</a> ・
+         <a href="credits.html">著作権表記（使っている地図・写真・データ）</a></p>
     </footer>
   </section>
 
@@ -754,15 +808,16 @@
     </li>
   </ul>
 
-  <!-- 使われかたの件数（js/metrics.js）。名前・入力・場所は送りません。 -->
+  <!-- 使われかたの件数（js/metrics.js）。名前・入力・場所は送りません。
+       既定は切です。入れた人のぶんだけ数えます。 -->
   <label class="switch-row" for="share-metrics">
     <span class="md-switch">
-      <input type="checkbox" id="share-metrics" checked>
+      <input type="checkbox" id="share-metrics">
       <span class="md-switch-track"></span>
     </span>
     <span class="switch-text">
       <b>使われかたの集計に協力する</b>
-      <small>「旅程ができた」「組めなかった」などの件数だけを送ります。入力した文や場所、旅程は送りません。</small>
+      <small>入れたときだけ、「旅程ができた」「組めなかった」などの件数を送ります。入力した文や場所、旅程は送りません。</small>
     </span>
   </label>
 
@@ -911,8 +966,7 @@
      旅行者が使うのは移動中の回線です。地図が遅い日に、条件の入力まで
      待たされる理由はありません（地図は旅程づくりに要りません）。
      app.js は window.L を待たずに動き、届いた時点で地図を出します。 -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        crossorigin="" async></script>
+<script src="vendor/leaflet.js" async></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

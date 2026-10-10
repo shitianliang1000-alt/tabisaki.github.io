@@ -10,11 +10,15 @@
 // --------------
 //   1. アプリそのもの（HTML/CSS/JS）… 変わらないので、先に入れておく
 //   2. 知識ベース（kb/）          … 大きいので、読んだものだけ後から
-//   3. 外部（地図タイル・写真）    … 保存しません（下に理由）
+//   3. 地図の部品（vendor/ の Leaflet） … アプリと同じく先に入れる
+//   4. 地図のタイル                … **見たものだけ**、上限つきで
+//   5. 写真                        … 保存しません
 //
-// 地図のタイルと写真は入れません。量が読めないうえ、他所のものです。
-// 端末の容量を黙って使うことになります。旅程の文字が読めれば、
-// 当日にすることは分かります。
+// タイルは、先回りして取りには行きません。量が読めないうえ、OSM の
+// 利用方針は一括取得を禁じています。旅程の地図で**実際に表示した**
+// タイルだけを、新しい順に TILE_MAX 枚まで残します。直近に作った旅程を
+// 圏外で開くと、そのとき見ていた範囲の地図がそのまま出ます。
+// 写真は1枚が大きく、旅程の役には立たないので入れません。
 
 // 先に入れるものを増やしたので、版を上げます。上げないと、前の版の
 // 殻（js/ の入っていないもの）を持っている端末は入れ直しません。
@@ -22,9 +26,17 @@
 // 版を上げないと、前の版で溜めた 4.8MB が端末に残り続けます。
 // v5: 画面の記号を単線SVGに替え、js/ をぜんぶ先に入れるようにしました。
 // 先に入れるものが増えたので、また上げます。
-const VERSION = "tabisaki-v8";
+// v9: Leaflet を vendor/ から配るようにし、地図のタイルを取っておくように
+// しました。
+const VERSION = "tabisaki-v9";
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
+// タイルは版と関係なく残します。版を上げるたびに、見た地図が消える
+// 理由はありません。
+const TILES = "tabisaki-tiles";
+/** 取っておくタイルの上限。1枚15KB前後なので、約6MBです。 */
+const TILE_MAX = 400;
+const TILE_HOST = /(^|\.)tile\.openstreetmap\.org$/;
 
 /** 先に入れておくもの。ここが欠けるとアプリが開きません。 */
 const SHELL_FILES = [
@@ -36,6 +48,14 @@ const SHELL_FILES = [
   "./css/hig-tokens.css",
   "./css/hig.css",
   "./css/app.css",
+  // 地図の部品。ここが欠けると、圏外では旅程の地図が出ません。
+  "./vendor/leaflet.js",
+  "./vendor/leaflet.css",
+  "./vendor/images/marker-icon.png",
+  "./vendor/images/marker-icon-2x.png",
+  "./vendor/images/marker-shadow.png",
+  "./vendor/images/layers.png",
+  "./vendor/images/layers-2x.png",
   // **js/ は、ぜんぶ先に入れます。**
   //
   // ここは以前「これが欠けると起動しないものだけ」を手で並べていました。
@@ -97,6 +117,7 @@ const SHELL_FILES = [
   "./js/notaspot.js",
   "./js/notify.js",
   "./js/online.js",
+  "./js/orderdiff.js",
   "./js/metrics.js",
   "./js/photos.js",
   "./js/pipeline.js",
@@ -117,6 +138,7 @@ const SHELL_FILES = [
   "./js/shapes.js",
   "./js/share.js",
   "./js/sketch.js",
+  "./js/snapshot.js",
   "./js/stays.js",
   "./js/stops-data.js",
   "./js/stops-worker.js",
@@ -130,6 +152,7 @@ const SHELL_FILES = [
   "./js/transfer.js",
   "./js/transit.js",
   "./js/trip.js",
+  "./js/tripmode.js",
   "./js/typescale.js",
   "./js/ui.js",
   "./js/variants.js",
@@ -153,7 +176,7 @@ self.addEventListener("activate", (e) => {
     // 古い版のキャッシュを捨てます。放っておくと端末に溜まります。
     const keys = await caches.keys();
     await Promise.all(keys
-      .filter((k) => !k.startsWith(VERSION))
+      .filter((k) => !k.startsWith(VERSION) && k !== TILES)
       .map((k) => caches.delete(k)));
     await self.clients.claim();
   })());
@@ -164,8 +187,12 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
-  // 自分のところ以外は触りません。
-  // 地図タイル・写真・API は、そのまま通します（保存もしません）。
+  // 地図のタイルは、見たものだけを取っておきます（上の説明）。
+  if (TILE_HOST.test(url.hostname)) {
+    e.respondWith(tileFirst(req));
+    return;
+  }
+  // それ以外の外（写真・API）は触りません。そのまま通します。
   if (url.origin !== self.location.origin) return;
 
   // 知識ベースは「まずキャッシュ」。3.8MB を毎回取りにいく必要はありません。
@@ -208,4 +235,36 @@ async function staleWhileRevalidate(req, cacheName) {
     return res;
   }).catch(() => null);
   return hit ?? (await fresh) ?? Response.error();
+}
+
+/**
+ * タイルは「まずネット、だめなら取っておいたもの」。
+ *
+ * 地図は描き変わるので、圏内では新しいものを見せます。取れたものは
+ * 取っておき、上限を超えたら古いものから捨てます。
+ */
+async function tileFirst(req) {
+  const cache = await caches.open(TILES);
+  try {
+    const res = await fetch(req);
+    // opaque（CORS なしの応答）は取っておきません。中身が見えないうえ、
+    // ブラウザは1枚を数MBとして容量に数えます。
+    if (res.ok && res.type !== "opaque") {
+      await cache.delete(req);   // 入れ直して「新しい」側へ寄せます
+      await cache.put(req, res.clone());
+      trimTiles(cache);
+    }
+    return res;
+  } catch (e) {
+    const hit = await cache.match(req);
+    if (hit) return hit;
+    throw e;
+  }
+}
+
+async function trimTiles(cache) {
+  const keys = await cache.keys();
+  // keys() は入れた順に返ります。先頭が古いものです。
+  const extra = keys.length - TILE_MAX;
+  for (let i = 0; i < extra; i++) await cache.delete(keys[i]);
 }

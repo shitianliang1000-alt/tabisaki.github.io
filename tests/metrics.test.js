@@ -15,6 +15,9 @@ import { DETAILS, EVENTS } from "../js/metrics.js";
 
 const PROXY = "https://proxy.example.workers.dev/";
 
+/** 集計に協力すると決めた人の端末。 */
+const optedIn = () => memStorage({ [METRICS_KEY]: "on" });
+
 function memStorage(init = {}) {
   const m = new Map(Object.entries(init));
   return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) };
@@ -40,7 +43,7 @@ test("送る中身は、決まった名前と決まった補足だけ", () => {
 
 test("中継へ、text/plain で1件送る", async () => {
   const nav = fakeNav();
-  assert.equal(track("spot_remove", "", { proxyUrl: PROXY, nav, storage: memStorage() }), true);
+  assert.equal(track("spot_remove", "", { proxyUrl: PROXY, nav, storage: optedIn() }), true);
   assert.equal(nav.sent.length, 1);
   assert.equal(nav.sent[0].url, "https://proxy.example.workers.dev/metrics");
   assert.equal(nav.sent[0].blob.type, "text/plain");
@@ -51,18 +54,24 @@ test("送らないとき：外した・GPC・DNT・中継なし・http", () => {
   const off = memStorage({ [METRICS_KEY]: "off" });
   for (const [opts, why] of [
     [{ proxyUrl: PROXY, nav: fakeNav(), storage: off }, "設定で外した"],
-    [{ proxyUrl: PROXY, nav: fakeNav({ globalPrivacyControl: true }), storage: memStorage() }, "GPC"],
-    [{ proxyUrl: PROXY, nav: fakeNav({ doNotTrack: "1" }), storage: memStorage() }, "DNT"],
-    [{ proxyUrl: "", nav: fakeNav(), storage: memStorage() }, "中継なし"],
-    [{ proxyUrl: "http://proxy.example", nav: fakeNav(), storage: memStorage() }, "http"],
+    [{ proxyUrl: PROXY, nav: fakeNav({ globalPrivacyControl: true }), storage: optedIn() }, "GPC"],
+    [{ proxyUrl: PROXY, nav: fakeNav({ doNotTrack: "1" }), storage: optedIn() }, "DNT"],
+    [{ proxyUrl: "", nav: fakeNav(), storage: optedIn() }, "中継なし"],
+    [{ proxyUrl: "http://proxy.example", nav: fakeNav(), storage: optedIn() }, "http"],
   ]) {
     assert.equal(track("plan_ok", "car", opts), false, why);
     assert.equal(opts.nav.sent.length, 0, why);
   }
 });
 
-test("設定は既定で「協力する」、外すと覚える", () => {
+test("設定は既定で「協力しない」、入れると覚える", () => {
   const s = memStorage();
+  assert.equal(metricsEnabled(s), false);
+  // 既定のままなら、中継があっても送りません。
+  const nav = fakeNav();
+  assert.equal(track("plan_ok", "car", { proxyUrl: PROXY, nav, storage: s }), false);
+  assert.equal(nav.sent.length, 0);
+  setMetricsEnabled(true, s);
   assert.equal(metricsEnabled(s), true);
   setMetricsEnabled(false, s);
   assert.equal(metricsEnabled(s), false);
@@ -70,14 +79,14 @@ test("設定は既定で「協力する」、外すと覚える", () => {
   assert.equal(metricsEnabled(s), true);
   // 保存できない環境でも止まりません。
   const broken = { getItem() { throw new Error("x"); }, setItem() { throw new Error("x"); } };
-  assert.equal(metricsEnabled(broken), true);
+  assert.equal(metricsEnabled(broken), false);
   setMetricsEnabled(false, broken);
   assert.equal(browserOptedOut({}), false);
 });
 
 test("圏外のあいだは貯めて、つながったら送る", () => {
   const nav = fakeNav({ onLine: false });
-  const opts = { proxyUrl: PROXY, nav, storage: memStorage() };
+  const opts = { proxyUrl: PROXY, nav, storage: optedIn() };
   assert.equal(track("plan_error", "offline", opts), false);
   assert.equal(track("offline_seen", "", opts), false);
   assert.equal(queuedCount(), 2);

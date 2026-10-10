@@ -180,7 +180,7 @@ await check("自分の言葉が先、書きかたの見本はその次", async (
   assert(cards === 0, `きっかけが2か所に分かれています（カード ${cards} 枚）`);
   // 押したら、欄がその文で埋まること（下の別の確認と合わせて二重に
   // 見ています。ここは「まとめたあとも押せる」を見ます）。
-  const want = await page.$eval("[data-example]", (e) => e.dataset.example);
+  const want = await page.$eval(".note-examples [data-example]", (e) => e.dataset.example);
   await page.click(".note-examples .md-chip");
   const got = await page.$eval("#note", (e) => e.value);
   assert(got === want, `札を押しても欄が埋まりません: ${got}`);
@@ -405,6 +405,15 @@ await check("写真が届いた立ち寄りは、カードに写真が載る", a
   assert(h >= 100, `写真の帯が低すぎます: ${h}px`);
 });
 
+await check("載せた写真には、出典（説明ページ）へのリンクが付く", async () => {
+  // Wikimedia の写真は、撮った人とライセンスの表示が条件です。
+  const band = await page.$(".card-photo-band.on");
+  if (!band) return;
+  const href = await band.$eval("a.photo-credit", (a) => a.href).catch(() => "");
+  assert(href === "https://commons.wikimedia.org/wiki/File:T.png",
+    `写真の出典のリンクがありません: ${href || "なし"}`);
+});
+
 await check("写真が無いカードに、空の枠が残らない", async () => {
   const empty = await page.$$eval(".card-photo-band:not(.on)",
     (els) => els.map((e) => e.getBoundingClientRect().height));
@@ -470,7 +479,7 @@ await check("旅程の下の操作が、ほかと同じ部品でできている"
 await check("そのまま使える例を押すと、欄が埋まる", async () => {
   // 自由入力の枠は、何を書いてよいか分からないと空のままです。
   // 押すと入る一文があれば、書き換えるところから始められます。
-  const chip = await page.$("[data-example]");
+  const chip = await page.$(".note-examples [data-example]");
   assert(chip, "例の札がありません");
   const want = await chip.getAttribute("data-example");
   await chip.click();
@@ -539,6 +548,53 @@ await check("旅程を文字にして渡せる", async () => {
   const text = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
   assert(text.includes("■"), `旅程の文字が入っていません: ${text.slice(0, 80)}`);
   assert(/\d{1,2}:\d{2} /.test(text), `時刻の行がありません: ${text.slice(0, 80)}`);
+});
+
+// 旅程そのもののリンク（js/snapshot.js）。
+//
+// 条件のリンクは、受け取った側で組み直すので別の旅程になります。
+// こちらは、送った人が見ていたのと同じ時刻・同じ場所が出ること。
+await check("旅程のリンクを開くと、同じ旅程が出る", async () => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  const mine = await page.evaluate(() => ({
+    title: document.querySelector(".itin-head h2")?.textContent.trim(),
+    times: [...document.querySelectorAll(".tl .time")].slice(0, 6)
+      .map((e) => e.textContent.trim()).join(" "),
+  }));
+  await page.click(".actions .share-trip");
+  await page.waitForTimeout(500);
+  const url = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
+  assert(url.includes("#t="), `旅程のリンクになっていません: ${url.slice(0, 80)}`);
+  // 受け取った人の端末（履歴も条件も空）で開きます。
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 },
+                                         serviceWorkers: "block" });
+  const other = await ctx.newPage();
+  const errs = [];
+  other.on("pageerror", (e) => errs.push(e.message));
+  if (process.env.E2E_OFFLINE) {
+    const origin = new URL(BASE).origin;
+    await other.route((u) => u.origin !== origin,
+      (route) => route.abort("connectionrefused"));
+  }
+  try {
+    await other.goto(url, { waitUntil: "domcontentloaded" });
+    await other.waitForSelector("#result:not([hidden])", { timeout: 60_000 });
+    const theirs = await other.evaluate(() => ({
+      title: document.querySelector(".itin-head h2")?.textContent.trim(),
+      times: [...document.querySelectorAll(".tl .time")].slice(0, 6)
+        .map((e) => e.textContent.trim()).join(" "),
+      hash: location.hash,
+    }));
+    assert(theirs.title === mine.title,
+      `旅先が違います: ${mine.title} → ${theirs.title}`);
+    assert(theirs.times === mine.times,
+      `時刻が違います: ${mine.times} → ${theirs.times}`);
+    // 開いたら、アドレス欄からは外します（再読み込みで戻らないように）。
+    assert(!theirs.hash.includes("t="), "開いたあとも # に旅程が残っています");
+    assert(errs.length === 0, `例外: ${errs.join(" / ")}`);
+  } finally {
+    await ctx.close();
+  }
 });
 
 await check("詳しい分析は、畳まれている", async () => {
@@ -764,6 +820,67 @@ await check("電波が無くても開ける（Service Worker）", async () => {
   assert(scope.length > 0, "登録はされたのに、担当範囲がありません");
 });
 
+// 地図の部品は、自分のところから配ります（vendor/）。unpkg から読んで
+// いた頃は、圏外で開くと保存した旅程の地図が出ませんでした。
+await check("地図の部品が、圏外でも読める場所にある", async () => {
+  const got = await page.evaluate(async () => ({
+    L: typeof window.L?.map === "function",
+    srcs: [...document.scripts].map((s) => s.getAttribute("src") ?? "")
+      .filter((s) => /leaflet/.test(s)),
+    cached: Boolean(await caches.match("vendor/leaflet.js")
+      ?? await caches.match(new URL("vendor/leaflet.js", location.href).href)),
+  }));
+  assert(got.L, "Leaflet が読めていません");
+  assert(got.srcs.every((s) => s.startsWith("vendor/")),
+    `外から読んでいます: ${got.srcs.join(" ")}`);
+  assert(got.cached, "Service Worker が vendor/leaflet.js を先に入れていません");
+});
+
+// 組み立てを途中でやめる。
+//
+// 条件によっては作り直しが4回続き、数分待つことがあります。やめても、
+// 条件の画面に戻ってすぐ組み直せること。
+await check("組み立てを途中でやめられる", async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 },
+                                         serviceWorkers: "block" });
+  const pg = await ctx.newPage();
+  const errs = [];
+  pg.on("pageerror", (e) => errs.push(e.message));
+  if (process.env.E2E_OFFLINE) {
+    const origin = new URL(BASE).origin;
+    await pg.route((u) => u.origin !== origin,
+      (route) => route.abort("connectionrefused"));
+  }
+  // 収録の読み込みを遅らせて、やめるを押す間を作ります。
+  await pg.route(/\/kb\/spots-/, async (route) => {
+    await new Promise((r) => setTimeout(r, 4000));
+    await route.continue().catch(() => {});
+  });
+  try {
+    await pg.goto(`${BASE}/index.html`, { waitUntil: "domcontentloaded" });
+    await until(pg, () => !document.getElementById("make-plan").disabled);
+    await pg.click('[data-example^="温泉でゆっくり"]');
+    await pg.click("#make-plan");
+    await pg.waitForSelector(".plan-card .plan-cancel", { timeout: 20_000 });
+    await pg.click(".plan-card .plan-cancel");
+    await until(pg, () => document.getElementById("progress").hidden,
+                { timeout: 10_000 });
+    const after = await pg.evaluate(() => ({
+      result: !document.getElementById("result").hidden,
+      fab: document.getElementById("make-plan").disabled,
+    }));
+    assert(!after.result, "やめたのに旅程が出ています");
+    assert(!after.fab, "やめたあと、旅程をつくるボタンが押せません");
+    // しばらく待っても、裏で組み上がって出てこないこと。
+    await pg.waitForTimeout(6000);
+    const late = await pg.evaluate(() => !document.getElementById("result").hidden);
+    assert(!late, "やめたあとで、旅程が出てきました");
+    assert(errs.length === 0, `例外: ${errs.join(" / ")}`);
+  } finally {
+    await ctx.close();
+  }
+});
+
 // --- 車の旅 ---------------------------------------------------------------
 // 車で来ている人に、駅前と時刻表の話をしないこと。
 // ここだけは条件を変えて、もう一度組み直します。
@@ -928,6 +1045,11 @@ await check("回る順を、その場で入れ替えられる", async () => {
   const sorted = [...times].sort();
   assert(times.join(",") === sorted.join(","),
     `時刻が前後しています: ${times.join(" / ")}`);
+
+  // 前と比べて、移動がどう変わったかが出ていること（js/orderdiff.js）。
+  const diff = await page.$eval(".order-diff", (e) => e.textContent)
+    .catch(() => "");
+  assert(diff.includes("移動の合計"), `移動の差が出ていません: ${diff}`);
 });
 
 await check("掴んで動かしても、入れ替わる", async () => {
@@ -1083,6 +1205,9 @@ await check("字を大きくすると、実際に大きくなる", async () => {
             const cr = c.getBoundingClientRect();
             return cr.right > W + 1 || cr.left < -1;
           })) continue;
+          // 地図のタイルは、地図の枠の外まで敷いてあって当然です
+          // （枠が切り取ります。ページは横に広がりません）。
+          if (e.closest(".leaflet-container")) continue;
           // 横に流す入れもの（中身が溢れて当然のもの）は除きます。
           let sc = e.parentElement;
           let inScroller = false;
@@ -1292,6 +1417,38 @@ await check("指で押した跡が、残らない", async () => {
 //
 // **押されてから聞きます。** 開いた瞬間に通知と現在地の許可を求めるのは
 // いちばん断られる聞きかたなので、そうなっていないことも見ます。
+await check("携帯の最初の画面に、できあがりの見本が出る", async () => {
+  // 携帯では結果の面が隠れるので、初めての人には入力欄しか見えません
+  // でした。見本が欄より上にあり、押すとそのまま試せることを見ます。
+  // 前につくった旅が残っていない、まっさらな画面で見ます。
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const pg = await ctx.newPage();
+  const origin = new URL(BASE).origin;
+  await pg.route((u) => u.origin !== origin,
+    (route) => route.abort("connectionrefused"));
+  try {
+    await pg.goto(`${BASE}/index.html`, { waitUntil: "domcontentloaded" });
+    const box = await pg.$eval(".preview", (e) => {
+      const r = e.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, h: r.height };
+    });
+    assert(box.h > 0, "見本が出ていません");
+    assert(box.bottom < 844, "見本が最初の画面に収まっていません");
+    const noteTop = await pg.$eval("#note", (e) => e.getBoundingClientRect().top);
+    assert(box.top < noteTop, "見本が入力欄より下にあります");
+    const want = await pg.$eval(".preview-try", (e) => e.dataset.example);
+    await pg.click(".preview-try");
+    const got = await pg.$eval("#note", (e) => e.value);
+    assert(got === want, `見本を押しても欄が埋まりません: ${got}`);
+    // 広い画面では右半分が同じ役目をするので、出しません。
+    await pg.setViewportSize({ width: 1280, height: 900 });
+    const wide = await pg.$eval(".preview", (e) => e.getBoundingClientRect().height);
+    assert(wide === 0, "広い画面にも見本が出ています");
+  } finally {
+    await ctx.close();
+  }
+});
+
 await check("旅の当日は、次の一手が大きく出る", async () => {
   // **まっさらな画面で見ます。**
   //
@@ -1411,6 +1568,30 @@ await check("旅の当日は、次の一手が大きく出る", async () => {
     // **押されてから聞きます。**
     assert(!got.geoAsked, "押していないのに現在地を求めています");
     assert(!got.notifyAsked, "押していないのに通知を求めています");
+
+    // 旅行中モード（js/tripmode.js）。ワンタップで「今日の旅」だけになり、
+    // 開き直してもそのまま始まること。
+    await day.click("#today .trip-mode-btn");
+    const visible = (sel) => {
+      const e = document.querySelector(sel);
+      return Boolean(e) && e.getClientRects().length > 0;
+    };
+    const mode = () => document.body.dataset.tripMode === "on";
+    assert(await day.evaluate(mode), "旅行中モードに入っていません");
+    assert(!(await day.evaluate(visible, "#itinerary")),
+      "旅行中モードなのに、旅程の一覧が出ています");
+    assert(await day.evaluate(visible, "#today .today-next"),
+      "旅行中モードで、次の予定が見えていません");
+    await day.reload({ waitUntil: "domcontentloaded" });
+    await until(day, () => document.body.dataset.tripMode === "on"
+      && Boolean(document.querySelector("#today .today-next")),
+      { timeout: 30_000 });
+    // 出ると、ふだんの画面に戻り、覚えていたものも消えます。
+    await day.click("#today .trip-mode-btn");
+    assert(!(await day.evaluate(mode)), "旅行中モードから出られません");
+    assert(await day.evaluate(visible, "#itinerary"), "旅程の一覧に戻っていません");
+    assert(!(await day.evaluate(() => localStorage.getItem("tabisaki.tripMode"))),
+      "出たのに、旅行中モードを覚えたままです");
   } finally {
     clearInterval(answering);
     await ctx.close();

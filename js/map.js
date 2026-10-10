@@ -59,6 +59,10 @@ export class TripMap {
     L.tileLayer(this.tileUrl, {
       attribution: this.attribution,
       maxZoom: 19,
+      // 見たタイルを圏外でも出せるように、sw.js が取っておきます。
+      // CORS で取らないと中身の見えない応答（opaque）になり、ブラウザは
+      // 1枚を数MBとして容量に数えます。OSM のタイルは CORS に応じます。
+      crossOrigin: true,
     }).addTo(this.map);
     this.layer = L.layerGroup().addTo(this.map);
     return true;
@@ -138,7 +142,10 @@ export class TripMap {
       const latlng = [p.lat, p.lng];
       latlngs.push(latlng);
 
-      const marker = L.marker(latlng, { icon: this.icon(p, i) })
+      // 名前を付けます。Leaflet は押せるピンを role="button" にするので、
+      // 名前が無いと読み上げでは「ボタン」としか言われません。
+      const marker = L.marker(latlng, { icon: this.icon(p, i),
+                                        title: p.label ?? "" })
         .addTo(this.layer);
       const popupContent = document.createElement("div");
       const strong = document.createElement("strong");

@@ -14,7 +14,8 @@
 //
 // 送らないとき
 // ------------
-//   - 設定で「使われかたの集計に協力する」を外したとき
+//   - 設定で「使われかたの集計に協力する」を入れていないとき（既定は
+//     入れていません。数えてよいかは、利用者が自分で決めます）
 //   - ブラウザが Global Privacy Control / Do Not Track を出しているとき
 //   - 中継（PROXY_URL）が無いとき（自分のキーで動かしている人の分は
 //     数えません。そもそも届け先がありません）
@@ -40,14 +41,84 @@ export const DETAILS = new Set([
   "plan", "offline", "network", "kb", "quota",
 ]);
 
+/**
+ * 旅程づくりの条件として送ってよい言葉（管理画面の「入力条件の分布」）。
+ * 自由な文字は送りません。どれも、決まった選択肢のどれか1つです。
+ * server/worker.js もここを読んで、同じ言葉だけを受け取ります。
+ */
+export const CONDITIONS = Object.freeze({
+  t: ["any", "transit", "car", "transit+car", "air", "air+car", "ferry", "local", "walk"],
+  days: ["1", "2", "3", "4+"],
+  p: ["1", "2", "3-4", "5+"],
+  b: ["yes", "no"],          // 予算を決めたか
+  h: ["low", "mid", "high"], // 穴場の混ぜかた
+  n: ["yes", "no"],          // 希望の文を書いたか（中身は送りません）
+  k: ["yes", "no"],          // 混雑を避けるか
+  pin: ["yes", "no"],        // 「必ず行く」を選んだか
+  g: ["art", "city", "food", "history", "nature", "onsen", "sea", "view"], // 好み（複数）
+});
+
+/** 旅程の条件を、上の言葉にします。 */
+export function conditionsOf(trip = {}, { pinned = 0 } = {}) {
+  const days = Math.ceil(((trip.arriveBy ?? 0) - (trip.departAt ?? 0)) / 86400000);
+  const people = Number(trip.people ?? 1);
+  const bias = Number(trip.hiddenBias ?? 0.4);
+  return {
+    t: String(trip.transport ?? "any"),
+    days: !(days > 0) ? "1" : days >= 4 ? "4+" : String(days),
+    p: people >= 5 ? "5+" : people >= 3 ? "3-4" : people === 2 ? "2" : "1",
+    b: trip.budgetYen ? "yes" : "no",
+    h: bias <= 0.3 ? "low" : bias <= 0.6 ? "mid" : "high",
+    n: String(trip.note ?? "").trim() ? "yes" : "no",
+    k: trip.avoidCrowds ? "yes" : "no",
+    pin: pinned > 0 ? "yes" : "no",
+    g: [...new Set(trip.interests ?? [])],
+  };
+}
+
+/**
+ * 出来事に添える数と条件を、送ってよいものだけにします。
+ *   s … 組み立てにかかった秒（0〜1800）
+ *   r … AIに聞き直した回数（1〜9）
+ *   c … 条件（CONDITIONS の言葉だけ）
+ */
+export function cleanExtra(extra) {
+  const out = {};
+  const s = Math.round(Number(extra?.s));
+  if (Number.isFinite(s) && s >= 0 && s <= 1800) out.s = s;
+  const r = Math.round(Number(extra?.r));
+  if (Number.isFinite(r) && r >= 1 && r <= 9) out.r = r;
+  const c = extra?.c;
+  if (c && typeof c === "object") {
+    const cc = {};
+    for (const [k, allowed] of Object.entries(CONDITIONS)) {
+      if (k === "g") {
+        const g = Array.isArray(c.g) ? [...new Set(c.g.filter((x) => allowed.includes(x)))] : [];
+        if (g.length) cc.g = g;
+      } else if (allowed.includes(String(c[k]))) {
+        cc[k] = String(c[k]);
+      }
+    }
+    if (Object.keys(cc).length) out.c = cc;
+  }
+  return out;
+}
+
 export const METRICS_KEY = "tabisaki.metrics";
 
-/** 集計に協力するか（既定は「する」。設定で外せます）。 */
+/**
+ * 集計に協力するか。
+ *
+ * **既定は「しない」です。** 設定で入れた人のぶんだけ数えます。
+ * 名前の無い件数でも、開いただけで送り始めるのは、頼まれていないことを
+ * 先にしていることになります。以前の既定（する）のまま何も触って
+ * いない人も、ここで「しない」に戻ります（"on" を保存した人だけが数えます）。
+ */
 export function metricsEnabled(storage = globalThis.localStorage) {
   try {
-    return storage?.getItem(METRICS_KEY) !== "off";
+    return storage?.getItem(METRICS_KEY) === "on";
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -67,10 +138,10 @@ export function browserOptedOut(nav = globalThis.navigator) {
  * 送る中身を作ります。送れないもの・送らないものは null。
  * @returns {string|null} JSON 文字列
  */
-export function metricBody(event, detail = "") {
+export function metricBody(event, detail = "", extra = null) {
   if (!EVENTS.has(event)) return null;
   const d = DETAILS.has(detail) ? detail : "";
-  return JSON.stringify({ e: event, d });
+  return JSON.stringify({ e: event, d, ...cleanExtra(extra) });
 }
 
 // 圏外のあいだに起きたことは、つながったときに送ります。
@@ -85,8 +156,8 @@ let listening = false;
 export function flushQueued(opts = {}) {
   const items = queued.splice(0, queued.length);
   let sent = 0;
-  for (const [event, detail] of items) {
-    if (track(event, detail, opts)) sent++;
+  for (const [event, detail, extra] of items) {
+    if (track(event, detail, { ...opts, extra })) sent++;
   }
   return sent;
 }
@@ -106,14 +177,15 @@ export function track(event, detail = "", {
   proxyUrl = "",
   nav = globalThis.navigator,
   storage = globalThis.localStorage,
+  extra = null,
 } = {}) {
   const base = String(proxyUrl ?? "").trim().replace(/\/+$/, "");
   if (!/^https:\/\//i.test(base)) return false;
   if (!metricsEnabled(storage) || browserOptedOut(nav)) return false;
-  const body = metricBody(event, detail);
+  const body = metricBody(event, detail, extra);
   if (!body) return false;
   if (nav?.onLine === false) {
-    if (queued.length < MAX_QUEUED) queued.push([event, detail]);
+    if (queued.length < MAX_QUEUED) queued.push([event, detail, extra]);
     if (!listening && globalThis.addEventListener) {
       listening = true;
       globalThis.addEventListener("online",

@@ -112,3 +112,24 @@ export async function photoUrlsFrom(spots, opts = {}) {
                                worker));
   return out;
 }
+
+/**
+ * 写真の説明ページ（撮った人とライセンスが書いてあるページ）のURL。
+ *
+ * Wikimedia の写真は、ほとんどが CC BY-SA などで、**撮った人と
+ * ライセンスの表示が条件**です。カードに全部は書ききれないので、
+ * 写真の隅にこのページへのリンクを置きます（credits.html にも書いています）。
+ * 縮小版のURLからファイル名を取り出します。形が違えば null。
+ *
+ *   …/wikipedia/commons/thumb/a/ab/Foo.jpg/320px-Foo.jpg
+ *     → https://commons.wikimedia.org/wiki/File:Foo.jpg
+ *   …/wikipedia/ja/a/ab/Foo.jpg（日本語版に直に置かれたもの）
+ *     → https://ja.wikipedia.org/wiki/File:Foo.jpg
+ */
+export function photoPageOf(url) {
+  const m = String(url ?? "").match(
+    /^https:\/\/upload\.wikimedia\.org\/wikipedia\/(commons|ja)\/(?:thumb\/)?[0-9a-f]\/[0-9a-f]{2}\/([^/]+)/);
+  if (!m) return null;
+  const host = m[1] === "commons" ? "commons.wikimedia.org" : "ja.wikipedia.org";
+  return `https://${host}/wiki/File:${m[2]}`;
+}

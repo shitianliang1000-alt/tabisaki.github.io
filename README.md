@@ -116,6 +116,7 @@ AI                     プログラム
 ```text
 .
 ├── index.html                 # アプリ本体
+├── credits.html               # 著作権表記のページ（使っている地図・写真・データ・サービス）
 ├── icon.svg                   # アプリアイコン（ブラウザのタブ用）
 ├── icon-180.png               # iOS のホーム画面用（SVG は読まれません）
 ├── icon-192.png               # Android / PWA
@@ -249,7 +250,7 @@ AI                     プログラム
 | 各都道府県の公式観光サイト | 観光地の名前の一覧（xlsx）の出どころ。**「観光地として挙がっている」ことの確認にだけ**使い、名前・座標・説明は写していません（`tools/import_tourism_list.py`） |
 | OpenStreetMap | **ODbL 1.0**。座標が引けなかった観光地の名前に、名前と県の一致で付けた座標（4,312件。`tools/import_osm_tourlist.py`）。下の「OpenStreetMap 由来の座標」を読んでください |
 | Overture Maps | **CDLA Permissive 2.0 / Apache 2.0 / CC0**（出どころごと。1件ずつ `license` に持たせています）。座標が引けなかった観光地の名前に、名前と県の一致で付けた座標（1,515件。`tools/import_overture_places.py`）。**飲食店・宿・店は入れていません**（営業の状態がほぼ空で、閉業を見分けられないため）。表示は「Overture Maps Foundation, overturemaps.org」。共有の義務はありません |
-| 座標つきの観光地一覧（いただいたもの） | 各都道府県の公式観光サイトの名前に、Yahoo!ローカルサーチ・コンテンツジオコーダ、国土地理院、Photon・Nominatim（OSM）などで座標を付けた一覧から10,653件（`tools/import_tourism_coords.py`。`src="tourlist-geocoded"`、取得元は1件ずつ `geo`）。下の「座標つきの観光地一覧」を読んでください |
+| 座標つきの観光地一覧（いただいたもの） | 各都道府県の公式観光サイトの名前に、Yahoo!ローカルサーチ・コンテンツジオコーダ、国土地理院（住所検索API）、Wikipedia・Wikidata、Photon・Nominatim・Overpass API（OSM）で座標を付けた一覧から10,653件（`tools/import_tourism_coords.py`。`src="tourlist-geocoded"`、取得元は1件ずつ `geo`）。下の「座標つきの観光地一覧」を読んでください |
 
 再配布の条件がはっきりしているものだけを収録する方針です。
 観光資源台帳（日本観光振興協会）は、条件が曖昧なため収録していません
@@ -364,7 +365,23 @@ PROXY_URL
 
 ## 🚀 公開する（GitHub Pages）
 
-`.github/workflows/pages.yml` が、`main` への push ごとに GitHub Pages へ配置します。ビルド工程はエリア別のページ（`node tools/build_area_pages.mjs dist`）だけで、**公開するのはブラウザが読むものだけ**です（`index.html`・`css/`・`js/`・`kb/`・`admin/` と、アイコン・manifest・robots・sitemap・sw.js）。`tests/`・`tools/`・`server/`・`data/` や README は公開されません。公開に要るファイルを増やしたら、`pages.yml` の「Stage site files」にも足してください。
+`.github/workflows/pages.yml` が、`main` への push ごとに GitHub Pages へ配置します。ビルド工程はエリア別のページ（`node tools/build_area_pages.mjs dist`）だけで、**公開するのはブラウザが読むものだけ**です（`index.html`・`css/`・`js/`・`kb/`と、アイコン・manifest・robots・sitemap・sw.js）。`admin/`・`tests/`・`tools/`・`server/`・`data/` や README は公開されません。公開に要るファイルを増やしたら、`pages.yml` の「Stage site files」にも足してください。
+
+### 管理画面を開く
+
+管理画面（`admin/`）には認証が無いので、GitHub Pages には置きません。中継の Worker が、合言葉を聞いてから見せます（`server/admin.js`）。
+
+1. 合言葉を Worker に入れる（一度だけ）: `npx wrangler secret put ADMIN_PASSWORD`、またはダッシュボードの Workers & Pages → `tabisaki-github-io` → Settings → Variables and Secrets → Add で、種類を Secret、名前を `ADMIN_PASSWORD` にします。
+2. `https://tabisaki-github-io.shitianliang1000.workers.dev/admin` を開き、ユーザー名は何でも、パスワードに合言葉を入れます。
+
+合言葉を入れていないあいだ、`/admin` は 404 です。手元で見るだけなら、リポジトリの一番上で `python3 -m http.server 8000` を動かし、`http://localhost:8000/admin/` を開いてもかまいません（読むだけの項目だけ動きます）。
+
+項目: 概要 / 設定 / 使用量 / 旅程の結果 / エラー / kb/ 点検 / スポット。
+
+- **件数・設定・変更待ち**は Worker の Durable Object（`STATS`、`server/stats.js`）に貯めます。Analytics Engine や KV・D1 のような、ダッシュボードで先に有効にする作業は要りません（デプロイで自動で作られます）。IP・入力した文・地名・旅程は残しません。利用者の区別は「その日だけの塩＋IP」のハッシュ頭8文字で、日をまたいでは追えません。古い件数は90日で消えます。
+- **旅程の結果**（成功率・かかった時間・AIに聞いた回数・入力条件の分布）は、「使われかたの集計に協力する」を入れた人のぶんだけです（初期はオフ）。決まった選択肢と数だけが届きます（`js/metrics.js`）。
+- **機能の入り切りと上限**は、管理画面で保存すると、30秒ほどで Worker に効きます。
+- **スポットの追加・削除・分類の直し**は、管理画面では「変更待ち」に積むだけで、公開サイトには出ません。書き込みは合言葉を通った管理画面からだけです。Worker の secret `GITHUB_TOKEN`（このリポジトリだけに絞った fine-grained token。Contents と Pull requests に Read and write）を入れると「PRにする」で `kb/` の変更を PR にします。入れていないときは「JSONで書き出す」→ `node tools/apply_kb_edits.mjs kb-edits.json` で手元に当てます。
 
 初回だけ、リポジトリの **Settings → Pages → Source** を「GitHub Actions」にしてください。
 
@@ -495,6 +512,19 @@ AIから返ったIDをそのまま信用せず、候補集合と照合します�
 このリポジトリで利用している地図・外部データ・APIには、それぞれ提供元の利用規約・ライセンスがあります。
 
 公開・商用利用の前に、各サービスの最新の規約を確認してください。特に `kb/index.json` に記載されている外部データソースは、それぞれ利用条件が異なります。
+
+画面から見られる一覧は **[credits.html](./credits.html)**（条件の画面の下のリンク）です。
+データや外部サービスを足した・外したときは、そこも直してください。
+
+### 国土数値情報の「非商用」のデータ
+
+国土数値情報のうち「観光資源（P12）」「文化施設（P27）」「バス停留所（P11）」は、
+使用許諾条件が**非商用**です。利用規約（<https://nlftp.mlit.go.jp/ksj/other/agreement_02.html>）
+では、非商用のデータは**複製物の再配布ができず**、データベースの形で使う場合は
+運営事務局への相談が求められています。`kb/` はこれらを加工して JSON のまま公開して
+いるので、**このまま公開してよいかは確かめていません。** 鉄道（N02、2008年度版）は商用可です。
+外すときは、観光資源が `src="kokudo"`、文化施設が `dataSource` に「文化施設」、
+バス停が `kb/stops-bus*` です。
 
 ### OpenStreetMap 由来の座標
 

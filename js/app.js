@@ -24,7 +24,6 @@ import { findStop, preloadStops, searchStops } from "./stops.js";
 import { END_MODES, formatHourField, makeTrip, parseHourField, validateTrip }
   from "./trip.js";
 import { TripMap, pointsFromItinerary } from "./map.js";
-import { planTrip } from "./pipeline.js";
 import { haversineKm } from "./feasibility.js";
 import { configureQuota, describeUsage, quota } from "./quota.js";
 import { artFor } from "./art.js";
@@ -40,22 +39,49 @@ import { spotFit, tripFit } from "./fit.js";
 import { paceBreakdown, slackLevel } from "./score.js";
 import { VARIANTS, distinguishOf, recommendOf, summaryOf, tripsFor }
   from "./variants.js";
-import { $, el, openSheet, renderItinerary, renderProgress, renderToday,
+import { $, el, loadSketch, openSheet, renderItinerary, renderProgress, renderToday,
          scrollBehavior, suggestionButton } from "./ui.js";
 import { catchUp } from "./today.js";
 import { isOffline, watchConnection } from "./online.js";
-import { metricsEnabled, setMetricsEnabled, track } from "./metrics.js";
+import { conditionsOf, metricsEnabled, setMetricsEnabled, track } from "./metrics.js";
 import { watchArrival } from "./arrive.js";
 import { armNotices, askNotifyPermission, scheduleNotices }
   from "./notify.js";
 import { requeryNextLeg } from "./nextleg.js";
+import { orderDiff } from "./orderdiff.js";
+import { clearTripMode, loadTripMode, saveTripMode } from "./tripmode.js";
 import { searchYahooTransit } from "./yahoo-transit.js";
 import { yahooFlags } from "./modes.js";
+import { tripCodeFrom, tripLink, unpackTrip } from "./snapshot.js";
 import { addHistory, clearHistory, freezeItinerary, loadHistory, removeHistory,
          replaceHistory, savedLabel, thawItinerary } from "./history.js";
 import { applyTypeScale, initTypeScale, saveTypeScale } from "./typescale.js";
-import { mergeTrips, readTripFile, toBackupFile, toTripFile, tripFilename }
-  from "./transfer.js";
+
+// 旅程を組む部分（js/pipeline.js とその先の約20モジュール、450KBほど）
+// と、ファイルの書き出し・読み込み（js/transfer.js）は、開いた直後の
+// フォームには要りません。静的に import すると、画面が出る前に全部を
+// 取りに行って読み解くので、使うときに読みます。
+//
+// 「つくる」を押してから取りに行くと、そのぶん待たせます。画面が出て
+// 手が空いたら（requestIdleCallback）先に読み始めておきます。
+let pipelineModule = null;
+let transferModule = null;
+const loadPipeline = () => (pipelineModule ??= import("./pipeline.js")
+  .catch((e) => { pipelineModule = null; throw e; }));
+const loadTransfer = () => (transferModule ??= import("./transfer.js")
+  .catch((e) => { transferModule = null; throw e; }));
+async function planTrip(args) {
+  return (await loadPipeline()).planTrip(args);
+}
+function warmModules() {
+  const go = () => {
+    loadPipeline().catch(() => {});
+    loadSketch().catch(() => {});
+    loadTransfer().catch(() => {});
+  };
+  if ("requestIdleCallback" in globalThis) requestIdleCallback(go, { timeout: 4000 });
+  else setTimeout(go, 1500);
+}
 
 /** 待ち画面の絵に渡す、収録スポットの上限。読み込んだ順の末尾です
     （遅れて読むので、末尾が旅先の県のぶんになります）。 */
@@ -69,6 +95,8 @@ const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
                 // ペースは、利用者が「もっとゆっくり」等を押したときだけ
                 // 指定します。既定では希望文からの読み取りに任せます。
                 pace: null, clearArea: false, avoidIds: [], editNote: "",
+                // 旅行中モード（js/tripmode.js）。開き直しても続きます。
+                tripMode: false,
                 // avoidIds のうち、「外す」で件数ごと減らしたぶんと、
                 // そのときの上限。条件を組み直しても残します（残さないと、
                 // 外したはずの枠を別の場所が埋めて、押しても減りません）。
@@ -100,6 +128,8 @@ async function boot() {
   // あとから当てると、標準の大きさで一度描いてから大きくなるので、
   // 開いた瞬間に字が飛び跳ねます。
   initTypeScale();
+  // 画面が出たあと、手が空いたら旅程づくりの部品を読み始めます。
+  warmModules();
 
   state.map = new TripMap("map");
   state.map.configure({ tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION });
@@ -151,6 +181,17 @@ async function boot() {
     return stagedKb(pre) ?? await loadKnowledgeBase(undefined, undefined, pre);
   })();
 
+  // 旅行中モードのまま閉じていたら、開いた瞬間から旅行中の画面にします
+  // （js/tripmode.js）。収録の読み込みは待ちません。旅程は覚えてあります。
+  const kept = loadTripMode();
+  if (kept?.trip) {
+    kept.itin.restored = true;
+    state.trip = kept.trip;
+    state.tripMode = true;
+    $("#placeholder").hidden = true;
+    show(kept.itin, kept.trip);
+  }
+
   try {
     state.kb = await state.kbPromise;
     if (state.kb.loadError) setBadge(state.kb.loadError, true);
@@ -177,6 +218,41 @@ async function boot() {
       "知識ベースを読み込めませんでした。web/ をサーバ経由で開いているか、"
       + "kb/ フォルダが同じ場所にあるかをご確認ください。";
   }
+  // 旅程のリンク（#t=…）から来たときは、その旅程をそのまま開きます。
+  // 収録が読めなくても開けます（旅程の中に、要るものは入っています）。
+  await openSharedTrip();
+}
+
+/**
+ * 送られてきた旅程のリンクを開きます（js/snapshot.js）。
+ *
+ * **組み直しません。** 送った人が見ていたのと同じ時刻・同じ場所を
+ * 出すのが、このリンクの役目です。開いた旅程は、受け取った人の
+ * 「前につくった旅」にも残ります（当日、圏外でも開けるように）。
+ */
+async function openSharedTrip() {
+  const code = tripCodeFrom(location.hash);
+  if (!code) return;
+  // 開いたら、アドレス欄からは外します。残すと、条件を変えて組み直した
+  // あとに再読み込みしたとき、送られてきた旅程に戻ってしまいます。
+  try {
+    history.replaceState(null, "", location.pathname + location.search);
+  } catch { /* 外せなくても、開くのには困りません */ }
+  const out = await unpackTrip(code);
+  if (!out.ok) { showError(out.error); return; }
+  const t = out.trip;
+  if (t.state) applyFormState(t.state);
+  const itin = thawItinerary(t.itin);
+  const trip = thawItinerary(t.trip ?? null) ?? state.trip;
+  if (!trip?.departAt) { showError("旅程のリンクを読めませんでした（出発の日時がありません）。"); return; }
+  itin.savedAt = t.savedAt;
+  itin.sharedLink = true;
+  state.trip = trip;
+  showView("result");
+  $("#placeholder").hidden = true;
+  show(itin, trip);
+  setBadge("送られてきた旅程を開きました");
+  setTimeout(() => setBadge(kbBadgeText()), 3600);
 }
 
 /**
@@ -1625,7 +1701,8 @@ function unpack(code) {
  * どこにも送りません。ブラウザの中でファイルを作って、端末に保存する
  * だけです。
  */
-function exportTrip(itin, trip) {
+async function exportTrip(itin, trip) {
+  const { toTripFile, tripFilename } = await loadTransfer();
   const doc = toTripFile({
     id: null,
     title: itin?.title ?? "旅",
@@ -1634,27 +1711,28 @@ function exportTrip(itin, trip) {
     trip: freezeItinerary(trip ?? null),
     itin: freezeItinerary(itin ?? null),
   });
-  downloadJson(doc);
+  downloadJson(doc, tripFilename);
   setBadge("旅程のファイルを保存しました");
   setTimeout(() => setBadge(kbBadgeText()), 2600);
 }
 
 /** 履歴ぜんぶを、控えのファイルにします。 */
-function exportBackup() {
+async function exportBackup() {
   const list = loadHistory();
   if (!list.length) {
     setBadge("控えにする旅がまだありません");
     setTimeout(() => setBadge(kbBadgeText()), 2600);
     return;
   }
+  const { toBackupFile, tripFilename } = await loadTransfer();
   const doc = toBackupFile(list);
-  downloadJson(doc);
+  downloadJson(doc, tripFilename);
   setBadge(`${list.length}件を控えに書き出しました`);
   setTimeout(() => setBadge(kbBadgeText()), 2600);
 }
 
 /** JSON を端末に保存します（.ics と同じやりかたです）。 */
-function downloadJson(doc) {
+function downloadJson(doc, tripFilename) {
   const blob = new Blob([JSON.stringify(doc, null, 1)],
                         { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1684,6 +1762,15 @@ async function importTripFile(file) {
     setTimeout(() => setBadge(kbBadgeText()), 4000);
     return;
   }
+  let transfer;
+  try {
+    transfer = await loadTransfer();
+  } catch (e) {
+    setBadge(`ファイルを開けませんでした（${e?.message ?? e}）`);
+    setTimeout(() => setBadge(kbBadgeText()), 4000);
+    return;
+  }
+  const { mergeTrips, readTripFile } = transfer;
   const out = readTripFile(text);
   if (!out.ok) {
     // **黙って読み違えません。** 何が違うのかを言います。
@@ -1697,6 +1784,47 @@ async function importTripFile(file) {
   setBadge(`${added}件を読み込みました`
     + (replaced ? `（${replaced}件は上書き）` : ""));
   setTimeout(() => setBadge(kbBadgeText()), 3600);
+}
+
+/**
+ * いま画面に出ている旅程を、リンクにして渡します（js/snapshot.js）。
+ *
+ * 条件のリンクと違って、受け取った人の画面にも**同じ旅程**が出ます。
+ * 旅程はリンクの # の後ろに入っていて、どこにも預けません。
+ * 長すぎてリンクにできないときは、ファイルで渡す方法を案内します。
+ */
+async function shareTripLink(itin, trip) {
+  let url = null;
+  try {
+    url = await tripLink({
+      title: itin?.title ?? "旅",
+      savedAt: Date.now(),
+      state: formState(),
+      trip: freezeItinerary(trip ?? null),
+      itin: freezeItinerary(itin ?? null),
+    }, `${location.origin}${location.pathname}`);
+  } catch { url = null; }
+  if (!url) {
+    setBadge("旅程が長すぎてリンクにできません。「この旅程をファイルで渡す」をお使いください");
+    setTimeout(() => setBadge(kbBadgeText()), 5000);
+    return;
+  }
+  const title = `旅さき — ${itin?.title ?? "旅程"}`;
+  if (navigator.share && (!navigator.canShare || navigator.canShare({ url }))) {
+    try {
+      await navigator.share({ title, url });
+      return;
+    } catch (e) {
+      if (e?.name === "AbortError") return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    setBadge("旅程のリンクをコピーしました");
+    setTimeout(() => setBadge(kbBadgeText()), 2600);
+  } catch {
+    globalThis.prompt?.("このURLを共有してください", url);
+  }
 }
 
 async function shareConditions() {
@@ -1811,8 +1939,8 @@ function showView(view) {
  * 使われかたを1件数えます（js/metrics.js）。名前の無い件数だけです。
  * 中継（PROXY_URL）が無いときと、設定で外したときは送りません。
  */
-function count(event, detail = "") {
-  track(event, detail, { proxyUrl: effectiveConfig().proxyUrl });
+function count(event, detail = "", extra = null) {
+  track(event, detail, { proxyUrl: effectiveConfig().proxyUrl, extra });
 }
 
 /** 組めなかった理由を、数えるための言葉にします（js/errors.js と同じ分け方）。 */
@@ -2015,6 +2143,9 @@ function reorderSpots(req, trip, itin) {
   state.trip = next;
   state.editNote = "回る順を変えて、組み直しました"
     + "（その順で入らない立ち寄りは落ちます）。";
+  // 組み直したあとに、前と比べて移動がどう変わったかを出します
+  // （js/orderdiff.js）。比べる相手は、いま画面に出ている旅程です。
+  state.orderFrom = { itin, trip: next };
   run(next);
 }
 
@@ -2181,11 +2312,23 @@ async function run(override) {
   const progress = $("#progress");
   // 前回の札を残さない。残すと、経過時間が前回の開始から数え続けます。
   progress.textContent = "";
+  // 途中でやめられるようにします。前のぶんがまだ走っていれば、止めます
+  // （言葉で直す・組み直すは、組み立て中にも押せます）。
+  state.planAbort?.abort();
+  const ctrl = new AbortController();
+  state.planAbort = ctrl;
+  const { signal } = ctrl;
   const fab = $("#make-plan");
   fab.disabled = true;
   fab.querySelector(".fab-tx").textContent = "組み立てています…";
   // 出発地のあたりへ、背景の地図を寄せておきます
   moveBackgroundMap(trip.origin.lat, trip.origin.lng, 8);
+  // 数えるとき（協力してくれる人だけ）に添える、かかった時間と条件の区分。
+  const startedAt = Date.now();
+  const facts = () => ({
+    s: (Date.now() - startedAt) / 1000,
+    c: conditionsOf(trip, { pinned: state.pinned.size }),
+  });
 
   try {
     // まだ読み終わっていなければ、ここで待ちます。押した人にとっては
@@ -2195,16 +2338,32 @@ async function run(override) {
         trip, stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
         tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
       });
-      state.kb = await state.kbPromise;
+      addCancel(progress, ctrl);
+      state.kb = await untilAborted(state.kbPromise, signal);
     }
     if (!state.kb) throw new Error("データを読み込めていません。");
     resetRoutesBreaker();
-    const itin = await buildPlans(trip, progress);
+    const itin = await buildPlans(trip, progress, ctrl);
+    signal.throwIfAborted();
     showRoutesUsage();
     show(itin, trip);
-    count("plan_ok", trip.transport);
+    count("plan_ok", trip.transport,
+          { ...facts(), r: Math.max(1, ...(state.plans ?? []).map((p) => p.itin?.rounds ?? 1)) });
   } catch (e) {
-    count("plan_error", failureKind(e));
+    if (signal.aborted) {
+      // やめたのは失敗ではありません。理由も出さず、条件の画面へ戻します。
+      // （次の組み立てがもう始まっているなら、画面はそちらに任せます。）
+      if (state.planAbort === ctrl || state.planAbort === null) {
+        progress.textContent = "";
+        $("#progress").hidden = true;
+        $("#placeholder").hidden = false;
+        showView("form");
+        setBadge("組み立てをやめました");
+        setTimeout(() => setBadge(kbBadgeText()), 2600);
+      }
+      return;
+    }
+    count("plan_error", failureKind(e), facts());
     $("#progress").hidden = true;
     $("#placeholder").hidden = false;
     // うまくいかなかったときは、条件の画面へ戻します。理由は
@@ -2212,9 +2371,53 @@ async function run(override) {
     showView("form");
     showError(e.message ?? String(e), e.suggestions ?? []);
   } finally {
-    fab.disabled = false;
-    fab.querySelector(".fab-tx").textContent = "旅程をつくる";
+    // あとから始まった組み立てがあれば、ボタンはそちらのものです。
+    if (state.planAbort === ctrl || state.planAbort === null) {
+      state.planAbort = null;
+      fab.disabled = false;
+      fab.querySelector(".fab-tx").textContent = "旅程をつくる";
+    }
   }
+}
+
+/**
+ * 組み立て中の札に「やめる」を置きます。
+ *
+ * 条件によっては作り直しが4回まで続き、待ちが数分になります。途中で
+ * 条件を変えたくなっても、これまでは終わるまで待つしかなく、その間も
+ * AIと経路への問い合わせが裏で走り続けていました。押せば、走っている
+ * 通信も含めて止めます（AbortController を pipeline の下まで渡しています）。
+ *
+ * 札は js/ui.js の renderProgress が作り直すことがあるので、描くたびに
+ * 置き直します（すでにあれば何もしません）。
+ */
+function addCancel(progress, ctrl) {
+  const card = progress.querySelector(".plan-card");
+  if (!card || card.querySelector(".plan-cancel")) return;
+  const btn = el("button", {
+    type: "button", class: "md-btn md-btn--outlined md-state plan-cancel",
+    onclick: () => {
+      btn.disabled = true;
+      btn.querySelector("span").textContent = "やめています…";
+      ctrl.abort();
+    },
+  }, el("span", {}, "やめる"));
+  card.append(btn);
+}
+
+/**
+ * 待っている約束を、やめると言われた時点で手放します。
+ * 約束そのもの（収録の読み込みなど）は止めません。次に使うからです。
+ */
+function untilAborted(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const stop = () => reject(signal.reason);
+    signal.addEventListener("abort", stop, { once: true });
+    Promise.resolve(promise).then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", stop));
+  });
 }
 
 /**
@@ -2229,18 +2432,22 @@ async function run(override) {
  * さらに、案を比べるあいだは **経路も天気も取りません**。
  * 採用が決まった案にだけ、実際の経路と天気を取りにいきます。
  */
-async function buildPlans(trip, progress) {
+async function buildPlans(trip, progress, ctrl) {
+  const signal = ctrl?.signal;
   // 絵に渡す材料。段が進むたびに、読み込まれた収録（星）と候補を
   // 渡します。pipeline が候補と決まった順を extra に乗せてきます。
   // 星は「取りに行く関数」で渡します。収録は県ごとに遅れて読まれる
   // ので、写しを渡すと読み込みが終わる前の空のままになります。
-  const onProgress = (step, note, extra) => renderProgress(progress, step, note, {
-    trip,
-    stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
-    // 待っているあいだの絵に、地の形を敷きます（js/sketch.js）。
-    tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
-    ...(extra ?? {}),
-  });
+  const onProgress = (step, note, extra) => {
+    renderProgress(progress, step, note, {
+      trip,
+      stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+      // 待っているあいだの絵に、地の形を敷きます（js/sketch.js）。
+      tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
+      ...(extra ?? {}),
+    });
+    if (ctrl) addCancel(progress, ctrl);
+  };
   const variants = tripsFor(trip);
 
   // 1案目。ここで希望文の読み取りと検索用ベクトルが決まります。
@@ -2250,7 +2457,7 @@ async function buildPlans(trip, progress) {
     trip: variants[0].trip, kb: state.kb,
     ignoreAreas: state.clearArea,
     mustRegionIds: pinnedRegionIds(),
-    useRoutes: false, useWeather: false, onProgress,
+    useRoutes: false, useWeather: false, onProgress, signal,
   });
 
   // 残りの案は、読み取りを使い回して作ります。
@@ -2268,11 +2475,13 @@ async function buildPlans(trip, progress) {
         mustRegionIds: pinnedRegionIds(),
         useRoutes: false, useWeather: false,
         query: first.query, vector: first.vector,
-        avoidRegionIds: used,
+        avoidRegionIds: used, signal,
       });
       if (first.spread) used.push(...(itin.regionIds ?? []));
       rest.push({ key: v.key, trip: v.trip, itin });
     } catch {
+      // やめると言われたなら、残りの案は作りません。
+      signal?.throwIfAborted();
       // 成立しない案は、並べません（「作れませんでした」を3つ並べても
       // 選びようがありません）
     }
@@ -2286,7 +2495,7 @@ async function buildPlans(trip, progress) {
   state.recommendKey = best.key;
   state.recommendWhy = best.reason ?? "";
 
-  return finishPlan(best.key, onProgress);
+  return finishPlan(best.key, onProgress, signal);
 }
 
 /**
@@ -2309,7 +2518,7 @@ function pinnedRegionIds() {
  * 採用した案だけ、実際の経路と天気を取って仕上げます。
  * ここが唯一の課金対象です。
  */
-async function finishPlan(key, onProgress) {
+async function finishPlan(key, onProgress, signal) {
   const chosen = (state.plans ?? []).find((p) => p.key === key);
   if (!chosen) throw new Error("その案が見つかりません");
 
@@ -2319,7 +2528,7 @@ async function finishPlan(key, onProgress) {
     ignoreAreas: state.clearArea,
     mustRegionIds: pinnedRegionIds(),
     query: chosen.itin.query, vector: chosen.itin.vector,
-    onProgress,
+    onProgress, signal,
   });
 
   // 案の一覧（カードに出すぶんだけ）
@@ -2385,23 +2594,57 @@ async function switchVariant(key) {
   $("#result").hidden = true;
   $("#progress").hidden = false;
   progress.textContent = "";
+  state.planAbort?.abort();
+  const ctrl = new AbortController();
+  state.planAbort = ctrl;
   try {
     const itin = await finishPlan(key,
-      (step, note, extra) => renderProgress(progress, step, note, {
-        trip: state.chosenTrip ?? state.trip,
-        stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
-        tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
-        ...(extra ?? {}),
-      }));
+      (step, note, extra) => {
+        renderProgress(progress, step, note, {
+          trip: state.chosenTrip ?? state.trip,
+          stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+          tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
+          ...(extra ?? {}),
+        });
+        addCancel(progress, ctrl);
+      }, ctrl.signal);
+    ctrl.signal.throwIfAborted();
     showRoutesUsage();
     state.trip = state.chosenTrip;
     syncFormTo(state.chosenTrip);
     show(itin, state.chosenTrip);
   } catch (e) {
+    progress.textContent = "";
     $("#progress").hidden = true;
     $("#result").hidden = false;
-    showError(e.message ?? String(e));
+    // やめたときは、選び直す前の旅程に戻すだけです。
+    if (!ctrl.signal.aborted) showError(e.message ?? String(e));
+  } finally {
+    if (state.planAbort === ctrl) state.planAbort = null;
   }
+}
+
+/**
+ * 旅行中モードに入る・出る（js/tripmode.js）。
+ *
+ * 入ると、画面は「今日の旅」の札だけになります（css の
+ * body[data-trip-mode]）。旅程は端末に覚えておくので、閉じて開き
+ * 直しても旅行中の画面から始まります。出ると、ふだんの結果の画面に
+ * 戻ります（旅程はそのままです）。
+ */
+function setTripMode(on, itin, trip) {
+  state.tripMode = on;
+  applyTripModeView();
+  if (on) saveTripMode(itin, trip);
+  else clearTripMode();
+  renderTodayBox(itin, trip);
+  if (on) showView("result");
+  else globalThis.scrollTo?.({ top: 0, behavior: scrollBehavior() });
+}
+
+function applyTripModeView() {
+  if (state.tripMode) document.body.dataset.tripMode = "on";
+  else delete document.body.dataset.tripMode;
 }
 
 /**
@@ -2418,8 +2661,9 @@ function renderTodayBox(itin, trip) {
   const during = first && last
     && now >= new Date(new Date(first).setHours(0, 0, 0, 0))
     && now <= new Date(new Date(last).getTime() + 6 * 3600000);
-  box.hidden = !during;
-  if (!during) return;
+  // 旅行中モードにしたら、当日でなくても出します（前日に試す人がいます）。
+  box.hidden = !during && !state.tripMode;
+  if (box.hidden) return;
 
   // 遅れているかどうか。押された「着いた」から数えます。
   itin.catchUp = state.arrivedAtId
@@ -2429,6 +2673,8 @@ function renderTodayBox(itin, trip) {
 
   renderToday(box, itin, trip, {
     now,
+    tripMode: state.tripMode,
+    onTripMode: (on) => setTripMode(on, itin, trip),
     // 現在地から分かったこと（js/arrive.js）。**旅程は変えません。**
     arrivedHint: state.today.hint,
     notifyOn: Boolean(state.today.notices),
@@ -2554,6 +2800,11 @@ function show(itin, trip) {
   // 直前に言葉で直した内容を、組み直したあとの画面にも残します
   itin.editNote = state.editNote ?? "";
   state.editNote = "";
+  // 並べ替えの結果なら、前の旅程と比べた差を添えます。組み直しが
+  // 失敗して別の操作の結果が来たときは、比べません（別物どうしです）。
+  const from = state.orderFrom;
+  state.orderFrom = null;
+  itin.orderDiff = from && from.trip === trip ? orderDiff(from.itin, itin) : null;
   // 外した場所は、名前を残しておきます。押し間違えたときに戻せないと、
   // 「外す」を押すのが怖くなり、結局使われません。
   itin.dropped = (trip.must?.avoidSpotIds ?? [])
@@ -2603,6 +2854,7 @@ function show(itin, trip) {
       $("#placeholder").hidden = false;
     },
     onShare: () => shareConditions(trip),
+    onShareTrip: () => shareTripLink(itin, trip),
     onExport: () => exportTrip(itin, trip),
     onDay: (index) => state.map.showDay(index),
     onHover: (item, on) => state.map.highlight(item.spotId, on),
@@ -2631,9 +2883,19 @@ function show(itin, trip) {
     // 数え直すので、混んでいて外した区間が入ることがあります）。
     onRecheck: () => run(trip),
     onSpot: openSpotSheet,
+    // 当日でなく「今日の旅」が出ていないときは、旅程の上から入れます。
+    onTripMode: $("#today")?.hidden ? () => setTripMode(true, itin, trip) : null,
   });
 
-  rememberTrip(itin, trip);
+  // 旅行中モードで開き直したときは、一覧に足し直しません（足すと、
+  // 開くたびに一覧のいちばん上へ動きます）。
+  if (!itin.restored) rememberTrip(itin, trip);
+  // 旅行中モードのまま組み直した（「削る」など）ら、新しいほうを覚えます。
+  if (state.tripMode) {
+    if (!itin.restored) saveTripMode(itin, trip);
+    applyTripModeView();
+    showView("result");
+  }
 
   // ピンを押したときも、旅程の行と同じシートを開きます（往復できます）。
   const points = pointsFromItinerary(itin, trip, { onSpot: openSpotSheet });
