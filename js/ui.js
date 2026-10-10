@@ -13,7 +13,7 @@ import { paceBreakdown, slackLevel } from "./score.js";
 import { VARIANTS } from "./variants.js";
 import { qualityOf, spotFit, tripFit } from "./fit.js";
 import { currentStep } from "./today.js";
-import { photoFor } from "./photos.js";
+import { photoFor, photoPageOf } from "./photos.js";
 import { estimatedTravel } from "./reliability.js";
 import { isTouring, longDriveNote, restSlots } from "./touring.js";
 import { itineraryText } from "./share.js";
@@ -1488,11 +1488,27 @@ function cardArt(spot, { tall = false } = {}) {
                           class: tall ? "" : "card-photo" });
   photoFor(spot).then((url) => {
     if (!url) return;
-    img.addEventListener("load", () => img.classList.add("on"), { once: true });
+    img.addEventListener("load", () => {
+      img.classList.add("on");
+      const credit = photoCredit(url);
+      if (credit) box.append(credit);
+    }, { once: true });
     img.src = url;
   }).catch(() => { /* 写真は飾りです。取れなくても絵のままで十分です */ });
   box.prepend(img);
   return box;
+}
+
+/**
+ * 写真の隅に置く出典のリンク。撮った人とライセンスは、その先の
+ * 説明ページに書いてあります（Wikimedia の写真は表示が条件です）。
+ */
+function photoCredit(url) {
+  const page = photoPageOf(url);
+  if (!page) return null;
+  return el("a", { class: "photo-credit", href: page,
+                   target: "_blank", rel: "noreferrer" },
+    "写真: Wikimedia Commons");
 }
 
 /**
@@ -1504,12 +1520,18 @@ function cardArt(spot, { tall = false } = {}) {
  */
 function spotPhoto(spot) {
   if (!spot?.wikipedia) return null;
-  const box = el("div", { class: "card-photo-band", "aria-hidden": "true" });
+  // 写真そのものは飾り（alt は空）。出典のリンクだけは読み上げにも
+  // 出すので、箱ごと aria-hidden にはしません。
+  const box = el("div", { class: "card-photo-band" });
   const img = el("img", { alt: "", decoding: "async" });
   box.append(img);
   photoFor(spot).then((url) => {
     if (!url) return;
-    img.addEventListener("load", () => box.classList.add("on"), { once: true });
+    img.addEventListener("load", () => {
+      box.classList.add("on");
+      const credit = photoCredit(url);
+      if (credit) box.append(credit);
+    }, { once: true });
     // 要約APIの縮小版は幅320pxです。カードの幅いっぱいに敷くと粗いので、
     // 640px 版を先に頼みます。元の写真がそれより小さいと Wikimedia は
     // 返さないので、そのときは届いた縮小版に戻します。

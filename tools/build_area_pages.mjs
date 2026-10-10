@@ -144,7 +144,7 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(
 ${body}
 </main>
 <footer class="area-foot">
-  <p>収録データ: 国土数値情報・OpenStreetMap・Wikipedia ほか（出典はアプリの設定から見られます）。営業時間や料金は変わることがあります。お出かけ前に公式の情報をご確認ください。</p>
+  <p>収録データ: 国土数値情報・OpenStreetMap・Wikipedia ほか（出典は<a href="${rel}credits.html">著作権・出典</a>のページにまとめています）。営業時間や料金は変わることがあります。お出かけ前に公式の情報をご確認ください。</p>
   <p><a href="${rel}index.html">旅さき</a> — 行きたいことから旅程をつくる</p>
 </footer>
 </body>

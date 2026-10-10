@@ -113,3 +113,15 @@ test("保存を消せる（写真が古くなったとき用）", async () => {
   await photoFor(a, opts);
   assert.equal(f.calls.length, 2);
 });
+
+test("写真の説明ページ（撮った人とライセンス）のURLを、縮小版のURLから作る", async () => {
+  const { photoPageOf } = await import("../js/photos.js");
+  assert.equal(
+    photoPageOf("https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Senso-ji_%282%29.jpg/320px-Senso-ji_%282%29.jpg"),
+    "https://commons.wikimedia.org/wiki/File:Senso-ji_%282%29.jpg");
+  assert.equal(
+    photoPageOf("https://upload.wikimedia.org/wikipedia/ja/1/1f/Foo.png"),
+    "https://ja.wikipedia.org/wiki/File:Foo.png");
+  assert.equal(photoPageOf("https://example.com/a.jpg"), null);
+  assert.equal(photoPageOf(null), null);
+});

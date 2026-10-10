@@ -112,6 +112,39 @@ async function audit(name, { dark = false, plan = false, width = 1280,
   await ctx.close();
 }
 
+/** 読むだけのページ（著作権・出典など）。スクリプトは無いので、開いてすぐ測ります。 */
+async function auditStatic(name, path, { dark = false, width = 1280 } = {}) {
+  const ctx = await browser.newContext({
+    viewport: { width, height: 900 },
+    colorScheme: dark ? "dark" : "light",
+    serviceWorkers: "block",
+    // このページの CSP は script を一切止めます（止まるのが正しい）。
+    // axe はテストの側から差し込むので、ここだけ CSP を外して開きます。
+    bypassCSP: true,
+  });
+  const page = await ctx.newPage();
+  await page.route("**/__axe.js", (route) =>
+    route.fulfill({ path: AXE, contentType: "application/javascript" }));
+  const origin = new URL(BASE).origin;
+  await page.route((u) => u.origin !== origin,
+    (route) => route.abort("connectionrefused"));
+  await page.goto(`${BASE}/${path}`, { waitUntil: "load" });
+  await page.addScriptTag({ url: "/__axe.js" });
+  const { violations } = await page.evaluate(async () =>
+    await window.axe.run(document, { resultTypes: ["violations"] }));
+  if (!violations.length) {
+    console.log(`  ok   ${name}`);
+  } else {
+    failures++;
+    console.log(`  NG   ${name}`);
+    for (const v of violations) {
+      console.log(`       [${v.impact}] ${v.id}: ${v.help}`);
+      for (const n of v.nodes.slice(0, 4)) console.log(`         ${n.target.join(" ")}`);
+    }
+  }
+  await ctx.close();
+}
+
 /**
  * axe が見ないところの、字と地の明るさの差を測ります。
  *
@@ -199,6 +232,10 @@ await audit("旅の当日の画面（携帯の幅）",
             { width: 390, plan: true, today: true });
 await audit("旅の当日の画面（暗い配色）",
             { dark: true, plan: true, today: true });
+
+await auditStatic("著作権・出典のページ（明るい配色）", "credits.html");
+await auditStatic("著作権・出典のページ（暗い配色・携帯の幅）", "credits.html",
+                  { dark: true, width: 390 });
 
 // axe が飛ばすところ（絵・押せないボタン・畳んだ中身）を、自分で測ります。
 await contrast("主色の上の字（明るい配色）", false);
