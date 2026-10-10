@@ -100,11 +100,29 @@ const NAMED_SERVICES = [
 ];
 
 /**
+ * 移動そのものを楽しみたい、という書きかた。
+ *
+ * 青春18きっぷで出かける人や、乗り鉄の人にとって、移動は「目的地と
+ * 目的地のあいだの時間」ではありません。乗っている時間が旅です。
+ * これまでの組みかたは移動を短くするほど良いとしていたので、
+ * 「できるだけ遠くまで列車で」と書いても、近場の1か所に収まっていました。
+ *
+ * 18きっぷは乗り物の指定（普通列車のみ）でもあり、旅のしかたの指定でも
+ * あります。両方として読みます。
+ */
+const ENJOY_TRAVEL_RE = /青春18|18きっぷ|乗り鉄|鉄旅|鉄道旅|列車旅|汽車旅|鈍行|各駅停車で|ローカル線|車窓|乗り継ぎ旅|乗りつぎ旅|移動(そのもの|自体|も|を)(を)?楽し|移動が好き|移動好き|移動(を|も)(できるだけ|たくさん|いっぱい)|遠くまで行きたい|日本一周|日本縦断|周遊きっぷ/;
+
+/** 希望文に「移動を楽しみたい」が読み取れるか。 */
+export function wantsToEnjoyTravel(text) {
+  return ENJOY_TRAVEL_RE.test(String(text ?? ""));
+}
+
+/**
  * 希望文から、乗り物と添える一言を読み取ります。
  *
  * @param {string} text
- * @returns {{transport: string|null, notes: string[], nightTrain: string|null,
- *            toward: string[]}}
+ * @returns {{transport: string|null, notes: string[], enjoyTravel: boolean,
+ *            nightTrain: string|null, toward: string[]}}
  *   transport が null なら、指定は読み取れていません（画面の選択に従います）。
  *   nightTrain は狙っている夜行列車の id（"any" なら列車の指定なし）。
  */
@@ -134,6 +152,7 @@ export function readIntent(text) {
   }
   return {
     transport, notes,
+    enjoyTravel: wantsToEnjoyTravel(s),
     nightTrain: timetabled,
     // 行き先を寄せるための地名（「サフィール」なら伊豆）。
     toward: named.filter((t) => t.bookable !== false)

@@ -1231,6 +1231,10 @@ function wireForm() {
   segmented("#transport-choice", "transport", (v) => {
     state.transport = v ?? "any";
   });
+  // 移動の考えかた。移動そのものを楽しみたい人（青春18きっぷなど）向け。
+  segmented("#journey-choice", "journey", (v) => {
+    state.enjoyTravel = v === "enjoy";
+  });
   // 字の大きさ。押した瞬間に画面ぜんぶが変わります（rem で書いて
   // あるので、根の大きさを書き換えるだけで全部ついてきます）。
   const scaleNow = String(initTypeScale());
@@ -1459,6 +1463,8 @@ async function readTrip() {
     budgetMode: state.budgetMode ?? "guide",
     // 何で移動するか。車が使えるかどうかで、組める旅程が変わります。
     transport: state.transport ?? "any",
+    // 移動そのものを楽しみたいか。遠い土地や長い乗車を減点しません。
+    enjoyTravel: state.enjoyTravel === true,
     // 食べたいものの向き。昼食・夕食にその土地の名物を当てます。
     people: state.people ?? 1,
     foodGenre: state.foodGenre ?? "any",
@@ -2248,17 +2254,24 @@ async function buildPlans(trip, progress) {
   });
 
   // 残りの案は、読み取りを使い回して作ります。
+  //
+  // 「日本全国」のような広い指定なら、案ごとに別の地方を出します。
+  // 3案とも同じ土地だと、ペースが違うだけで選びようがありません。
+  const used = first.spread ? [...(first.regionIds ?? [])] : [];
   const rest = [];
   for (const v of variants.slice(1)) {
     onProgress(3, `${VARIANTS[v.key].label}の案を組み立てています`);
     try {
-      rest.push({ key: v.key, trip: v.trip, itin: await planTrip({
+      const itin = await planTrip({
         trip: v.trip, kb: state.kb,
         ignoreAreas: state.clearArea,
         mustRegionIds: pinnedRegionIds(),
         useRoutes: false, useWeather: false,
         query: first.query, vector: first.vector,
-      }) });
+        avoidRegionIds: used,
+      });
+      if (first.spread) used.push(...(itin.regionIds ?? []));
+      rest.push({ key: v.key, trip: v.trip, itin });
     } catch {
       // 成立しない案は、並べません（「作れませんでした」を3つ並べても
       // 選びようがありません）

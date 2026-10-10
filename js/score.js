@@ -49,7 +49,7 @@ export function scoreItinerary(itin, opts = {}) {
   const moveMin = moves.reduce((a, i) => a + minutesOf(i), 0);
 
   const parts = [
-    movePart(spotMin, moveMin),
+    movePart(spotMin, moveMin, opts.enjoyTravel === true),
     fatiguePart(days, all),
     rhythmPart(days),
     joyPart(spots, opts.interests ?? []),
@@ -116,14 +116,19 @@ function emptyPart(days) {
 
 // --- 移動の割合 -------------------------------------------------------------
 
-function movePart(spotMin, moveMin) {
+function movePart(spotMin, moveMin, enjoyTravel = false) {
   const sum = spotMin + moveMin;
   const ratio = sum > 0 ? moveMin / sum : 0;
   // 2割までは気になりません。6割を超えると「移動しに行った旅」です。
-  const score = falloff(ratio, 0.2, 0.6);
+  //
+  // 移動を楽しみたい人には、「移動しに行った旅」こそが頼まれたものです。
+  // 減点するのは、着いた先で何もできないほど偏ったとき（8割5分超）だけにします。
+  const score = enjoyTravel ? falloff(ratio, 0.6, 0.85)
+    : falloff(ratio, 0.2, 0.6);
   const pct = Math.round(ratio * 100);
   return {
-    key: "move", label: "移動の少なさ", weight: WEIGHTS.move, score,
+    key: "move", label: enjoyTravel ? "移動と見学のつり合い" : "移動の少なさ",
+    weight: WEIGHTS.move, score,
     note: sum === 0 ? "移動と見学の時間がまだありません"
       : `動いている時間が全体の ${pct}%`
         + (pct >= 50 ? "（半分以上が移動です）" : ""),

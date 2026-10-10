@@ -61,6 +61,56 @@ export const NAMED_SETS = {
   三大祭: ["京都", "大阪", "東京"],
 };
 
+/**
+ * 日本全体を指す言い方。
+ *
+ * 「日本全国の名所をめぐりたい」と書いても、これまでは地名の指定が
+ * 無いことになり、点の高い順に選ばれていました。点の高いエリアは
+ * たいてい近くに固まっているので、7日の旅が瀬戸内だけで終わります
+ * （実際に「高知・広島・宮島・松山・道後・直島」になっていました）。
+ * 全国と書いた人がほしいのは、1つの地方を深く、ではありません。
+ *
+ * 「全国的に有名な」「全国チェーン」は範囲の指定ではないので外します。
+ */
+const NATIONWIDE_RE =
+  /日本全国|全国各地|日本各地|日本中|日本一周|日本縦断|全都道府県|47都道府県|全国(?!的|区|チェーン|展開|大会|紙|放送|ネット|区分)/;
+
+/**
+ * 地方の分けかた（散らすときの単位）。県 → 地方。
+ * 近畿と中部の両方に入る三重は、近畿に寄せます（MACRO_AREAS の東海と
+ * 近畿の両方に入っています）。
+ */
+const REGION_BLOCKS = ["北海道", "東北", "関東", "中部", "近畿", "中国地方",
+                       "四国", "九州", "沖縄"];
+export const BLOCK_OF_PREF = (() => {
+  const out = {};
+  for (const block of [...REGION_BLOCKS].reverse()) {
+    for (const p of MACRO_AREAS[block]) out[p] = block;
+  }
+  return out;
+})();
+
+/** そのエリアが属する地方。分からなければ県名（外国なら国名）。 */
+export function blockOf(region) {
+  return BLOCK_OF_PREF[region?.prefecture]
+    ?? region?.prefecture ?? region?.country ?? "";
+}
+
+/**
+ * 収録エリアを地方ごとに分ける表（regionId → 地方）。
+ * 「全国」や「移動を楽しみたい」のときに、1つの地方へ固まらないよう
+ * 使います（ai.js の coherentRegions が、まだ行っていない地方を先に選びます）。
+ */
+export function blockGroups(kb, regionIds = null) {
+  const out = new Map();
+  const only = regionIds ? new Set(regionIds) : null;
+  for (const r of kb?.regions ?? []) {
+    if (only && !only.has(r.id)) continue;
+    out.set(r.id, blockOf(r));
+  }
+  return out;
+}
+
 export const PREFECTURES = [
   "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
   "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
@@ -204,7 +254,13 @@ export function detectAreas(text, kb) {
     if (ids.length) push(term, "region", [...prefs], ids, groups);
   }
   for (const [term, prefs] of Object.entries(MACRO_AREAS)) {
-    if (s.includes(term)) push(term, "macro", prefs, regionsIn(kb, prefs));
+    if (!s.includes(term)) continue;
+    // 県をまたぐ地方（九州・関東など）は、県ごとに散らせるよう内訳を持たせます。
+    const ids = regionsIn(kb, prefs);
+    const groups = prefs.length > 1 ? new Map(ids.map((id) =>
+      [id, kb.regionsById?.get(id)?.prefecture
+        ?? kb.regions.find((r) => r.id === id)?.prefecture])) : null;
+    push(term, "macro", prefs, ids, groups);
   }
   for (const p of PREFECTURES) {
     if (s.includes(p)) push(p, "prefecture", [p], regionsIn(kb, [p]));
@@ -213,6 +269,14 @@ export function detectAreas(text, kb) {
     if (short.length >= 2 && s.includes(short)) {
       push(full, "prefecture", [full], regionsIn(kb, [full]));
     }
+  }
+  // 日本全体の指定は、ほかに地名が無いときだけ範囲として扱います。
+  // 「全国の中でも京都」なら、指しているのは京都です。
+  const nation = s.match(NATIONWIDE_RE);
+  if (nation && !found.length) {
+    const ids = (kb?.regions ?? [])
+      .filter((r) => !r.country || r.country === "日本").map((r) => r.id);
+    push(nation[0], "nation", [...PREFECTURES], ids, blockGroups(kb, ids));
   }
   return found;
 }
@@ -236,12 +300,22 @@ export function areaScope(areas) {
   const ids = new Set();
   // 「3大都市」のように、複数の地名を並べた言い方のときは、その内訳も
   // 返します。1つの街に固まらず、名指しされた街を1つずつ回るためです。
+  //
+  // 「日本全国」「九州」のような広い指定も同じです。地方（全国なら
+  // 北海道・東北…、九州なら県）を内訳にして、1か所に固まらないようにします。
+  // ただし広い指定に具体的な地名が混じっているとき（「九州の別府」）は、
+  // 具体的なほうが言いたいことなので、散らしません。
+  const isWide = (a) => a.kind === "nation"
+    || (a.kind === "macro" && a.prefectures.length > 1);
+  const spread = matched.every(isWide);
   const groupById = new Map();
   for (const a of matched) {
     for (const id of a.regionIds) ids.add(id);
-    if (a.groups) for (const [id, name] of a.groups) groupById.set(id, name);
+    if (!a.groups) continue;
+    if (isWide(a) && !spread) continue;
+    for (const [id, name] of a.groups) if (name) groupById.set(id, name);
   }
-  return { regionIds: ids, matched, missing,
+  return { regionIds: ids, matched, missing, spread,
            groupById: groupById.size ? groupById : null };
 }
 
