@@ -34,6 +34,16 @@ const DEFAULT_BASE = "https://shitianliang1000-alt.github.io/tabisaki.github.io/
 const PREF_MAJOR = 12;
 const PREF_HIDDEN = 12;
 const REGION_SPOTS = 24;
+/**
+ * エリアのページに「〇〇の観光地」として並べるのは、エリアの中心からこの距離まで。
+ *
+ * 収録のエリア分けは市町村ぐらいの粗さで、江の島のページに伊勢原や厚木の
+ * 資料館（20km 先）が並んでいました。検索から来た人にも検索エンジンにも、
+ * 「江の島の観光地」として出すのは誤りです。近くに少ししか無いエリアだけは、
+ * 近い順に並べます。
+ */
+const REGION_RADIUS_KM = 6;
+const REGION_MIN_NEAR = 8;
 
 export function esc(text) {
   return String(text ?? "").replace(/[&<>"']/g, (c) => ({
@@ -81,6 +91,38 @@ export function examplePrompts(region) {
 }
 
 const TIER_LABEL = { major: "定番", known: "知る人ぞ知る", hidden: "穴場" };
+
+/** 2点のおおよその距離（km）。ページの絞り込みに使うだけなので、平面近似で足ります。 */
+export function distanceKm(lat1, lng1, lat2, lng2) {
+  const rad = Math.PI / 180;
+  const x = (lng2 - lng1) * rad * Math.cos(((lat1 + lat2) / 2) * rad);
+  const y = (lat2 - lat1) * rad;
+  return 6371 * Math.hypot(x, y);
+}
+
+/**
+ * エリアの観光地として出してよいもの。中心から REGION_RADIUS_KM 以内。
+ * それが REGION_MIN_NEAR に満たないエリアは、中心に近い順に並べ直します。
+ * 中心の座標が無いエリアは、そのまま返します。
+ */
+export function nearbySpots(region, spots) {
+  if (!Number.isFinite(region?.lat) || !Number.isFinite(region?.lng)) return [...spots];
+  const withDist = spots.filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng))
+    .map((s) => ({ s, km: distanceKm(region.lat, region.lng, s.lat, s.lng) }));
+  const near = withDist.filter((x) => x.km <= REGION_RADIUS_KM).map((x) => x.s);
+  if (near.length >= REGION_MIN_NEAR) return near;
+  return withDist.sort((a, b) => a.km - b.km).slice(0, REGION_SPOTS).map((x) => x.s);
+}
+
+/** パンくず（エリア › 県 › …）の構造化データ。検索結果の URL の代わりに出ることがあります。 */
+export function breadcrumbLd(trail) {
+  return {
+    "@type": "BreadcrumbList",
+    itemListElement: trail.map((t, i) => ({
+      "@type": "ListItem", position: i + 1, name: t.name, ...(t.url ? { item: t.url } : {}),
+    })),
+  };
+}
 
 function byFame(a, b) {
   return (b.fame_score ?? 0) - (a.fame_score ?? 0)
@@ -206,7 +248,7 @@ export function renderRegionPage({ region, prefName, prefSlug, spots, course, da
   const description = `${region.name}（${prefName}）を${region.station ?? "駅"}から1日でまわるモデルコース。`
     + (region.tagline ? `${region.tagline}。` : "")
     + "行きたいことを書くと、営業時間と移動時間まで合わせた旅程をつくれます。";
-  const list = [...spots].sort(byFame).slice(0, REGION_SPOTS);
+  const list = [...nearbySpots(region, spots)].sort(byFame).slice(0, REGION_SPOTS);
   const items = course ? courseItems(course) : null;
   const body = `<nav class="crumbs"><a href="${rel}areas/index.html">エリア</a> › <a href="${rel}areas/${prefSlug}/index.html">${esc(prefName)}</a> › ${esc(region.name)}</nav>
 <h1>${esc(region.name)}</h1>
@@ -226,8 +268,7 @@ ${promptLinks(rel, examplePrompts(region))}
 <h2>${esc(region.name)}の観光地</h2>
 ${spotList(list)}
 </section>`;
-  const jsonLd = {
-    "@context": "https://schema.org",
+  const destination = {
     "@type": "TouristDestination",
     name: region.name,
     description: region.description || region.tagline || undefined,
@@ -240,6 +281,11 @@ ${spotList(list)}
     })),
     url: canonical,
   };
+  const jsonLd = { "@context": "https://schema.org", "@graph": [destination, breadcrumbLd([
+    { name: "エリア", url: `${base}areas/index.html` },
+    { name: prefName, url: `${base}areas/${prefSlug}/index.html` },
+    { name: region.name, url: canonical },
+  ])] };
   return { path: `areas/${prefSlug}/${region.id}.html`, url: canonical,
            html: page({ title, description, canonical, rel, body, jsonLd }) };
 }
@@ -269,13 +315,15 @@ ${hidden.length ? `<section>
 <h2>穴場</h2>
 ${spotList(hidden)}
 </section>` : ""}`;
-  const jsonLd = {
-    "@context": "https://schema.org",
+  const jsonLd = { "@context": "https://schema.org", "@graph": [{
     "@type": "TouristDestination",
     name: prefName,
     includesAttraction: major.map((s) => ({ "@type": "TouristAttraction", name: s.name })),
     url: canonical,
-  };
+  }, breadcrumbLd([
+    { name: "エリア", url: `${base}areas/index.html` },
+    { name: prefName, url: canonical },
+  ])] };
   return { path: `areas/${prefSlug}/index.html`, url: canonical,
            html: page({ title, description, canonical, rel, body, jsonLd }) };
 }
