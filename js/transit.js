@@ -160,6 +160,12 @@ export function describeTransit(summary, opts = {}) {
   const tz = opts.tz;
   return summary.segments.map((s) => {
     if (s.kind === "walk") {
+      // 山道は、街の徒歩と分けて書きます。同じ「徒歩60分」でも、
+      // 靴も持ち物も違います。
+      if (s.trail) {
+        const km = s.meters ? `（約${(s.meters / 1000).toFixed(1)}km）` : "";
+        return `登山道を歩いて${s.minutes}分${km}`;
+      }
       const m = s.meters ? `（約${Math.round(s.meters)}m）` : "";
       return `徒歩${s.minutes}分${m}`;
     }

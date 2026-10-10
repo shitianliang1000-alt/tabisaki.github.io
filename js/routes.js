@@ -41,6 +41,7 @@ import { QuotaBlockedError, meteredFetch } from "./quota.js";
 import { estimateMinutes, haversineKm, isSlowTerrain, taxiMinutes }
   from "./feasibility.js";
 import { findStop, nearbyStops, nearestStop } from "./stops.js";
+import { ropewayMinutes, ropewayNear } from "./ropeways.js";
 import { summarizeTransitLeg, summarizeYahooRoute, transitFieldMask }
   from "./transit.js";
 import { KIND_NOTE, asksTimetable, classifyLine, kindsOf, preferredKinds,
@@ -565,6 +566,8 @@ async function computeViaStations(points, opts) {
   // 2区間目に乗るのは10時ではありません。
   const plans = new Array(n);
   const yahooLegs = new Array(n).fill(null);
+  // 聞かずに組んだ区間（山から山への登山道、ロープウェイと徒歩だけの区間）。
+  const localLegs = new Array(n).fill(null);
   // 区間ごとの出発時刻。呼ぶ側が「この区間を通るのは何日目の何時か」を
   // 知っているなら、そちらを使います（pipeline.js が渡します）。
   // 所要時間だけを足していく下の時計は、滞在も宿泊もまたげません。
@@ -581,6 +584,8 @@ async function computeViaStations(points, opts) {
   // 引けなかった区間を、あとでもう一度聞くための出発時刻。
   // 歩く区間には入れません（聞いていないので、聞き直すものもありません）。
   const askedAt = new Array(n).fill(null);
+  // 聞き直すときに、何通りまで試すか（null なら残りの回数まで）。
+  const retryTries = new Array(n).fill(null);
   // 歩く区間の数。「◯区間中◯区間で時刻表」の分母から外します。
   let walkLegs = 0;
   // 近くに駅・バス停が1つも無い区間の数。車が要る区間です。
@@ -644,7 +649,14 @@ async function computeViaStations(points, opts) {
       yahooBudgetSpent.spent += hit.spent;
     }
     if (hit?.noTransit) { noTransitLegs++; noTransitAt[i] = true; }
-    if (hit && !hit.miss) {
+    if (hit?.local) {
+      // 時刻表に載る乗り物が無い区間です。歩く区間と同じく、
+      // 「◯区間中◯区間で時刻表」の分母には入れません。
+      localLegs[i] = hit;
+      walkLegs++;
+      plans[i] = { minutes: hit.minutes, walkKm: 0, walk: true,
+                   fromStop: null, toStop: null, walkMeasured: false };
+    } else if (hit && !hit.miss) {
       yahooLegs[i] = hit;
       plans[i] = { minutes: hit.minutes, walkKm: 0,
                    fromStop: null, toStop: null, walkMeasured: false };
@@ -666,6 +678,12 @@ async function computeViaStations(points, opts) {
                    fromStop: null, toStop: null, walkMeasured: false };
     } else {
       askedAt[i] = at;
+      // Yahoo!が「経路なし」と答えた区間は、聞き直しを短くします。
+      //
+      // 山の区間では1区間に6回使っていました（位置で1回・停留所の
+      // 名前で2回、それをもう一周）。断られた・つながらなかった区間は
+      // 同じだけ聞き直し、答えが返っていた区間は2通りだけにします。
+      retryTries[i] = hit?.definitive ? 2 : null;
       plans[i] = await planStationLeg(points[i], points[i + 1]);
     }
     if (clock) clock = new Date(clock.getTime() + plans[i].minutes * 60000);
@@ -693,13 +711,14 @@ async function computeViaStations(points, opts) {
         waited++;
       }
       const again = await yahooLeg(points[i], points[i + 1],
-        { ...opts, departAt: askedAt[i], tries: yahooBudget });
+        { ...opts, departAt: askedAt[i],
+          tries: Math.min(yahooBudget, retryTries[i] ?? yahooBudget) });
       if (again?.spent) {
         yahooBudget -= again.spent;
         yahooBudgetSpent.spent += again.spent;
         retried++;
       }
-      if (again && !again.miss) {
+      if (again && !again.miss && !again.local) {
         yahooLegs[i] = again;
         plans[i] = { minutes: again.minutes, walkKm: 0,
                      fromStop: null, toStop: null, walkMeasured: false };
@@ -724,7 +743,7 @@ async function computeViaStations(points, opts) {
     if (walked) { plans[i] = walked; measured++; transitBudget.spent++; }
   }
 
-  const legs = plans.map((p, i) => yahooLegs[i] ?? ({
+  const legs = plans.map((p, i) => yahooLegs[i] ?? localLegs[i] ?? ({
     minutes: p.minutes,
     meters: Math.round(haversineKm(points[i], points[i + 1]) * 1000),
     line: null,
@@ -774,33 +793,72 @@ async function computeViaStations(points, opts) {
  * 最寄りを引いて名前にします（「箱根湯本駅」「大涌谷」）。
  */
 async function yahooLeg(a, b, opts) {
+  // 使った回数は、途中で失敗しても数えます。投げたものは投げたものです。
+  let spent = 0;
   try {
-    const [fromNames, toNames] = await Promise.all(
-      [stopNamesFor(a), stopNamesFor(b)]);
+    const [fromNames, toNames, accA, accB] = await Promise.all(
+      [stopNamesFor(a), stopNamesFor(b), accessFor(a), accessFor(b)]);
+    // 片側にも停留所が無いなら、公共交通では行けません。「調べたけれど
+    // 引けなかった」とは別ものなので、分けて返します。画面で
+    // 「目安」とだけ出すと、調べそこねたのか、そもそも便が無いのかが
+    // 読む人に分かりません。
+    if (!fromNames.length || !toNames.length || !accA || !accB) {
+      return { spent: 0, miss: true, noTransit: true, definitive: true };
+    }
+
+    // **山から山へは、聞きません。**
+    //
+    // 黒岳 → 北鎮岳（3.3km）、小泉岳 → 白雲岳（1.4km）。どちらも
+    // 登山道を歩く区間で、時刻表に載る乗り物はありません。それでも
+    // 1区間ごとに位置で1回、近くの停留所の名前で2回聞き、外れると
+    // あとでもう一度同じだけ聞いていました。山の多い旅程では、これで
+    // 問い合わせの回数を使い切り、**後ろの区間は町なかでも時刻が
+    // 引けなくなっていました**（43区間のうち10区間しか引けない）。
+    const straightKm = haversineKm(a, b);
+    const sideA = accessSide(accA, a, true);
+    const sideB = accessSide(accB, b, false);
+    if (accA.mountain && accB.mountain && !accA.direct && !accB.direct
+        && straightKm <= MOUNTAIN_TRAIL_KM) {
+      return trailLeg(a, b);
+    }
+    // 両端の乗り場が歩ける近さなら、乗り物の出番はありません。
+    // 層雲峡（バスの終点）→ 黒岳 は、ロープウェイの山麓駅まで歩いて、
+    // ロープウェイで上がって、山頂駅から歩きます。
+    const gapKm = haversineKm(accA.at, accB.at);
+    if (!(accA.direct && accB.direct) && gapKm <= ACCESS_WALK_KM) {
+      return localLeg(a, b, sideA, gapKm, sideB);
+    }
+
     // 名前の組を、見込みの高い順に作ります。
     //
     // 以前はここで**1組だけ**試し、両端が同じ名前になったら諦めて
     // いました。近い2地点（同じ駅が最寄りのスポットどうし）は必ずそこに
     // 落ちるので、街なかの短い移動はほとんど「目安」のままでした。
     // 2番目の停留所まで見れば、その多くは実際の時刻が引けます。
+    //
+    // 山頂のように乗り場から離れた端は、**その乗り場の近く**の名前で
+    // 聞きます。山頂から5km以内の停留所を拾うと、尾根の向こう側の
+    // バス停や、同じ名前の別の山（「旭岳」→ 1,100km先）に当たります。
+    //
+    // ロープウェイの山麓駅は、その名前では聞きません（Yahoo!は
+    // 「◯◯ロープウェイ 山麓駅」を知りません）。山麓駅の近くの停留所です。
+    const candsFor = (acc, names) => (acc.direct ? names
+      : acc.stop ? [acc.stop]
+        : nearbyStops(acc.at, STOP_REACH_KM, YAHOO_STOP_CANDIDATES));
+    const [fromCands, toCands] = await Promise.all([
+      candsFor(accA, fromNames), candsFor(accB, toNames),
+    ]);
     const pairs = [];
-    for (let i = 0; i < fromNames.length; i++) {
-      for (let j = 0; j < toNames.length; j++) {
-        const from = fromNames[i];
-        const to = toNames[j];
+    for (let i = 0; i < fromCands.length; i++) {
+      for (let j = 0; j < toCands.length; j++) {
+        const from = fromCands[i];
+        const to = toCands[j];
         if (!from?.name || !to?.name) continue;
         if (sameStopName(from.name, to.name)) continue;
         pairs.push({ from, to, rank: i + j });
       }
     }
     pairs.sort((x, y) => x.rank - y.rank);
-    // 片側にも停留所が無いなら、公共交通では行けません。「調べたけれど
-    // 引けなかった」とは別ものなので、分けて返します。画面で
-    // 「目安」とだけ出すと、調べそこねたのか、そもそも便が無いのかが
-    // 読む人に分かりません。
-    if (!fromNames.length || !toNames.length) {
-      return { spent: 0, miss: true, noTransit: true };
-    }
     // 残りの回数を超えて試しません。1区間に使い切ると、後ろの区間が
     // まるごと「目安」になります。
     const tries = Math.max(1,
@@ -808,7 +866,6 @@ async function yahooLeg(a, b, opts) {
     let from = null;
     let to = null;
     let yahoo = null;
-    let spent = 0;
     let byLocation = false;
     // **指定された乗り物を、問い合わせにそのまま乗せます。**
     //
@@ -819,7 +876,7 @@ async function yahooLeg(a, b, opts) {
       modes: yahooFlags(opts.transport ?? "any"),
       prefer: preferredKinds(opts.transport ?? "any") };
 
-    // **まず、その場所の位置で聞きます。**
+    // **まず、位置で聞きます。**
     //
     // 名前で聞くと、Yahoo!が同じ名前の別の場所に読み替えます。
     //
@@ -830,15 +887,22 @@ async function yahooLeg(a, b, opts) {
     // 位置で聞けば、Yahoo!がその近くの駅・バス停を探し、停留所までの
     // 徒歩・バス・電車・飛行機をつないで答えます。近くのバス停から
     // 乗る区間も、ここで初めて引けるようになります。
+    //
+    // 聞くのは**乗り場の位置**です。山頂の位置で聞いても、Yahoo!は
+    // 近くに駅を見つけられず、答えは返りません。ロープウェイが
+    // 架かっていれば山麓駅、無ければいちばん近い停留所で聞きます。
     const label = (p, fallback) => ({ ...p, name: String(p?.name ?? "").trim() || fallback });
+    const askFrom = accA.direct ? label(a, "出発地") : accA.at;
+    const askTo = accB.direct ? label(b, "目的地") : accB.at;
     spent++;
-    const near = await searchYahooTransit(label(a, "出発地"), label(b, "目的地"), ask);
+    const near = await searchYahooTransit(askFrom, askTo, ask);
     // 位置を受け付けない古い中継だと、名前だけで聞いた答えが返ります
     // （スポット名で聞いたもの）。それは使わず、下の停留所名で聞きます。
-    if (near?.routed && near.minutes > 0 && near.byLocation === true) {
+    if (near?.routed && near.minutes > 0 && near.byLocation === true
+        && plausibleRoute(near, askFrom, askTo)) {
       yahoo = near;
-      from = a;
-      to = b;
+      from = askFrom;
+      to = askTo;
       byLocation = true;
     }
 
@@ -853,7 +917,9 @@ async function yahooLeg(a, b, opts) {
         break;
       }
     }
-    if (!yahoo) return { spent, miss: true };
+    // ここまで来て引けなければ、Yahoo!が「経路なし」と答えています。
+    // 通信の不調ではないので、あとで聞き直しても同じです。
+    if (!yahoo) return { spent, miss: true, definitive: true };
 
     // **停留所までの徒歩を足します。**
     //
@@ -868,10 +934,20 @@ async function yahooLeg(a, b, opts) {
     //
     // 出発地そのものが駅なら（東京駅発など）、その端の徒歩は0です。
     // 位置で聞いたときは、Yahoo!の答えに停留所までの徒歩が入っています。
-    const walkA = byLocation || haversineKm(a, from) < NEAR_STOP_KM
-      ? 0 : estimateMinutes(a, from, { slow: isSlowTerrain(a) });
-    const walkB = byLocation || haversineKm(to, b) < NEAR_STOP_KM
-      ? 0 : estimateMinutes(to, b, { slow: isSlowTerrain(b) });
+    //
+    // 山頂の側は、乗り場から先（ロープウェイと山道）を足します。
+    const endWalk = (acc, spot, stop, side) => {
+      if (!acc.direct) {
+        // 乗り場の近くの別の停留所で聞いたなら、そこから乗り場まで歩きます。
+        const extra = byLocation || haversineKm(stop, acc.at) < NEAR_STOP_KM
+          ? 0 : walkMinutes(haversineKm(stop, acc.at));
+        return side.minutes + extra;
+      }
+      return byLocation || haversineKm(spot, stop) < NEAR_STOP_KM
+        ? 0 : estimateMinutes(spot, stop, { slow: isSlowTerrain(spot) });
+    };
+    const walkA = endWalk(accA, a, from, sideA);
+    const walkB = endWalk(accB, b, to, sideB);
     const total = walkA + yahoo.minutes + walkB;
 
     // 歩いたほうが早いなら、歩きます。
@@ -883,21 +959,31 @@ async function yahooLeg(a, b, opts) {
     // 比べる相手は**本当に歩いた時間**です。estimateLegRough は 1.5km を
     // 超えると時速22kmの乗り物として見るので、それと比べると、実際に
     // 調べた時刻を作り話の目安に負けさせることになります。
-    const straightKm = haversineKm(a, b);
-    const onFoot = walkMinutes(straightKm);
+    // 山へ上がる区間は、山道の速さで比べます（3kmの登りは47分では
+    // 歩けません）。
+    const onFoot = accA.mountain || accB.mountain
+      ? hikeMinutes(straightKm, true) : walkMinutes(straightKm);
     if (straightKm <= MAX_WALK_KM && onFoot <= total) {
       return { spent, minutes: onFoot, walk: true, routed: false,
                meters: Math.round(straightKm * 1000) };
     }
 
-    const steps = summarizeYahooRoute(yahoo.meta, { walkA, walkB });
+    // 手順は、Yahoo!の区間の前後に、山頂の側（ロープウェイ・山道）を
+    // つなぎます。乗り場までの徒歩は、山頂の側に入っています。
+    const steps = withAccessSteps(
+      summarizeYahooRoute(yahoo.meta, {
+        walkA: accA.direct ? walkA : walkA - sideA.minutes,
+        walkB: accB.direct ? walkB : walkB - sideB.minutes,
+      }),
+      sideA, sideB);
+    const ropeway = ropewayInfo(sideA, sideB);
     return {
       spent,
       minutes: total,
       rideMinutes: yahoo.rideMinutes ?? yahoo.minutes,
       waitMinutes: yahoo.waitMinutes ?? 0,
       walkA, walkB,
-      meters: Math.round(haversineKm(a, b) * 1000),
+      meters: Math.round(straightKm * 1000),
       // 画面に出す一行は、こちらで組み立てます。
       //
       // Yahoo!の要約をそのまま出すと、こうなります。
@@ -907,18 +993,19 @@ async function yahooLeg(a, b, opts) {
       //
       // 旅程の1行としては長すぎます。読む人が知りたいのは、何時に出て
       // 何時に着くか、乗り換えが何回か、いくらか、の3つです。
-      line: transitLine(yahoo, walkA + walkB, total)
-        ?? yahoo.summary ?? "Yahoo!路線情報",
+      line: [transitLine(yahoo, walkA + walkB, total) ?? yahoo.summary
+        ?? "Yahoo!路線情報", ...accessNotes(sideA, sideB)].join("・"),
       routed: true,
       searchedAt: yahoo.searchedAt ?? null,
       stations: byLocation
-        ? { from: steps?.boardAt ?? a.name ?? null,
-            to: steps?.alightAt ?? b.name ?? null, walkMeasured: true }
+        ? { from: steps?.boardAt ?? from.name ?? null,
+            to: steps?.alightAt ?? to.name ?? null, walkMeasured: true }
         : { from: from.name, to: to.name, walkMeasured: false },
       yahoo: yahoo.meta ?? null,
       // 乗る路線と乗り場の手順（どのバスに、どこから乗るのか）。
       // 旅程の行の「乗換の手順」で開けます。
       transit: steps ?? undefined,
+      ropeway,
       alternatives: yahoo.meta?.alternatives ?? [],
       // **何に乗る区間なのか。**
       //
@@ -936,8 +1023,207 @@ async function yahooLeg(a, b, opts) {
     };
   } catch (e) {
     usage.lastError = `Yahoo Transit: ${String(e?.message ?? e).slice(0, 200)}`;
-    return { spent: 0, miss: true };
+    // 断られた・つながらなかった。こちらは時間をおけば通ります。
+    return { spent, miss: true };
   }
+}
+
+/** これより近くに駅・バス停があれば、その場所の位置のまま Yahoo!に聞きます。 */
+const ACCESS_WALK_KM = 1;
+/**
+ * 山から山へ、これより近ければ登山道を歩く区間として扱い、聞きません。
+ * 尾根づたいの縦走（黒岳 → 北鎮岳 → 白雲岳）はこの内側です。
+ */
+const MOUNTAIN_TRAIL_KM = 8;
+
+/** 山頂・山のスポットか。カテゴリが無くても、名前で見ます（「◯◯岳」）。 */
+function mountainish(p) {
+  return isSlowTerrain(p)
+    || /(山|岳|嶽|峰|ヶ峰)$/.test(String(p?.name ?? "").trim());
+}
+
+/** 山道を歩く時間（分）。山は時速2.2km、街は時速4.2kmで見ます。 */
+function hikeMinutes(km, mountain) {
+  if (!(km > 0)) return 0;
+  return mountain ? Math.max(5, Math.round((km / 2.2) * 60)) : walkMinutes(km);
+}
+
+/** ロープウェイの乗り場の呼び名。「山麓駅」だけだと、どこの駅か分かりません。 */
+function ropewayStation(rw, end) {
+  const n = rw?.[end]?.name ?? "";
+  return /^(山麓駅|山頂駅)$/.test(n) ? `${rw.name} ${n}` : n;
+}
+
+/**
+ * Yahoo!に聞く端を決めます。
+ *
+ *   ・歩ける距離に駅・バス停がある … その場所の位置のまま聞きます
+ *   ・ロープウェイの山頂駅が近い     … 山麓駅で聞きます
+ *   ・どちらも無い                   … いちばん近い停留所で聞きます
+ *
+ * 片側にも停留所が無ければ null（公共交通では行けません）。
+ */
+async function accessFor(p) {
+  const mountain = mountainish(p);
+  // 山でなければ、その場所の位置で聞きます。Yahoo!は収録の停留所より
+  // 多くのバス停を知っていて（「滝見台」）、位置からそれを選べます。
+  if (!mountain || await nearestStop(p, ACCESS_WALK_KM)) {
+    return { at: p, direct: true, hikeKm: 0, mountain };
+  }
+  const rw = await ropewayNear(p);
+  if (rw) {
+    return { at: { name: ropewayStation(rw, "base"), lat: rw.base.lat, lng: rw.base.lng },
+             direct: false, ropeway: rw, hikeKm: rw.hikeKm, mountain };
+  }
+  const stop = (await nearbyStops(p, STOP_REACH_KM, 1))[0]
+    ?? (await nearbyStops(p, STOP_REACH_FAR_KM, 1))[0];
+  if (!stop) return null;
+  return { at: stop, direct: false, stop, hikeKm: haversineKm(p, stop), mountain };
+}
+
+/**
+ * 乗り場から先（または乗り場まで）の手順と時間。
+ *
+ * @param {boolean} leaving その場所を出る側か（山頂から下りる）
+ */
+function accessSide(acc, p, leaving) {
+  if (!acc || acc.direct) return { minutes: 0, segments: [] };
+  const hike = {
+    kind: "walk", minutes: hikeMinutes(acc.hikeKm, acc.mountain),
+    meters: Math.round(acc.hikeKm * 1000),
+    ...(acc.mountain ? { trail: true } : {}),
+  };
+  if (acc.ropeway) {
+    const rw = acc.ropeway;
+    const t = ropewayMinutes(rw);
+    const base = ropewayStation(rw, "base");
+    const top = ropewayStation(rw, "top");
+    const ride = {
+      kind: "ride", line: rw.name, short: null, agency: null,
+      vehicle: "ロープウェイ", vehicleKind: "ropeway", headsign: null,
+      // 乗る行には路線名が付くので、駅は短い名前のままにします
+      // （「山麓駅 → 山頂駅　大雪山層雲峡黒岳ロープウェイ（5分）」）。
+      from: leaving ? rw.top.name : rw.base.name,
+      to: leaving ? rw.base.name : rw.top.name, stops: null,
+      departAt: null, arriveAt: null, minutes: t.ride,
+      meters: Math.round((Number(rw.km) || 0) * 1000),
+    };
+    const wait = { kind: "wait", minutes: t.wait, at: leaving ? top : base };
+    return {
+      minutes: hike.minutes + t.total, hikeMinutes: hike.minutes,
+      ropewayMinutes: t.total, rideMinutes: t.ride, waitMinutes: t.wait,
+      segments: leaving ? [hike, wait, ride] : [wait, ride, hike],
+      ropeway: rw, leaving, hikeKm: acc.hikeKm, spot: p,
+    };
+  }
+  return {
+    minutes: hike.minutes, hikeMinutes: hike.minutes,
+    segments: [hike], stop: acc.stop, leaving, hikeKm: acc.hikeKm,
+    noRopeway: acc.mountain, spot: p,
+  };
+}
+
+/** 旅程の行に添える一言。ロープウェイがあるか、無いか。 */
+function accessNotes(sideA, sideB) {
+  const out = [];
+  for (const side of [sideA, sideB]) {
+    if (!side?.segments?.length) continue;
+    const km = (side.hikeKm ?? 0).toFixed(1);
+    const spot = side.spot?.name ?? (side.leaving ? "出発地" : "目的地");
+    if (side.ropeway) {
+      const rw = side.ropeway;
+      // 「大雪山層雲峡黒岳ロープウェイ（山麓駅→山頂駅）で上がり、
+      //  黒岳まで歩いて約2.2km」。どの駅で乗るのかを、先に書きます。
+      const route = side.leaving
+        ? `${rw.top.name}→${rw.base.name}` : `${rw.base.name}→${rw.top.name}`;
+      out.push(side.leaving
+        ? `${spot}から歩いて約${km}km、${rw.name}（${route}）で下ります`
+        : `${rw.name}（${route}）で上がり、${spot}まで歩いて約${km}km`);
+    } else if (side.noRopeway) {
+      out.push(`${spot}へ上がるロープウェイはありません。`
+        + `${side.stop?.name ?? "最寄りの停留所"}から登山道を約${km}km歩きます`);
+    }
+  }
+  return out;
+}
+
+/** 区間に乗るロープウェイ（画面の印と、試験のため）。 */
+function ropewayInfo(sideA, sideB) {
+  const list = [sideA, sideB].filter((s) => s?.ropeway).map((s) => ({
+    name: s.ropeway.name,
+    base: ropewayStation(s.ropeway, "base"),
+    top: ropewayStation(s.ropeway, "top"),
+    direction: s.leaving ? "down" : "up",
+    minutes: s.ropewayMinutes,
+  }));
+  const none = [sideA, sideB].filter((s) => s?.noRopeway)
+    .map((s) => s.spot?.name).filter(Boolean);
+  if (!list.length && !none.length) return undefined;
+  return { rides: list, none };
+}
+
+/** Yahoo!の手順の前後に、山頂の側の手順をつなぎます。 */
+function withAccessSteps(steps, sideA, sideB) {
+  if (!steps) return steps;
+  const pre = sideA?.segments ?? [];
+  const post = sideB?.segments ?? [];
+  if (!pre.length && !post.length) return steps;
+  const segments = [...pre, ...steps.segments, ...post];
+  const sum = (kind) => segments.filter((s) => s.kind === kind)
+    .reduce((t, s) => t + (s.minutes ?? 0), 0);
+  const rides = segments.filter((s) => s.kind === "ride");
+  return {
+    ...steps,
+    segments,
+    transfers: Math.max(0, rides.length - 1),
+    walkMinutes: sum("walk"),
+    rideMinutes: sum("ride"),
+    waitMinutes: sum("wait"),
+    headline: [sideA?.ropeway?.name, steps.headline, sideB?.ropeway?.name]
+      .filter(Boolean).join(" → "),
+  };
+}
+
+/** 山から山へ、登山道を歩く区間。聞きません。 */
+function trailLeg(a, b) {
+  const km = haversineKm(a, b);
+  const minutes = hikeMinutes(km, true);
+  const meters = Math.round(km * 1000);
+  return {
+    spent: 0, local: true, trail: true, walk: true, routed: false,
+    minutes, meters,
+    line: `登山道を歩きます（約${km.toFixed(1)}km）`,
+    transit: {
+      segments: [{ kind: "walk", minutes, meters, trail: true }],
+      // 行にはもう「登山道を歩きます」と書いてあるので、重ねません。
+      transfers: 0, walkMinutes: minutes, rideMinutes: 0, waitMinutes: 0,
+      headline: "",
+    },
+  };
+}
+
+/** 乗り場どうしが歩ける近さの区間。ロープウェイと徒歩だけで組みます。 */
+function localLeg(a, b, sideA, gapKm, sideB) {
+  const gap = gapKm > NEAR_STOP_KM
+    ? [{ kind: "walk", minutes: walkMinutes(gapKm), meters: Math.round(gapKm * 1000) }]
+    : [];
+  const segments = [...(sideA.segments ?? []), ...gap, ...(sideB.segments ?? [])];
+  const minutes = segments.reduce((t, s) => t + (s.minutes ?? 0), 0);
+  const sum = (kind) => segments.filter((s) => s.kind === kind)
+    .reduce((t, s) => t + (s.minutes ?? 0), 0);
+  const notes = accessNotes(sideA, sideB);
+  return {
+    spent: 0, local: true, walk: true, routed: false,
+    minutes, meters: Math.round(haversineKm(a, b) * 1000),
+    line: notes.length ? notes.join("・") : `徒歩約${minutes}分`,
+    transit: {
+      segments, transfers: Math.max(0, segments.filter((s) => s.kind === "ride").length - 1),
+      walkMinutes: sum("walk"), rideMinutes: sum("ride"), waitMinutes: sum("wait"),
+      // ロープウェイの名前は行に書いてあるので、重ねません。
+      headline: "",
+    },
+    ropeway: ropewayInfo(sideA, sideB),
+  };
 }
 
 /**
