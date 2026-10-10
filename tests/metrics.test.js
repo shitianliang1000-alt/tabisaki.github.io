@@ -15,8 +15,8 @@ import { DETAILS, EVENTS } from "../js/metrics.js";
 
 const PROXY = "https://proxy.example.workers.dev/";
 
-/** 集計に協力すると決めた人の端末。 */
-const optedIn = () => memStorage({ [METRICS_KEY]: "on" });
+/** 何も設定していない端末（既定は協力する）。 */
+const optedIn = () => memStorage();
 
 function memStorage(init = {}) {
   const m = new Map(Object.entries(init));
@@ -64,24 +64,33 @@ test("送らないとき：外した・GPC・DNT・中継なし・http", () => {
   }
 });
 
-test("設定は既定で「協力しない」、入れると覚える", () => {
+test("設定は既定で「協力する」、「協力しない」にチェックを入れたときだけ止める", () => {
   const s = memStorage();
-  assert.equal(metricsEnabled(s), false);
-  // 既定のままなら、中継があっても送りません。
-  const nav = fakeNav();
-  assert.equal(track("plan_ok", "car", { proxyUrl: PROXY, nav, storage: s }), false);
-  assert.equal(nav.sent.length, 0);
-  setMetricsEnabled(true, s);
   assert.equal(metricsEnabled(s), true);
+  const nav = fakeNav();
+  assert.equal(track("plan_ok", "car", { proxyUrl: PROXY, nav, storage: s }), true);
+  assert.equal(nav.sent.length, 1);
+  // チェックを入れた（止める）。
   setMetricsEnabled(false, s);
+  assert.equal(s.getItem(METRICS_KEY), "off");
   assert.equal(metricsEnabled(s), false);
+  assert.equal(track("plan_ok", "car", { proxyUrl: PROXY, nav, storage: s }), false);
+  assert.equal(nav.sent.length, 1);
+  // 外した（また数える）。
   setMetricsEnabled(true, s);
   assert.equal(metricsEnabled(s), true);
   // 保存できない環境でも止まりません。
   const broken = { getItem() { throw new Error("x"); }, setItem() { throw new Error("x"); } };
-  assert.equal(metricsEnabled(broken), false);
+  assert.equal(metricsEnabled(broken), true);
   setMetricsEnabled(false, broken);
   assert.equal(browserOptedOut({}), false);
+});
+
+test("前の版で保存した値の意味が、そのまま続く", () => {
+  // 前の版で「協力する」を入れた人（"on"）は、数え続ける。
+  assert.equal(metricsEnabled(memStorage({ [METRICS_KEY]: "on" })), true);
+  // 止めた人（"off"）は、止まったまま。
+  assert.equal(metricsEnabled(memStorage({ [METRICS_KEY]: "off" })), false);
 });
 
 test("圏外のあいだは貯めて、つながったら送る", () => {

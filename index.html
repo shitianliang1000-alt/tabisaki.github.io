@@ -704,6 +704,7 @@
            まとめています（ご指示で、画面には出典を並べずこのリンクだけを置きます）。
            後ろの地図（#bg-map）の OpenStreetMap の表示も、ここから辿れます。 -->
       <p><a href="credits.html">著作権表記</a></p>
+      <p class="ai-note">AIは間違えることがあります</p>
     </footer>
   </section>
 
@@ -836,15 +837,15 @@
   </ul>
 
   <!-- 使われかたの件数（js/metrics.js）。名前・入力・場所は送りません。
-       既定は切です。入れた人のぶんだけ数えます。 -->
-  <label class="switch-row" for="share-metrics">
+       既定は協力する（チェックなし）。チェックを入れたときだけ止めます。 -->
+  <label class="switch-row" for="optout-metrics">
     <span class="md-switch">
-      <input type="checkbox" id="share-metrics">
+      <input type="checkbox" id="optout-metrics">
       <span class="md-switch-track"></span>
     </span>
     <span class="switch-text">
-      <b>使われかたの集計に協力する</b>
-      <small>入れたときだけ、「旅程ができた」「組めなかった」などの件数を送ります。入力した文や場所、旅程は送りません。</small>
+      <b>使われかたの集計に協力しない</b>
+      <small>チェックを入れると、「旅程ができた」「組めなかった」などの件数を送りません。チェックが無いときも、入力した文や場所、旅程は送りません。</small>
     </span>
   </label>
 

@@ -664,10 +664,11 @@ function wireKeyPanel() {
     quota.reset();
     showQuota();
   });
-  const share = $("#share-metrics");
-  if (share) {
-    share.checked = metricsEnabled();
-    share.addEventListener("change", () => setMetricsEnabled(share.checked));
+  // チェックは「協力しない」です。入れたときだけ数えるのをやめます。
+  const optOut = $("#optout-metrics");
+  if (optOut) {
+    optOut.checked = !metricsEnabled();
+    optOut.addEventListener("change", () => setMetricsEnabled(!optOut.checked));
   }
   fill();
   refresh();
