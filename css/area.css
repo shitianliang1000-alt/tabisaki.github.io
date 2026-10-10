@@ -92,3 +92,24 @@ section {
 @media (max-width: 480px) {
   section { padding: 16px; }
 }
+
+/* 著作権・出典のページ（credits.html）。同じ読み物の体裁を使います。 */
+.toc ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.toc a { display: inline-flex; align-items: center; min-height: 44px; }
+.src { margin: 0; }
+.src dt {
+  font-weight: 700; padding-top: 16px; margin-top: 16px;
+  border-top: 1px solid var(--hig-separator);
+}
+.src dt:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+.src dd { margin: 4px 0 0; }
+.src dd p { margin: 4px 0; overflow-wrap: anywhere; }
+.src dd ul { margin: 4px 0; padding-left: 1.25em; }
+.src .terms { font-size: var(--hig-t-footnote); color: var(--hig-label-2); }
+.src details { margin-top: 8px; }
+.src summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--md-sys-color-primary); }
+.license {
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  font-size: var(--hig-t-caption1); line-height: 1.5;
+  background: var(--hig-fill); padding: 12px; border-radius: 12px; margin: 8px 0 0;
+}

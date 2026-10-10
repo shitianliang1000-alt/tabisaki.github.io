@@ -1696,6 +1696,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 /* 旅程のカードの写真。届くまでは高さ0で、届いたら開きます
    （js/ui.js の spotPhoto）。取れなかったカードに空の枠は残しません。 */
 .card-photo-band {
+  position: relative;
   height: 0; overflow: hidden;
   transition: height var(--md-sys-motion-medium, 300ms) var(--md-sys-motion-standard, ease);
 }
@@ -1708,6 +1709,19 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 @media (max-width: 860px) {
   .card-photo-band.on, .card-photo-band img { height: 120px; }
 }
+
+/* 写真の出典（撮った人とライセンスが書いてある説明ページへ）。
+   写真の明暗に関係なく読めるよう、濃い地に白い字で置きます。 */
+.photo-credit {
+  position: absolute; right: 6px; bottom: 6px; z-index: 2;
+  padding: 1px 6px; border-radius: 6px;
+  font-size: var(--hig-t-caption2, 11px); line-height: 1.6;
+  color: #fff; background: rgba(0, 0, 0, .72);
+  text-decoration: none;
+}
+.photo-credit:focus-visible { text-decoration: underline; }
+@media (hover: hover) { .photo-credit:hover { text-decoration: underline; } }
+.md-sheet .sheet-art .photo-credit { right: auto; bottom: auto; left: 12px; top: 12px; }
 
 /* 立ち寄りの補足を畳んだもの（js/ui.js の renderItem）。 */
 .spot-more { margin-top: 10px; }

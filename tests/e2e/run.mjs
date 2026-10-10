@@ -405,6 +405,15 @@ await check("写真が届いた立ち寄りは、カードに写真が載る", a
   assert(h >= 100, `写真の帯が低すぎます: ${h}px`);
 });
 
+await check("載せた写真には、出典（説明ページ）へのリンクが付く", async () => {
+  // Wikimedia の写真は、撮った人とライセンスの表示が条件です。
+  const band = await page.$(".card-photo-band.on");
+  if (!band) return;
+  const href = await band.$eval("a.photo-credit", (a) => a.href).catch(() => "");
+  assert(href === "https://commons.wikimedia.org/wiki/File:T.png",
+    `写真の出典のリンクがありません: ${href || "なし"}`);
+});
+
 await check("写真が無いカードに、空の枠が残らない", async () => {
   const empty = await page.$$eval(".card-photo-band:not(.on)",
     (els) => els.map((e) => e.getBoundingClientRect().height));
