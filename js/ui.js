@@ -1121,6 +1121,15 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
     el("button", { type: "button", class: "md-btn md-btn--outlined md-state",
                    onClick: () => window.print() },
       el("span", {}, "印刷 / PDFで保存")),
+    // **いま画面に出ているとおりの旅程**を、リンクで渡します
+    // （js/snapshot.js）。受け取った人の画面にも同じ時刻・同じ場所が
+    // 出ます。条件のリンクは、受け取った側で組み直すので別の旅程になります。
+    handlers.onShareTrip
+      ? el("button", { type: "button",
+                       class: "md-btn md-btn--tonal md-state share-trip",
+                       onClick: handlers.onShareTrip },
+          el("span", {}, "この旅程のリンクを共有"))
+      : null,
     handlers.onShare
       ? el("button", { type: "button", class: "md-btn md-btn--outlined md-state",
                        onClick: handlers.onShare },
@@ -2361,7 +2370,10 @@ export function openSheet(item, { onClose, describe }) {
   body.append(el("div", { class: "card" },
     row("目安の滞在時間", fmtDuration(prof.dwell)),
     row(day.closed ? "この日は" : "見学できる時間", hours),
-    row("入場料", prof.fee === 0 ? "無料" : `¥${prof.fee.toLocaleString()}`)));
+    row("入場料", prof.fee === 0 ? "無料" : `¥${prof.fee.toLocaleString()}`),
+    // いつの情報か。出どころ（下の印）と鮮度は別のことなので、並べて出します。
+    // 収録の日付は「取り込んだ日」です（js/kb.js の FETCHED_ON）。
+    row("情報の日付", freshnessOf(spot.fetchedAt).text)));
 
   // 情報の出どころ。営業時間と料金で違うことがあるので、分けて出します。
   body.append(el("div", { class: "links", style: "margin-top:12px" },

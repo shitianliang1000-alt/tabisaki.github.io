@@ -51,6 +51,7 @@ import { armNotices, askNotifyPermission, scheduleNotices }
 import { requeryNextLeg } from "./nextleg.js";
 import { searchYahooTransit } from "./yahoo-transit.js";
 import { yahooFlags } from "./modes.js";
+import { tripCodeFrom, tripLink, unpackTrip } from "./snapshot.js";
 import { addHistory, clearHistory, freezeItinerary, loadHistory, removeHistory,
          replaceHistory, savedLabel, thawItinerary } from "./history.js";
 import { applyTypeScale, initTypeScale, saveTypeScale } from "./typescale.js";
@@ -177,6 +178,41 @@ async function boot() {
       "知識ベースを読み込めませんでした。web/ をサーバ経由で開いているか、"
       + "kb/ フォルダが同じ場所にあるかをご確認ください。";
   }
+  // 旅程のリンク（#t=…）から来たときは、その旅程をそのまま開きます。
+  // 収録が読めなくても開けます（旅程の中に、要るものは入っています）。
+  await openSharedTrip();
+}
+
+/**
+ * 送られてきた旅程のリンクを開きます（js/snapshot.js）。
+ *
+ * **組み直しません。** 送った人が見ていたのと同じ時刻・同じ場所を
+ * 出すのが、このリンクの役目です。開いた旅程は、受け取った人の
+ * 「前につくった旅」にも残ります（当日、圏外でも開けるように）。
+ */
+async function openSharedTrip() {
+  const code = tripCodeFrom(location.hash);
+  if (!code) return;
+  // 開いたら、アドレス欄からは外します。残すと、条件を変えて組み直した
+  // あとに再読み込みしたとき、送られてきた旅程に戻ってしまいます。
+  try {
+    history.replaceState(null, "", location.pathname + location.search);
+  } catch { /* 外せなくても、開くのには困りません */ }
+  const out = await unpackTrip(code);
+  if (!out.ok) { showError(out.error); return; }
+  const t = out.trip;
+  if (t.state) applyFormState(t.state);
+  const itin = thawItinerary(t.itin);
+  const trip = thawItinerary(t.trip ?? null) ?? state.trip;
+  if (!trip?.departAt) { showError("旅程のリンクを読めませんでした（出発の日時がありません）。"); return; }
+  itin.savedAt = t.savedAt;
+  itin.sharedLink = true;
+  state.trip = trip;
+  showView("result");
+  $("#placeholder").hidden = true;
+  show(itin, trip);
+  setBadge("送られてきた旅程を開きました");
+  setTimeout(() => setBadge(kbBadgeText()), 3600);
 }
 
 /**
@@ -1699,6 +1735,47 @@ async function importTripFile(file) {
   setTimeout(() => setBadge(kbBadgeText()), 3600);
 }
 
+/**
+ * いま画面に出ている旅程を、リンクにして渡します（js/snapshot.js）。
+ *
+ * 条件のリンクと違って、受け取った人の画面にも**同じ旅程**が出ます。
+ * 旅程はリンクの # の後ろに入っていて、どこにも預けません。
+ * 長すぎてリンクにできないときは、ファイルで渡す方法を案内します。
+ */
+async function shareTripLink(itin, trip) {
+  let url = null;
+  try {
+    url = await tripLink({
+      title: itin?.title ?? "旅",
+      savedAt: Date.now(),
+      state: formState(),
+      trip: freezeItinerary(trip ?? null),
+      itin: freezeItinerary(itin ?? null),
+    }, `${location.origin}${location.pathname}`);
+  } catch { url = null; }
+  if (!url) {
+    setBadge("旅程が長すぎてリンクにできません。「この旅程をファイルで渡す」をお使いください");
+    setTimeout(() => setBadge(kbBadgeText()), 5000);
+    return;
+  }
+  const title = `旅さき — ${itin?.title ?? "旅程"}`;
+  if (navigator.share && (!navigator.canShare || navigator.canShare({ url }))) {
+    try {
+      await navigator.share({ title, url });
+      return;
+    } catch (e) {
+      if (e?.name === "AbortError") return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    setBadge("旅程のリンクをコピーしました");
+    setTimeout(() => setBadge(kbBadgeText()), 2600);
+  } catch {
+    globalThis.prompt?.("このURLを共有してください", url);
+  }
+}
+
 async function shareConditions() {
   const packed = pack(JSON.stringify(formState()));
   const url = `${location.origin}${location.pathname}?p=${packed}`;
@@ -2181,6 +2258,12 @@ async function run(override) {
   const progress = $("#progress");
   // 前回の札を残さない。残すと、経過時間が前回の開始から数え続けます。
   progress.textContent = "";
+  // 途中でやめられるようにします。前のぶんがまだ走っていれば、止めます
+  // （言葉で直す・組み直すは、組み立て中にも押せます）。
+  state.planAbort?.abort();
+  const ctrl = new AbortController();
+  state.planAbort = ctrl;
+  const { signal } = ctrl;
   const fab = $("#make-plan");
   fab.disabled = true;
   fab.querySelector(".fab-tx").textContent = "組み立てています…";
@@ -2195,15 +2278,30 @@ async function run(override) {
         trip, stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
         tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
       });
-      state.kb = await state.kbPromise;
+      addCancel(progress, ctrl);
+      state.kb = await untilAborted(state.kbPromise, signal);
     }
     if (!state.kb) throw new Error("データを読み込めていません。");
     resetRoutesBreaker();
-    const itin = await buildPlans(trip, progress);
+    const itin = await buildPlans(trip, progress, ctrl);
+    signal.throwIfAborted();
     showRoutesUsage();
     show(itin, trip);
     count("plan_ok", trip.transport);
   } catch (e) {
+    if (signal.aborted) {
+      // やめたのは失敗ではありません。理由も出さず、条件の画面へ戻します。
+      // （次の組み立てがもう始まっているなら、画面はそちらに任せます。）
+      if (state.planAbort === ctrl || state.planAbort === null) {
+        progress.textContent = "";
+        $("#progress").hidden = true;
+        $("#placeholder").hidden = false;
+        showView("form");
+        setBadge("組み立てをやめました");
+        setTimeout(() => setBadge(kbBadgeText()), 2600);
+      }
+      return;
+    }
     count("plan_error", failureKind(e));
     $("#progress").hidden = true;
     $("#placeholder").hidden = false;
@@ -2212,9 +2310,53 @@ async function run(override) {
     showView("form");
     showError(e.message ?? String(e), e.suggestions ?? []);
   } finally {
-    fab.disabled = false;
-    fab.querySelector(".fab-tx").textContent = "旅程をつくる";
+    // あとから始まった組み立てがあれば、ボタンはそちらのものです。
+    if (state.planAbort === ctrl || state.planAbort === null) {
+      state.planAbort = null;
+      fab.disabled = false;
+      fab.querySelector(".fab-tx").textContent = "旅程をつくる";
+    }
   }
+}
+
+/**
+ * 組み立て中の札に「やめる」を置きます。
+ *
+ * 条件によっては作り直しが4回まで続き、待ちが数分になります。途中で
+ * 条件を変えたくなっても、これまでは終わるまで待つしかなく、その間も
+ * AIと経路への問い合わせが裏で走り続けていました。押せば、走っている
+ * 通信も含めて止めます（AbortController を pipeline の下まで渡しています）。
+ *
+ * 札は js/ui.js の renderProgress が作り直すことがあるので、描くたびに
+ * 置き直します（すでにあれば何もしません）。
+ */
+function addCancel(progress, ctrl) {
+  const card = progress.querySelector(".plan-card");
+  if (!card || card.querySelector(".plan-cancel")) return;
+  const btn = el("button", {
+    type: "button", class: "md-btn md-btn--outlined md-state plan-cancel",
+    onclick: () => {
+      btn.disabled = true;
+      btn.querySelector("span").textContent = "やめています…";
+      ctrl.abort();
+    },
+  }, el("span", {}, "やめる"));
+  card.append(btn);
+}
+
+/**
+ * 待っている約束を、やめると言われた時点で手放します。
+ * 約束そのもの（収録の読み込みなど）は止めません。次に使うからです。
+ */
+function untilAborted(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const stop = () => reject(signal.reason);
+    signal.addEventListener("abort", stop, { once: true });
+    Promise.resolve(promise).then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", stop));
+  });
 }
 
 /**
@@ -2229,18 +2371,22 @@ async function run(override) {
  * さらに、案を比べるあいだは **経路も天気も取りません**。
  * 採用が決まった案にだけ、実際の経路と天気を取りにいきます。
  */
-async function buildPlans(trip, progress) {
+async function buildPlans(trip, progress, ctrl) {
+  const signal = ctrl?.signal;
   // 絵に渡す材料。段が進むたびに、読み込まれた収録（星）と候補を
   // 渡します。pipeline が候補と決まった順を extra に乗せてきます。
   // 星は「取りに行く関数」で渡します。収録は県ごとに遅れて読まれる
   // ので、写しを渡すと読み込みが終わる前の空のままになります。
-  const onProgress = (step, note, extra) => renderProgress(progress, step, note, {
-    trip,
-    stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
-    // 待っているあいだの絵に、地の形を敷きます（js/sketch.js）。
-    tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
-    ...(extra ?? {}),
-  });
+  const onProgress = (step, note, extra) => {
+    renderProgress(progress, step, note, {
+      trip,
+      stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+      // 待っているあいだの絵に、地の形を敷きます（js/sketch.js）。
+      tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
+      ...(extra ?? {}),
+    });
+    if (ctrl) addCancel(progress, ctrl);
+  };
   const variants = tripsFor(trip);
 
   // 1案目。ここで希望文の読み取りと検索用ベクトルが決まります。
@@ -2250,7 +2396,7 @@ async function buildPlans(trip, progress) {
     trip: variants[0].trip, kb: state.kb,
     ignoreAreas: state.clearArea,
     mustRegionIds: pinnedRegionIds(),
-    useRoutes: false, useWeather: false, onProgress,
+    useRoutes: false, useWeather: false, onProgress, signal,
   });
 
   // 残りの案は、読み取りを使い回して作ります。
@@ -2268,11 +2414,13 @@ async function buildPlans(trip, progress) {
         mustRegionIds: pinnedRegionIds(),
         useRoutes: false, useWeather: false,
         query: first.query, vector: first.vector,
-        avoidRegionIds: used,
+        avoidRegionIds: used, signal,
       });
       if (first.spread) used.push(...(itin.regionIds ?? []));
       rest.push({ key: v.key, trip: v.trip, itin });
     } catch {
+      // やめると言われたなら、残りの案は作りません。
+      signal?.throwIfAborted();
       // 成立しない案は、並べません（「作れませんでした」を3つ並べても
       // 選びようがありません）
     }
@@ -2286,7 +2434,7 @@ async function buildPlans(trip, progress) {
   state.recommendKey = best.key;
   state.recommendWhy = best.reason ?? "";
 
-  return finishPlan(best.key, onProgress);
+  return finishPlan(best.key, onProgress, signal);
 }
 
 /**
@@ -2309,7 +2457,7 @@ function pinnedRegionIds() {
  * 採用した案だけ、実際の経路と天気を取って仕上げます。
  * ここが唯一の課金対象です。
  */
-async function finishPlan(key, onProgress) {
+async function finishPlan(key, onProgress, signal) {
   const chosen = (state.plans ?? []).find((p) => p.key === key);
   if (!chosen) throw new Error("その案が見つかりません");
 
@@ -2319,7 +2467,7 @@ async function finishPlan(key, onProgress) {
     ignoreAreas: state.clearArea,
     mustRegionIds: pinnedRegionIds(),
     query: chosen.itin.query, vector: chosen.itin.vector,
-    onProgress,
+    onProgress, signal,
   });
 
   // 案の一覧（カードに出すぶんだけ）
@@ -2385,22 +2533,33 @@ async function switchVariant(key) {
   $("#result").hidden = true;
   $("#progress").hidden = false;
   progress.textContent = "";
+  state.planAbort?.abort();
+  const ctrl = new AbortController();
+  state.planAbort = ctrl;
   try {
     const itin = await finishPlan(key,
-      (step, note, extra) => renderProgress(progress, step, note, {
-        trip: state.chosenTrip ?? state.trip,
-        stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
-        tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
-        ...(extra ?? {}),
-      }));
+      (step, note, extra) => {
+        renderProgress(progress, step, note, {
+          trip: state.chosenTrip ?? state.trip,
+          stars: () => state.kb?.spots?.slice(-MAX_SKETCH_STARS) ?? [],
+          tileUrl: TILE_URL, attribution: TILE_ATTRIBUTION,
+          ...(extra ?? {}),
+        });
+        addCancel(progress, ctrl);
+      }, ctrl.signal);
+    ctrl.signal.throwIfAborted();
     showRoutesUsage();
     state.trip = state.chosenTrip;
     syncFormTo(state.chosenTrip);
     show(itin, state.chosenTrip);
   } catch (e) {
+    progress.textContent = "";
     $("#progress").hidden = true;
     $("#result").hidden = false;
-    showError(e.message ?? String(e));
+    // やめたときは、選び直す前の旅程に戻すだけです。
+    if (!ctrl.signal.aborted) showError(e.message ?? String(e));
+  } finally {
+    if (state.planAbort === ctrl) state.planAbort = null;
   }
 }
 
@@ -2603,6 +2762,7 @@ function show(itin, trip) {
       $("#placeholder").hidden = false;
     },
     onShare: () => shareConditions(trip),
+    onShareTrip: () => shareTripLink(itin, trip),
     onExport: () => exportTrip(itin, trip),
     onDay: (index) => state.map.showDay(index),
     onHover: (item, on) => state.map.highlight(item.spotId, on),

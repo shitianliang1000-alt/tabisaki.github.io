@@ -550,6 +550,53 @@ await check("旅程を文字にして渡せる", async () => {
   assert(/\d{1,2}:\d{2} /.test(text), `時刻の行がありません: ${text.slice(0, 80)}`);
 });
 
+// 旅程そのもののリンク（js/snapshot.js）。
+//
+// 条件のリンクは、受け取った側で組み直すので別の旅程になります。
+// こちらは、送った人が見ていたのと同じ時刻・同じ場所が出ること。
+await check("旅程のリンクを開くと、同じ旅程が出る", async () => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  const mine = await page.evaluate(() => ({
+    title: document.querySelector(".itin-head h2")?.textContent.trim(),
+    times: [...document.querySelectorAll(".tl .time")].slice(0, 6)
+      .map((e) => e.textContent.trim()).join(" "),
+  }));
+  await page.click(".actions .share-trip");
+  await page.waitForTimeout(500);
+  const url = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
+  assert(url.includes("#t="), `旅程のリンクになっていません: ${url.slice(0, 80)}`);
+  // 受け取った人の端末（履歴も条件も空）で開きます。
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 },
+                                         serviceWorkers: "block" });
+  const other = await ctx.newPage();
+  const errs = [];
+  other.on("pageerror", (e) => errs.push(e.message));
+  if (process.env.E2E_OFFLINE) {
+    const origin = new URL(BASE).origin;
+    await other.route((u) => u.origin !== origin,
+      (route) => route.abort("connectionrefused"));
+  }
+  try {
+    await other.goto(url, { waitUntil: "domcontentloaded" });
+    await other.waitForSelector("#result:not([hidden])", { timeout: 60_000 });
+    const theirs = await other.evaluate(() => ({
+      title: document.querySelector(".itin-head h2")?.textContent.trim(),
+      times: [...document.querySelectorAll(".tl .time")].slice(0, 6)
+        .map((e) => e.textContent.trim()).join(" "),
+      hash: location.hash,
+    }));
+    assert(theirs.title === mine.title,
+      `旅先が違います: ${mine.title} → ${theirs.title}`);
+    assert(theirs.times === mine.times,
+      `時刻が違います: ${mine.times} → ${theirs.times}`);
+    // 開いたら、アドレス欄からは外します（再読み込みで戻らないように）。
+    assert(!theirs.hash.includes("t="), "開いたあとも # に旅程が残っています");
+    assert(errs.length === 0, `例外: ${errs.join(" / ")}`);
+  } finally {
+    await ctx.close();
+  }
+});
+
 await check("詳しい分析は、畳まれている", async () => {
   const more = await page.$(".more");
   if (!more) return;   // 詳細が1件も無い旅程なら、それでよい
@@ -771,6 +818,67 @@ await check("電波が無くても開ける（Service Worker）", async () => {
     return rs.map((r) => r.scope).join(",");
   });
   assert(scope.length > 0, "登録はされたのに、担当範囲がありません");
+});
+
+// 地図の部品は、自分のところから配ります（vendor/）。unpkg から読んで
+// いた頃は、圏外で開くと保存した旅程の地図が出ませんでした。
+await check("地図の部品が、圏外でも読める場所にある", async () => {
+  const got = await page.evaluate(async () => ({
+    L: typeof window.L?.map === "function",
+    srcs: [...document.scripts].map((s) => s.getAttribute("src") ?? "")
+      .filter((s) => /leaflet/.test(s)),
+    cached: Boolean(await caches.match("vendor/leaflet.js")
+      ?? await caches.match(new URL("vendor/leaflet.js", location.href).href)),
+  }));
+  assert(got.L, "Leaflet が読めていません");
+  assert(got.srcs.every((s) => s.startsWith("vendor/")),
+    `外から読んでいます: ${got.srcs.join(" ")}`);
+  assert(got.cached, "Service Worker が vendor/leaflet.js を先に入れていません");
+});
+
+// 組み立てを途中でやめる。
+//
+// 条件によっては作り直しが4回続き、数分待つことがあります。やめても、
+// 条件の画面に戻ってすぐ組み直せること。
+await check("組み立てを途中でやめられる", async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 },
+                                         serviceWorkers: "block" });
+  const pg = await ctx.newPage();
+  const errs = [];
+  pg.on("pageerror", (e) => errs.push(e.message));
+  if (process.env.E2E_OFFLINE) {
+    const origin = new URL(BASE).origin;
+    await pg.route((u) => u.origin !== origin,
+      (route) => route.abort("connectionrefused"));
+  }
+  // 収録の読み込みを遅らせて、やめるを押す間を作ります。
+  await pg.route(/\/kb\/spots-/, async (route) => {
+    await new Promise((r) => setTimeout(r, 4000));
+    await route.continue().catch(() => {});
+  });
+  try {
+    await pg.goto(`${BASE}/index.html`, { waitUntil: "domcontentloaded" });
+    await until(pg, () => !document.getElementById("make-plan").disabled);
+    await pg.click('[data-example^="温泉でゆっくり"]');
+    await pg.click("#make-plan");
+    await pg.waitForSelector(".plan-card .plan-cancel", { timeout: 20_000 });
+    await pg.click(".plan-card .plan-cancel");
+    await until(pg, () => document.getElementById("progress").hidden,
+                { timeout: 10_000 });
+    const after = await pg.evaluate(() => ({
+      result: !document.getElementById("result").hidden,
+      fab: document.getElementById("make-plan").disabled,
+    }));
+    assert(!after.result, "やめたのに旅程が出ています");
+    assert(!after.fab, "やめたあと、旅程をつくるボタンが押せません");
+    // しばらく待っても、裏で組み上がって出てこないこと。
+    await pg.waitForTimeout(6000);
+    const late = await pg.evaluate(() => !document.getElementById("result").hidden);
+    assert(!late, "やめたあとで、旅程が出てきました");
+    assert(errs.length === 0, `例外: ${errs.join(" / ")}`);
+  } finally {
+    await ctx.close();
+  }
 });
 
 // --- 車の旅 ---------------------------------------------------------------
@@ -1092,6 +1200,9 @@ await check("字を大きくすると、実際に大きくなる", async () => {
             const cr = c.getBoundingClientRect();
             return cr.right > W + 1 || cr.left < -1;
           })) continue;
+          // 地図のタイルは、地図の枠の外まで敷いてあって当然です
+          // （枠が切り取ります。ページは横に広がりません）。
+          if (e.closest(".leaflet-container")) continue;
           // 横に流す入れもの（中身が溢れて当然のもの）は除きます。
           let sc = e.parentElement;
           let inScroller = false;

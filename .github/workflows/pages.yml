@@ -39,7 +39,7 @@ jobs:
              robots.txt sitemap.xml sw.js dist/
           # admin/ は入れません。認証が無く、置けば誰でも開けます。
           # 管理画面は Worker が合言葉つきで配ります（server/admin.js）。
-          cp -r css js kb dist/
+          cp -r css js kb vendor dist/
           # エリア別のページ（areas/）と、それを含めた sitemap.xml。
           # 収録から毎回作るので、リポジトリには入れていません。
           node tools/build_area_pages.mjs dist

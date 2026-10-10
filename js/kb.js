@@ -87,6 +87,49 @@ function absorbInto(keep, gone) {
   }
 }
 
+/**
+ * 出どころごとの、取り込んだ日。
+ *
+ * 収録の1件1件には「いつ確かめたか」が書いてありません。けれど、
+ * **いつ、どこから取り込んだか**は分かっています（git の履歴に残っている
+ * 取り込みの日です）。それを 1件ずつの fetchedAt として渡せば、
+ * js/confidence.js が「◯か月前に取得」と言えるようになります。
+ *
+ * ここに書くのは取り込んだ日であって、現地で確かめた日ではありません。
+ * それより新しい日付を作らないこと。データの側に fetchedAt があれば、
+ * そちらを優先します（取り込み直したときに書き込めば、それが勝ちます）。
+ *
+ * 手で入れたもの（src も dataSource も無いもの）は、いつ確かめたかが
+ * 分からないので空けておきます。画面には「確認日は不明です」と出ます。
+ */
+export const FETCHED_ON = {
+  kokudo: "2026-09-05",
+  opendata: "2026-09-07",
+  wikidata: "2026-09-10",
+  wikipedia: "2026-09-22",
+  "wikipedia-tourlist": "2026-09-30",
+  "osm-tourlist": "2026-09-30",
+  "overture-tourlist": "2026-09-30",
+  "tourlist-geocoded": "2026-10-09",
+};
+/** シャード単位で出どころが書かれているもの（dataSource）。 */
+const FETCHED_ON_DATASOURCE = [
+  [/P27/, "2026-09-05"],
+];
+
+/** その収録を取り込んだ日（ミリ秒）。分からなければ undefined。 */
+export function fetchedAtOf(spot) {
+  if (Number.isFinite(spot?.fetchedAt)) return spot.fetchedAt;
+  let day = spot?.src ? FETCHED_ON[spot.src] : undefined;
+  if (!day && spot?.dataSource) {
+    day = FETCHED_ON_DATASOURCE.find(([re]) => re.test(spot.dataSource))?.[1];
+  }
+  if (!day) return undefined;
+  // 日本の日付として読みます。UTC で読むと、前の日に見えることがあります。
+  const ms = Date.parse(`${day}T00:00:00+09:00`);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
 function hydrate(spot, region) {
   spot.region ??= region?.name ?? "";
   spot.prefecture ??= region?.prefecture ?? "";
@@ -96,6 +139,8 @@ function hydrate(spot, region) {
   describeIfAddress(spot);
   spot.wikipedia ??= spot.name;
   spot.fame_score ??= FAME_SCORE[spot.fame_tier] ?? 50;
+  const at = fetchedAtOf(spot);
+  if (at !== undefined) spot.fetchedAt = at;
   if (spot.src) {
     // 外部データは営業時間も料金も持っていません。確認済みとは区別します。
     spot.source ??= "external";
