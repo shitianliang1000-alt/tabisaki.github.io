@@ -126,6 +126,7 @@ const SHELL_FILES = [
   "./js/planner.js",
   "./js/quota.js",
   "./js/relax.js",
+  "./js/reach.js",
   "./js/reliability.js",
   "./js/replan.js",
   "./js/romaji.js",

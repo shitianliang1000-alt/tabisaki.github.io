@@ -20,8 +20,12 @@ const EXE = process.env.CHROME
 let failures = 0;
 const results = [];
 
+/** いま確かめている項目の名前（ページの例外に添えます）。 */
+let current = "（最初の読み込み）";
+
 /** 1つ確かめる。落ちても続けます（どこまで壊れているかを知りたいので）。 */
 async function check(name, fn) {
+  current = name;
   try {
     await fn();
     results.push(`  ok   ${name}`);
@@ -95,7 +99,10 @@ await page.addInitScript(() => {
 
 // ページ側の例外は、そのままこちらの失敗にします。
 const pageErrors = [];
-page.on("pageerror", (e) => pageErrors.push(e.message));
+// どの確認の最中に出たかと、呼び出し元も残します。地図の例外のように
+// 遅れて出るものは、名前だけでは出どころが分かりません。
+page.on("pageerror", (e) => pageErrors.push(
+  `${e.message}（${current} の最中）\n${(e.stack ?? "").split("\n").slice(1, 6).join("\n")}`));
 
 // 外へ出られない環境（CI のサンドボックスなど）では、外の相手を
 // 待たずに切ります。相手が黙って応えないと、切断まで1件ごとに数十秒
@@ -642,6 +649,47 @@ await check("旅程のリンクを開くと、同じ旅程が出る", async () =
   } finally {
     await ctx.close();
   }
+});
+
+// エリアのページ（areas/）のモデルコースから来たとき。
+//
+// 収録は県ごとに遅れて読むので、開いた直後は鎌倉の場所をまだ持って
+// いません。県を先に読んでから「必ず行く」に入れること。前の旅の
+// 「必ず行く」は残さないこと。
+async function pinnedOn(url) {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 },
+                                         serviceWorkers: "block" });
+  const pg = await ctx.newPage();
+  const errs = [];
+  pg.on("pageerror", (e) => errs.push(e.message));
+  try {
+    await pg.goto(`${BASE}/${url}`, { waitUntil: "domcontentloaded" });
+    await until(pg, () => document.querySelectorAll("#pinned .pin-chip").length > 0,
+               { timeout: 30_000 }).catch(() => {});
+    const got = await pg.evaluate(() => ({
+      pins: [...document.querySelectorAll("#pinned .pin-chip")]
+        .map((e) => e.firstChild.textContent.trim()),
+      note: document.querySelector("#note").value,
+    }));
+    assert(errs.length === 0, `例外: ${errs.join(" / ")}`);
+    return got;
+  } finally {
+    await ctx.close();
+  }
+}
+
+await check("モデルコースから開くと、コースの場所が「必ず行く」に入る", async () => {
+  const got = await pinnedOn("index.html?q=%E9%8E%8C%E5%80%89%E3%82%921%E6%97%A5%E3%81%A7%E3%82%81%E3%81%90%E3%82%8B"
+    + "&pin=kamakura-3%2Ckamakura-5&area=kamakura");
+  assert(got.note === "鎌倉を1日でめぐる", `欄に入っていません: ${got.note}`);
+  assert(got.pins.length === 2, `必ず行くが ${got.pins.length} か所です: ${got.pins.join("、")}`);
+});
+
+await check("条件のリンクの「必ず行く」は、まだ読んでいない県でも戻る", async () => {
+  const state = { note: "鎌倉で寺めぐり", pinned: ["kamakura-3"], pinR: ["kamakura"] };
+  const packed = Buffer.from(JSON.stringify(state)).toString("base64url");
+  const got = await pinnedOn(`index.html?p=${packed}`);
+  assert(got.pins.length === 1, `必ず行くが ${got.pins.length} か所です`);
 });
 
 await check("詳しい分析は、畳まれている", async () => {
@@ -1743,7 +1791,10 @@ await check("エリアのページから来ると、旅の希望が欄に入っ�
   const text = "箱根で温泉と美術館をめぐる日帰り";
   await page.goto(`${BASE}/index.html?q=${encodeURIComponent(text)}`,
     { waitUntil: "domcontentloaded" });
-  await until(page, () => !document.getElementById("make-plan").disabled);
+  // 「旅程をつくる」は読み込みの前から押せる形で置いてあるので、
+  // 押せるかどうかでは、条件を戻し終えたかは分かりません。収録を読み、
+  // 条件を戻したあとに出る件数（#key-kb）を待ちます。
+  await until(page, () => document.getElementById("key-kb")?.textContent !== "");
   const got = await page.$eval("#note", (e) => e.value);
   assert(got === text, `欄に入っていません: ${got}`);
   const started = await page.$eval("#progress", (e) => !e.hidden);

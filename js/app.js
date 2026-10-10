@@ -13,7 +13,7 @@ import { callModel, canGround, describeSpot, diagnoseGeminiKey, hasApiKey }
   from "./ai.js";
 import { proxyStatus } from "./endpoints.js";
 import { discoverArea } from "./discover.js";
-import { loadKnowledgeBase, loadRegionIndex, mergeIntoKb, stagedKb }
+import { ensureRegions, loadKnowledgeBase, loadRegionIndex, mergeIntoKb, stagedKb }
   from "./kb.js";
 
 import { clearRouteCache, diagnoseMapsKey, diagnoseYahooTransit,
@@ -49,6 +49,7 @@ import { armNotices, askNotifyPermission, scheduleNotices }
   from "./notify.js";
 import { requeryNextLeg } from "./nextleg.js";
 import { orderDiff } from "./orderdiff.js";
+import { reachOf } from "./reach.js";
 import { clearTripMode, loadTripMode, saveTripMode } from "./tripmode.js";
 import { searchYahooTransit } from "./yahoo-transit.js";
 import { yahooFlags } from "./modes.js";
@@ -123,6 +124,10 @@ const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
 // --- 起動 -------------------------------------------------------------------
 
 async function boot() {
+  // 地図の見た目（vendor/leaflet.css）を効かせます。描くのを待たせない
+  // よう、index.html では media="print" で読んであります。
+  const leafletCss = document.getElementById("leaflet-css");
+  if (leafletCss) leafletCss.media = "all";
   // **画面を組む前に、字の大きさを当てます。**
   //
   // あとから当てると、標準の大きさで一度描いてから大きくなるので、
@@ -444,12 +449,15 @@ function setBadge(text, isError = false) {
  * DOM を作るので、ブラウザが数秒固まります。打たれた文字で絞って
  * 20件だけ差し替えます（ファイルの形ではなく、件数が問題です）。
  */
+/** はじめて開いたときの出発地。 */
+const DEFAULT_FROM = "東京駅";
+
 function fillPlaces() {
   const list = $("#place-list");
   for (const p of PLACES) {
     list.append(el("option", { value: p.name }, `${p.area}`));
   }
-  $("#depart-place").value = "東京駅";
+  $("#depart-place").value = DEFAULT_FROM;
 
   for (const id of ["#depart-place", "#end-place"]) {
     $(id)?.addEventListener("input", (e) => suggestPlaces(e.currentTarget.value));
@@ -1257,13 +1265,20 @@ function renderPinned() {
   if (!state.pinned.size) return;
   box.append(el("label", {}, "必ず行く場所（絶対条件）"));
   const list = el("div", { class: "pin-list" });
+  // 出発地が収録の駅なら、そこからの目安を札の下に添えます（js/reach.js）。
+  const from = findPlace($("#depart-place").value);
   for (const spot of state.pinned.values()) {
     const chip = el("span", { class: "pin-chip" }, `${spot.name}`);
     chip.append(el("button", {
-      type: "button", title: "外す",
+      type: "button", title: "外す", "aria-label": `${spot.name}を外す`,
       onClick: () => { state.pinned.delete(spot.id); renderPinned(); },
     }, "×"));
-    list.append(chip);
+    const reach = reachOf(from, spot);
+    if (!reach) { list.append(chip); continue; }
+    const item = el("span", { class: "pin-item" }, chip);
+    item.append(el("small", { class: `pin-reach${reach.far ? " is-far" : ""}` },
+      reach.text + (reach.far ? "。日帰りだと現地の時間がほとんど残りません" : "")));
+    list.append(item);
   }
   box.append(list);
   box.append(el("p", { class: "help" },
@@ -1416,6 +1431,13 @@ function wireForm() {
       // input を起こします。入れないと、欄は伸びず（書いた分だけ伸びる
       // 仕掛けが input を見ています）、条件も保存されません。
       note.dispatchEvent(new Event("input", { bubbles: true }));
+      // 出発地つきの札（人気の条件）。まだ既定の出発地のままなら入れます。
+      // 自分で出発地を書き換えた人の駅は、上書きしません。
+      const from = $("#depart-place");
+      if (btn.dataset.from && [DEFAULT_FROM, ""].includes(from.value.trim())) {
+        from.value = btn.dataset.from;
+        from.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       note.focus();
       // 書き換えてもらうための下書きなので、末尾にカーソルを置きます。
       note.setSelectionRange(note.value.length, note.value.length);
@@ -1441,9 +1463,17 @@ function wireForm() {
     note.style.height = `${Math.min(320, note.scrollHeight)}px`;
   };
   note.addEventListener("input", grow);
-  grow();
+  // 起動したときには伸ばしません。この時点の欄は必ず空で（保存した条件を
+  // 戻すのは収録を読んだあとです）、ここで高さを測ると、画面をまだ一度も
+  // 描いていないうちに、ページ全体の配置を計算させることになります
+  // （PageSpeed の「強制リフロー」）。戻した文があるときは、戻した側で
+  // input を起こして伸ばします（restoreConditions）。
   $("#depart-at").addEventListener("change", updateWindowHelp);
-  $("#depart-place").addEventListener("change", updateWindowHelp);
+  $("#depart-place").addEventListener("change", () => {
+    updateWindowHelp();
+    renderPinned();
+  });
+  $("#reset-form")?.addEventListener("click", resetConditions);
   $("#arrive-by").addEventListener("change", updateWindowHelp);
   // 引数なしで呼びます。そのまま渡すと、クリックイベントが
   // 「条件」として渡ってしまいます。
@@ -1522,6 +1552,9 @@ async function resolvePlace(text) {
 }
 
 async function readTrip() {
+  // 「必ず行く」を、県の段を読みながら戻している途中かもしれません
+  // （restorePinned）。待たずに組むと、入れたはずの場所が抜けます。
+  await state.pinsReady;
   // **拾うのは興味のチップだけです。**
   //
   // ここは画面のチップを種類で選ばずに拾っていました。押されている
@@ -1617,6 +1650,9 @@ function formState() {
     dayStart: $("#day-start")?.value ?? "09:00",
     dayEnd: $("#day-end")?.value ?? "18:30",
     pinned: [...state.pinned.keys()],
+    // 「必ず行く」の場所のエリア。開く側でまだその県を読んでいなくても、
+    // 先に読んでから戻せるように（restorePinned）。
+    pinR: [...new Set([...state.pinned.values()].map((s) => s.regionId).filter(Boolean))],
     lodging: $("#lodging-place")?.value ?? "",
   };
 }
@@ -1651,12 +1687,50 @@ function applyFormState(v) {
     chip.setAttribute("aria-pressed", String(on));
     chip.classList.toggle("is-selected", on);
   }
-  for (const id of v.pinned ?? []) {
-    const spot = state.kb?.spotsById?.get(id);
+  if (v.pinned?.length) state.pinsReady = restorePinned(v.pinned, v.pinR);
+  renderPinned();
+  updateWindowHelp();
+}
+
+/**
+ * 「必ず行く」を id から戻します。
+ *
+ * 収録は県ごとに遅れて読みます（kb.js の stagedKb）。開いた直後は
+ * まだどの県も読んでいないので、id を引いても見つからず、共有された
+ * 条件やエリアのページから来た「必ず行く」が黙って消えていました。
+ * エリアが分かっていれば、その県の段を先に読んでから入れます。
+ * 分からない id（古いリンク）は、全国を読みにはいきません。
+ */
+async function restorePinned(ids, regionIds = []) {
+  const kb = state.kb;
+  if (!kb) return;
+  const want = [...new Set(ids ?? [])];
+  if (want.some((id) => !kb.spotsById?.has(id)) && regionIds?.length) {
+    try { await ensureRegions(kb, regionIds); } catch { /* 読めなければ、見つかったぶんだけ */ }
+  }
+  for (const id of want) {
+    const spot = kb.spotsById?.get(id);
     if (spot) state.pinned.set(id, spot);
   }
   renderPinned();
   updateWindowHelp();
+}
+
+/**
+ * 条件を最初の状態に戻します。
+ *
+ * 欄を1つずつ既定値へ戻すと、既定値を2か所に書くことになり
+ * （ここと、初めて開いたときの組み立て）、どちらかがずれます。
+ * 保存した条件を消して、条件の付かない URL で開き直します。
+ * 「前につくった旅」と設定（文字の大きさ・旅行中モードなど）は残します。
+ */
+function resetConditions() {
+  const ok = globalThis.confirm?.(
+    "入力した条件をすべて最初の状態に戻します。"
+    + "画面に出ている旅程も閉じます（「前につくった旅」は残ります）。よろしいですか？");
+  if (!ok) return;
+  try { globalThis.localStorage?.removeItem(SAVE_KEY); } catch { /* 無くても戻せます */ }
+  location.replace(location.pathname);
 }
 
 /** 条件を保存します（次に開いたときに、また入力し直さなくて済むように）。 */
@@ -1678,7 +1752,13 @@ function restoreConditions() {
   let restored = null;
   try {
     const raw = globalThis.localStorage?.getItem(SAVE_KEY);
-    if (raw) { applyFormState(JSON.parse(raw)); restored = "saved"; }
+    if (raw) {
+      applyFormState(JSON.parse(raw));
+      restored = "saved";
+      // 長い文を戻したときに、欄を文の長さまで伸ばします。
+      const box = $("#note");
+      if (box.value) box.dispatchEvent(new Event("input", { bubbles: true }));
+    }
   } catch { /* 無ければ既定値のまま */ }
   // エリアのページ（areas/）から来たとき。`?q=` は「どんな旅にしたい？」
   // の欄に入れるだけです。**勝手に組み始めません**（日時や出発地は、
@@ -1691,8 +1771,25 @@ function restoreConditions() {
       box.dispatchEvent(new Event("input", { bubbles: true }));
       restored = "query";
     }
+    // モデルコースから来たときは、コースの場所を「必ず行く」に入れます。
+    // 前の旅の「必ず行く」は外します（よその土地の場所が混ざると、
+    // 組めない旅程になります）。
+    const pin = pinsFromQuery(location.search);
+    if (pin.ids.length) {
+      state.pinned.clear();
+      state.pinsReady = restorePinned(pin.ids, pin.regions);
+      restored = "course";
+    }
   } catch { /* 読めない欄は無視します */ }
   return restored;
+}
+
+/** `?pin=a,b&area=kamakura`。id は英数字と - _ だけ、20か所までにします。 */
+function pinsFromQuery(search) {
+  const q = new URLSearchParams(search ?? "");
+  const ok = (x) => /^[\w-]{1,80}$/.test(x);
+  const split = (v) => String(v ?? "").split(",").map((x) => x.trim()).filter(ok);
+  return { ids: split(q.get("pin")).slice(0, 20), regions: split(q.get("area")).slice(0, 5) };
 }
 
 /** `?q=` の文。長すぎるものは切ります（欄に貼れる長さで十分です）。 */

@@ -31,13 +31,16 @@ const env = { ADMIN_PASSWORD: "かぎ-123", ADMIN_FILES: files };
 const get = (path, headers = {}) => new Request(`${W}${path}`, { headers });
 
 test("公開サイトの組み立てに、admin/ を入れない", async () => {
+  // 何を公開するかは tools/build_site.sh に書いてあります（pages.yml が呼びます）。
   const yml = await readFile(new URL(".github/workflows/pages.yml", root), "utf8");
-  const copies = yml.split("\n").filter((l) => /^\s*cp\s/.test(l));
+  assert.match(yml, /tools\/build_site\.sh/, "公開が tools/build_site.sh を通っていません");
+  const sh = await readFile(new URL("tools/build_site.sh", root), "utf8");
+  const copies = sh.split("\n").filter((l) => /^\s*cp\s/.test(l));
   assert.ok(copies.length > 0, "cp の行が見つかりません");
   for (const line of copies) {
     assert.ok(!/\badmin\b/.test(line), `admin を公開に入れています: ${line.trim()}`);
   }
-  assert.match(yml, /dist\/admin/, "紛れ込んだときに止める確認がありません");
+  assert.match(sh, /dist"?\/admin/, "紛れ込んだときに止める確認がありません");
 });
 
 test("合言葉が入っていなければ、管理画面は無いことにする", async () => {

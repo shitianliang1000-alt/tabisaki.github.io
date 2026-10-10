@@ -8,6 +8,7 @@
 //   areas/index.html              都道府県とエリアの一覧
 //   areas/<県>/index.html         その県の定番・穴場・エリア
 //   areas/<県>/<エリア>.html      そのエリアの1日のモデルコース
+//   404.html                      無い URL を開いたときのページ
 //
 // モデルコースは、アプリと**同じエンジン**（js/pipeline.js）で組みます。
 // 中継（AI・経路検索）へは出ないので、移動時間は距離からの目安です。
@@ -72,6 +73,23 @@ export function nextSaturday(now = new Date()) {
 /** アプリへのリンク。`?q=` は「どんな旅にしたい？」の欄に入るだけです。 */
 export function appLink(rel, text) {
   return `${rel}index.html?q=${encodeURIComponent(text)}`;
+}
+
+/**
+ * モデルコースを、アプリで開くリンク。
+ *
+ * 「どんな旅にしたい？」の文に加えて、コースで寄る場所を「必ず行く」に
+ * 入れた状態で開きます（`pin`）。`area` は、その場所の入っている県の段を
+ * 先に読むためのものです（js/app.js の restorePinned）。日付と出発地は
+ * 入れません。その人の保存済みの条件のほうが合っています。
+ */
+export function courseLink(rel, text, regionId, spotIds) {
+  const q = new URLSearchParams({ q: text });
+  if (spotIds?.length) {
+    q.set("pin", spotIds.join(","));
+    q.set("area", regionId);
+  }
+  return `${rel}index.html?${q.toString().replace(/\+/g, "%20")}`;
 }
 
 const GENRE_PROMPT = {
@@ -293,7 +311,13 @@ function fmtTime(d) {
   return `${x.getHours()}:${String(x.getMinutes()).padStart(2, "0")}`;
 }
 
-function page({ title, description, canonical, rel, body, jsonLd }) {
+/**
+ * 1ページの枠。`rel` はページから根までの相対パスです。404.html だけは
+ * どの深さの URL でも同じものが出るので、`rel` に公開URLの根（絶対URL）を
+ * 渡し、`canonical` を持たせず `noindex` にします。
+ */
+function page({ title, description, canonical, rel, body, jsonLd, noindex = false }) {
+  const ogUrl = canonical ?? rel;
   return `<!doctype html>
 <html lang="ja">
 <head>
@@ -302,14 +326,20 @@ function page({ title, description, canonical, rel, body, jsonLd }) {
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'none'; base-uri 'self'; form-action 'none'">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
-<link rel="canonical" href="${esc(canonical)}">
+${noindex ? '<meta name="robots" content="noindex">' : `<link rel="canonical" href="${esc(canonical)}">`}
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="旅さき">
+<meta property="og:locale" content="ja_JP">
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(description)}">
-<meta property="og:url" content="${esc(canonical)}">
-<meta property="og:image" content="${esc(new URL(`${rel}og.png`, canonical).href)}">
+<meta property="og:url" content="${esc(ogUrl)}">
+<meta property="og:image" content="${esc(new URL(`${rel}og.png`, ogUrl).href)}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="旅さき — 行きたい、から旅程をつくる。">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${esc(title)}">
+<meta name="twitter:description" content="${esc(description)}">
 <meta name="theme-color" content="#F4F1EB">
 <link rel="icon" href="${rel}icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="${rel}css/hig-tokens.css">
@@ -372,19 +402,47 @@ export function courseItems(itin) {
       out.push({ kind: "free", time: fmtTime(it.start), minutes, title: "自由時間" });
     }
   }
-  return out.some((x) => x.kind === "spot") ? out : null;
+  if (!out.some((x) => x.kind === "spot")) return null;
+  // 最後の行は、どこに何時に着いて終わるのか。移動の行で終わると、
+  // 帰りの電車に乗ったまま旅程が切れたように読めます。
+  const last = day.items.at(-1);
+  const where = last.kind === "transit" ? last.to?.name : "";
+  out.push({ kind: "end", time: fmtTime(last.end), minutes: 0,
+             title: where ? `${where}着・解散` : "解散" });
+  return out;
+}
+
+/** モデルコースで寄る場所の id（順番どおり、重なりなし）。 */
+export function courseSpotIds(itin) {
+  const ids = (itin?.days?.[0]?.items ?? [])
+    .filter((i) => i.kind === "spot").map((i) => i.spotId ?? i.place?.id).filter(Boolean);
+  return [...new Set(ids)];
 }
 
 function courseHtml(items) {
   return `<ol class="course">
 ${items.map((x) => `  <li class="c-${x.kind}"><b class="c-time">${esc(x.time)}</b>`
-    + `<span class="c-title">${x.icon ?? ""}${esc(x.title)}${x.kind === "move" ? `（約${x.minutes}分・目安）` : `<small>${x.minutes}分</small>`}</span>`
+    + `<span class="c-title">${x.icon ?? ""}${esc(x.title)}${x.kind === "move" ? `（約${x.minutes}分・目安）`
+      : x.kind === "end" ? "" : `<small>${x.minutes}分</small>`}</span>`
     + (x.text ? `<span class="c-text">${esc(x.text)}</span>` : "")
     + "</li>").join("\n")}
 </ol>`;
 }
 
-export function renderRegionPage({ region, prefName, prefSlug, spots, course, date, base }) {
+/** 同じ県のほかのエリア。エリアのページどうしを行き来できるようにします。 */
+function siblingLinks(region, siblings) {
+  const others = (siblings ?? []).filter((r) => r.id !== region.id);
+  if (!others.length) return "";
+  return `<section>
+<h2>同じ県のほかのエリア</h2>
+<ul class="regions">
+${others.map((r) => `  <li><a href="${esc(r.id)}.html"><b>${esc(r.name)}</b>${r.tagline ? `<span>${esc(r.tagline)}</span>` : ""}</a></li>`).join("\n")}
+</ul>
+</section>`;
+}
+
+export function renderRegionPage({ region, prefName, prefSlug, spots, course, date, base,
+                                   siblings = [] }) {
   const rel = "../../";
   const canonical = `${base}areas/${prefSlug}/${region.id}.html`;
   const title = `${region.name}の1日モデルコースと観光地｜旅さき`;
@@ -393,7 +451,7 @@ export function renderRegionPage({ region, prefName, prefSlug, spots, course, da
     + "行きたいことを書くと、営業時間と移動時間まで合わせた旅程をつくれます。";
   const list = [...nearbySpots(region, spots)].sort(byFame).slice(0, REGION_SPOTS);
   const items = course ? courseItems(course) : null;
-  const body = `<nav class="crumbs"><a href="${rel}areas/index.html">エリア</a> › <a href="${rel}areas/${prefSlug}/index.html">${esc(prefName)}</a> › ${esc(region.name)}</nav>
+  const body = `<nav class="crumbs" aria-label="現在地"><a href="${rel}index.html">旅さき</a> › <a href="${rel}areas/index.html">エリア</a> › <a href="${rel}areas/${prefSlug}/index.html">${esc(prefName)}</a> › ${esc(region.name)}</nav>
 <h1>${esc(region.name)}</h1>
 ${region.tagline ? `<p class="lead">${esc(region.tagline)}</p>` : ""}
 ${region.description ? `<p>${esc(region.description)}</p>` : ""}
@@ -401,7 +459,8 @@ ${items ? `<section>
 <h2>1日のモデルコース</h2>
 <p class="fine">${esc(fmtDate(date))}に${esc(region.station ?? "")}を9:00に出て、18:00までに戻る例です。旅さきのエンジンで組んでいます。移動時間は距離からの目安で、実際の便ではありません。</p>
 ${courseHtml(items)}
-<p><a class="cta primary" href="${esc(appLink(rel, `${region.name}を1日でめぐる`))}">この条件で、自分の日付の旅程をつくる</a></p>
+<p><a class="cta primary" href="${esc(courseLink(rel, `${region.name}を1日でめぐる`, region.id, courseSpotIds(course)))}">このコースを旅さきで開く</a></p>
+<p class="fine">コースの場所を「必ず行く」に入れて開きます。日付や出発地を変えて、自分の旅程に組み直せます。</p>
 </section>` : ""}
 <section>
 <h2>こんな旅もつくれます</h2>
@@ -410,7 +469,9 @@ ${promptLinks(rel, examplePrompts(region))}
 <section>
 <h2>${esc(region.name)}の観光地</h2>
 ${spotList(list)}
-</section>`;
+</section>
+${siblingLinks(region, siblings)}
+<p><a href="${rel}areas/${prefSlug}/index.html">${esc(prefName)}の観光地の一覧へ</a></p>`;
   const destination = {
     "@type": "TouristDestination",
     name: region.name,
@@ -425,6 +486,7 @@ ${spotList(list)}
     url: canonical,
   };
   const jsonLd = { "@context": "https://schema.org", "@graph": [destination, breadcrumbLd([
+    { name: "旅さき", url: base },
     { name: "エリア", url: `${base}areas/index.html` },
     { name: prefName, url: `${base}areas/${prefSlug}/index.html` },
     { name: region.name, url: canonical },
@@ -440,7 +502,7 @@ export function renderPrefPage({ prefName, prefSlug, spots, regions, base }) {
   const title = `${prefName}の観光地・定番と穴場｜旅さき`;
   const description = `${prefName}の定番の観光地と、知る人ぞ知る穴場。収録${spots.length.toLocaleString("ja-JP")}か所から、`
     + "行きたいことに合わせて旅程をつくれます。";
-  const body = `<nav class="crumbs"><a href="${rel}areas/index.html">エリア</a> › ${esc(prefName)}</nav>
+  const body = `<nav class="crumbs" aria-label="現在地"><a href="${rel}index.html">旅さき</a> › <a href="${rel}areas/index.html">エリア</a> › ${esc(prefName)}</nav>
 <h1>${esc(prefName)}の観光地</h1>
 <p class="lead">収録 ${spots.length.toLocaleString("ja-JP")} か所。定番だけでなく、知る人ぞ知る場所も混ぜて旅程を組めます。</p>
 <p><a class="cta primary" href="${esc(appLink(rel, `${prefName}で、定番と穴場をまぜて1日まわる`))}">${esc(prefName)}で旅程をつくる</a></p>
@@ -464,6 +526,7 @@ ${spotList(hidden)}
     includesAttraction: major.map((s) => ({ "@type": "TouristAttraction", name: s.name })),
     url: canonical,
   }, breadcrumbLd([
+    { name: "旅さき", url: base },
     { name: "エリア", url: `${base}areas/index.html` },
     { name: prefName, url: canonical },
   ])] };
@@ -477,14 +540,43 @@ export function renderIndexPage({ prefs, base }) {
   const title = "エリアから探す — 都道府県の観光地とモデルコース｜旅さき";
   const description = "47都道府県の定番の観光地と穴場、主なエリアの1日モデルコース。"
     + "行きたいことを書くと、旅さきが営業時間と移動時間まで合わせた旅程をつくります。";
-  const body = `<h1>エリアから探す</h1>
+  const body = `<nav class="crumbs" aria-label="現在地"><a href="${rel}index.html">旅さき</a> › エリア</nav>
+<h1>エリアから探す</h1>
 <p class="lead">都道府県を選ぶと、定番と穴場、主なエリアのモデルコースが見られます。</p>
 <ul class="prefs">
 ${prefs.map((p) => `  <li><a href="${esc(p.slug)}/index.html"><b>${esc(p.name)}</b>`
     + `<span>${p.count.toLocaleString("ja-JP")}か所${p.regions.length ? `・${p.regions.map((r) => esc(r.name)).join("・")}` : ""}</span></a></li>`).join("\n")}
 </ul>`;
+  const jsonLd = { "@context": "https://schema.org", ...breadcrumbLd([
+    { name: "旅さき", url: base },
+    { name: "エリア", url: canonical },
+  ]) };
   return { path: "areas/index.html", url: canonical,
-           html: page({ title, description, canonical, rel, body }) };
+           html: page({ title, description, canonical, rel, body, jsonLd }) };
+}
+
+/**
+ * 公開URLの下に無いページを開いたときに出る 404.html。
+ *
+ * GitHub Pages は、無い URL にはこのファイルを（その URL のまま）返します。
+ * どの深さで出ても崩れないよう、リンクとスタイルは公開URLの根からの
+ * 絶対URLで書きます。検索結果には載せません（noindex）。
+ */
+export function renderNotFoundPage({ prefs, base }) {
+  const title = "ページが見つかりません｜旅さき";
+  const description = "お探しのページは見つかりませんでした。旅さきのトップか、エリアの一覧からお探しください。";
+  const body = `<h1>ページが見つかりません</h1>
+<p class="lead">お探しのページは、移動したか、無くなったようです。</p>
+<p><a class="cta primary" href="${esc(base)}index.html">旅さきで旅程をつくる</a></p>
+<p><a class="cta" href="${esc(base)}areas/index.html">エリアから探す</a></p>
+${prefs.length ? `<section>
+<h2>都道府県から探す</h2>
+<ul class="prefs">
+${prefs.map((p) => `  <li><a href="${esc(base)}areas/${esc(p.slug)}/index.html"><b>${esc(p.name)}</b></a></li>`).join("\n")}
+</ul>
+</section>` : ""}`;
+  return { path: "404.html", url: null,
+           html: page({ title, description, rel: base, body, noindex: true }) };
 }
 
 export function sitemapXml(base, urls, date) {
@@ -547,11 +639,12 @@ export async function buildAll(kbDoc, { base, now = new Date(), planCourse = nul
         try { course = await planCourse(region, date, own); } catch { course = null; }
       }
       pages.push(renderRegionPage({ region, prefName, prefSlug: slug, spots: own,
-                                    course, date, base }));
+                                    course, date, base, siblings: mine }));
     }
   }
   pages.unshift(renderIndexPage({ prefs, base }));
-  return { pages, sitemap: sitemapXml(base, pages.map((p) => p.url), now) };
+  return { pages, notFound: renderNotFoundPage({ prefs, base }),
+           sitemap: sitemapXml(base, pages.map((p) => p.url), now) };
 }
 
 async function readJson(path) {
@@ -606,9 +699,9 @@ async function main(outDir) {
     return courseFits(itin, region, mustIds) ? itin : null;
   };
 
-  const { pages, sitemap } = await buildAll({ index, regions, shards },
+  const { pages, notFound, sitemap } = await buildAll({ index, regions, shards },
     { base, now: new Date(), planCourse });
-  for (const p of pages) {
+  for (const p of [...pages, notFound]) {
     const file = join(outDir, p.path);
     await mkdir(dirname(file), { recursive: true });
     await writeFile(file, p.html);
