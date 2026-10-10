@@ -17,6 +17,7 @@ import {
   resolvedModel, understandRequest,
 } from "./ai.js";
 import { areaNote, areaScope, blockGroups, detectAreas, namedSpotAreas,
+         phraseAreas,
   placeCandidates, unknownPlaceTerms }
   from "./areas.js";
 import { isTouring } from "./touring.js";
@@ -164,13 +165,20 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 地名は絞り込み（scope）で使うので、スポットの検索語からは外します。
   // 「四国」を語として残すと、名前に四国を含む「四国中央市」の
   // 地元の祭りばかりが上位に来ます（実際にそうなりました）。
-  const areaWords = new Set(detectAreas(trip.note, kb)
+  // AIが具体的な地名に直した呼び名（辞書に無い「三都心」のような言い方）。
+  // 辞書で当たったものがあれば、そちらを使います。
+  const phraseHits = opts.ignoreAreas ? []
+    : phraseAreas(query.phrases, kb).filter((a) =>
+      !detectAreas(trip.note, kb).some((d) => d.term === a.term));
+  const areaWords = new Set([...detectAreas(trip.note, kb), ...phraseHits]
     .flatMap((a) => [a.term, a.term.replace(/[都道府県]$/, "")]));
   // 「移動を楽しみたい」「青春18きっぷで」の語も、行き先を探す語では
   // ありません。残すと「移動」「青春」を名前や説明に含む数件だけが候補に
   // なり、近畿の3エリアに固まっていました（実際にそうなりました）。
   const searchWords = [...query.keywords, ...query.interests]
     .filter((w) => !areaWords.has(w))
+    // 「さん都心」から取り出された「都心」は、呼び名の一部です。
+    .filter((w) => w.length < 2 || ![...areaWords].some((t) => t.length > w.length && t.includes(w)))
     .filter((w) => !(enjoyTravel && JOURNEY_WORDS.test(w)))
     .filter((w) => !journey || !isJourneyWord(w, journey));
 
@@ -225,7 +233,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     ? `${areaText} ${intent.toward.join(" ")}` : areaText;
   let scope = opts.ignoreAreas
     ? { regionIds: null, matched: [], missing: [] }
-    : areaScope(detectAreas(towardText, kb));
+    : areaScope([...detectAreas(towardText, kb), ...phraseHits]);
   // 地名は当たらないが、収録にある場所の名前（「琵琶湖」）が書かれて
   // いるなら、そこから決めます。広い場所なら、まわりのエリアごと
   // （js/areas.js の namedSpotAreas）。
@@ -654,6 +662,9 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   ]);
   const wanted = extractKeywords(trip.note).keywords
     .filter((t) => !areaTerms.has(t) && !areaTerms.has(`${t}県`))
+    // 「さん都心」から取り出された「都心」は、呼び名（三都心）の一部です。
+    .filter((t) => t.length < 2
+      || ![...areaTerms].some((a) => a.length > t.length && a.includes(t)))
     // 旅のしかたの名前（「国道」「最長往復切符」）は、場所ではありません。
     .filter((t) => !journey || !isJourneyWord(t, journey));
   const coverage = analyzeCoverage(wanted, chosenSpots, kb.spots);

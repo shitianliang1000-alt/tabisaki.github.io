@@ -60,7 +60,33 @@ export const NAMED_SETS = {
   日本三名泉: ["草津", "下呂", "有馬"],
   三古湯: ["道後", "有馬", "白浜"],
   三大祭: ["京都", "大阪", "東京"],
+  // 言い回しが人によって違うもの（読みかたに複数ある）。最も多い読みで
+  // 組み、旅程に「この読みで組んだ」と言います（NAMED_READINGS）。
+  三都心: ["東京", "大阪", "名古屋"],
+  三都: ["東京", "京都", "大阪"],
+  三都物語: ["神戸", "大阪", "京都"],
+  京阪神: ["京都", "大阪", "神戸"],
 };
+
+/** 読みが複数ありうる言い回しの、組んだ読みの説明。 */
+export const NAMED_READINGS = {
+  三都心: "「三都心」は、東京・大阪・名古屋の三大都市として読みました"
+    + "（東京の副都心など、別の意味なら言い直してください）。",
+  三都: "「三都」は、江戸（東京）・京・大坂（大阪）の三都として読みました。",
+  三都物語: "「三都物語」は、神戸・大阪・京都を結ぶ関西の呼び名として読みました。",
+};
+
+/**
+ * 「さん都心」「3都心」「三大都市」のように、数の書きかたが違っても
+ * 同じ言い回しとして当てるために、数を漢数字にそろえます。
+ * 「3大都市」は辞書にそのまま持っているので、先にそちらが当たります。
+ */
+function canonNumbers(s) {
+  return String(s)
+    .replace(/[3３](?=大|都)/g, "三")
+    .replace(/さん(?=都|大都)/g, "三")
+    .replace(/サン(?=都|大都)/g, "三");
+}
 
 /**
  * 日本全体を指す言い方。
@@ -233,10 +259,13 @@ export function detectAreas(text, kb) {
   // 長い言い回しから順に見ます。「3大都市」を拾ったあとで「大都市」も
   // 拾うと、6エリアの指定が13エリアに広がって、指定した意味が消えます。
   const namedHits = [];
+  const canon = canonNumbers(s);
   for (const [term, names] of Object.entries(NAMED_SETS)
     .sort((a, b) => b[0].length - a[0].length)) {
-    if (!s.includes(term)) continue;
+    if (!canon.includes(term) && !s.includes(term)) continue;
     if (namedHits.some((t) => t.includes(term))) continue;
+    // 「3大都市」と「三大都市」は同じ言い回しです。2つ目は数えません。
+    if (namedHits.some((t) => canonNumbers(t) === canonNumbers(term))) continue;
     namedHits.push(term);
     const ids = [];
     const prefs = new Set();
@@ -252,7 +281,11 @@ export function detectAreas(text, kb) {
         }
       }
     }
-    if (ids.length) push(term, "region", [...prefs], ids, groups);
+    if (ids.length) {
+      push(term, "region", [...prefs], ids, groups);
+      const reading = NAMED_READINGS[term];
+      if (reading) seen.get(term).reading = reading;
+    }
   }
   for (const [term, prefs] of Object.entries(MACRO_AREAS)) {
     if (!s.includes(term)) continue;
@@ -280,6 +313,50 @@ export function detectAreas(text, kb) {
     push(nation[0], "nation", [...PREFECTURES], ids, blockGroups(kb, ids));
   }
   return found;
+}
+
+/**
+ * AIが読み取った言い回し（「関西の三つの大きな街」など）を、
+ * detectAreas と同じ形のエリアにします。
+ *
+ * 辞書（NAMED_SETS）に無い言い方でも、AIが「東京・大阪・名古屋」のように
+ * 具体的な地名に直してくれれば、辞書にあるものと同じに扱えます。
+ * 地名は収録のエリア名に当てるだけで、AIが挙げた名前を信じすぎません
+ * （収録に無い名前は、無いこととして捨てます）。
+ *
+ * @param {Array<{phrase:string, meaning?:string, names:string[], ambiguous?:boolean}>} phrases
+ */
+export function phraseAreas(phrases, kb) {
+  const out = [];
+  for (const ph of phrases ?? []) {
+    const term = String(ph?.phrase ?? "").trim();
+    const names = (Array.isArray(ph?.names) ? ph.names : [])
+      .map((n) => String(n ?? "").trim()).filter((n) => n.length >= 2)
+      .filter((n, i, a) => a.indexOf(n) === i).slice(0, 8);
+    if (!term || names.length < 2) continue;
+    const ids = [];
+    const prefs = new Set();
+    const groups = new Map();
+    for (const name of names) {
+      for (const r of kb?.regions ?? []) {
+        if (r.name.includes(name) || name.includes(r.name)) {
+          ids.push(r.id);
+          groups.set(r.id, name);
+          if (r.prefecture) prefs.add(r.prefecture);
+        }
+      }
+    }
+    if (!ids.length) continue;
+    const meaning = String(ph.meaning ?? "").trim().slice(0, 60);
+    out.push({
+      term, kind: "region", prefectures: [...prefs], regionIds: ids, groups,
+      reading: `「${term}」は、${names.join("・")}として読みました`
+        + (meaning ? `（${meaning}）` : "")
+        + "。AIの読み取りです。違っていたら、希望文で言い直してください。",
+      fromAi: true,
+    });
+  }
+  return out;
 }
 
 /**
@@ -407,6 +484,7 @@ export function areaNote(scope, { chosenRegionName, unknownTerms = [] } = {}) {
     notes.push(`「${names}」は現在このアプリに収録がありません。`
       + "収録済みのエリアから、ご希望に近いものを提案しています。");
   }
+  for (const a of scope.matched) if (a.reading) notes.push(a.reading);
   if (scope.matched.length && chosenRegionName) {
     const names = mostSpecific(scope.matched).map((a) => a.term).join("・");
     notes.push(`「${names}」の収録エリアの中から${chosenRegionName}を選びました。`);
