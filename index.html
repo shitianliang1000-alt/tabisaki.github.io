@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#F4F1EB" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#16140F" media="(prefers-color-scheme: dark)">
-<title>旅さき</title>
+<title>旅さき — 行きたいことから旅程をつくる旅行プランアプリ</title>
 <meta name="description" content="「温泉と海をゆっくり楽しみたい」など、行きたいことを伝えるだけで、行き先・まわる順・移動時間まで考えた旅程を作ります。営業時間と移動時間を実際に照らし合わせるので、そのまま行ける旅程になります。">
 
 <!-- 共有したときの見た目。
@@ -17,6 +17,35 @@
      公開するドメインを変えたら、ここの URL と sitemap.xml・robots.txt を
      合わせて書き換えてください。 -->
 <link rel="canonical" href="https://shitianliang1000-alt.github.io/tabisaki.github.io/">
+<!-- 検索エンジン向けに「これは何か」を機械が読める形でも書いておきます。
+     検索結果にアプリ名として出るのは WebSite の name です。
+     「たびさき」とひらがなで探されても同じものだと分かるよう alternateName に入れます。
+     Google Search Console の所有確認の meta は、公開のときに
+     .github/workflows/pages.yml がリポジトリ変数 GOOGLE_SITE_VERIFICATION から足します。 -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "name": "旅さき",
+      "alternateName": ["たびさき", "Tabisaki"],
+      "url": "https://shitianliang1000-alt.github.io/tabisaki.github.io/",
+      "inLanguage": "ja"
+    },
+    {
+      "@type": "WebApplication",
+      "name": "旅さき",
+      "url": "https://shitianliang1000-alt.github.io/tabisaki.github.io/",
+      "applicationCategory": "TravelApplication",
+      "operatingSystem": "Web",
+      "inLanguage": "ja",
+      "description": "行きたいことを書くだけで、行き先・まわる順・移動時間まで考えた旅程をつくる旅行プランアプリ。",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "JPY" }
+    }
+  ]
+}
+</script>
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://shitianliang1000-alt.github.io/tabisaki.github.io/">
 <meta property="og:site_name" content="旅さき">
