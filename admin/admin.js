@@ -215,9 +215,6 @@ async function overview() {
         ? el("a", { href: s.url, target: "_blank", rel: "noopener noreferrer" }, s.url) : "（URLなし）"));
     }
     out.append(srcCard);
-    out.append(note("著作権・出典の一覧は、独立したページにまとめています。"));
-    out.append(el("p", {}, el("a", { href: "https://shitianliang1000-alt.github.io/tabisaki.github.io/credits.html",
-      target: "_blank", rel: "noopener noreferrer" }, "著作権・出典のページを開く")));
   }
   return out;
 }
