@@ -93,7 +93,7 @@ section {
   section { padding: 16px; }
 }
 
-/* 著作権・出典のページ（credits.html）。同じ読み物の体裁を使います。 */
+/* 著作権表記のページ（credits.html）。同じ読み物の体裁を使います。 */
 .toc ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .toc a { display: inline-flex; align-items: center; min-height: 44px; }
 .src { margin: 0; }
