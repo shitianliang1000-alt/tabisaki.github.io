@@ -123,6 +123,10 @@ const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
 // --- 起動 -------------------------------------------------------------------
 
 async function boot() {
+  // 地図の見た目（vendor/leaflet.css）を効かせます。描くのを待たせない
+  // よう、index.html では media="print" で読んであります。
+  const leafletCss = document.getElementById("leaflet-css");
+  if (leafletCss) leafletCss.media = "all";
   // **画面を組む前に、字の大きさを当てます。**
   //
   // あとから当てると、標準の大きさで一度描いてから大きくなるので、
@@ -1441,7 +1445,11 @@ function wireForm() {
     note.style.height = `${Math.min(320, note.scrollHeight)}px`;
   };
   note.addEventListener("input", grow);
-  grow();
+  // 起動したときには伸ばしません。この時点の欄は必ず空で（保存した条件を
+  // 戻すのは収録を読んだあとです）、ここで高さを測ると、画面をまだ一度も
+  // 描いていないうちに、ページ全体の配置を計算させることになります
+  // （PageSpeed の「強制リフロー」）。戻した文があるときは、戻した側で
+  // input を起こして伸ばします（restoreConditions）。
   $("#depart-at").addEventListener("change", updateWindowHelp);
   $("#depart-place").addEventListener("change", updateWindowHelp);
   $("#arrive-by").addEventListener("change", updateWindowHelp);
@@ -1705,7 +1713,13 @@ function restoreConditions() {
   let restored = null;
   try {
     const raw = globalThis.localStorage?.getItem(SAVE_KEY);
-    if (raw) { applyFormState(JSON.parse(raw)); restored = "saved"; }
+    if (raw) {
+      applyFormState(JSON.parse(raw));
+      restored = "saved";
+      // 長い文を戻したときに、欄を文の長さまで伸ばします。
+      const box = $("#note");
+      if (box.value) box.dispatchEvent(new Event("input", { bubbles: true }));
+    }
   } catch { /* 無ければ既定値のまま */ }
   // エリアのページ（areas/）から来たとき。`?q=` は「どんな旅にしたい？」
   // の欄に入れるだけです。**勝手に組み始めません**（日時や出発地は、

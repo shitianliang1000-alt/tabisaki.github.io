@@ -24,31 +24,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 公開するのは、ブラウザが読むものだけです。
-      #
-      # リポジトリをそのまま上げると、tests/ の固定データ、tools/ の
-      # Python、server/ の中継の実装、README や API_KEYS.md まで
-      # 同じ URL の下に公開されます。ブラウザが要るのは下の一覧だけで、
-      # それ以外は置く理由がありません（配信量も、探られる面も増えます）。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 注釈を削る道具（tools/optimize_site.mjs）。版は固定します。
+      - name: Install build tools
+        run: npm install --no-save --no-package-lock esbuild@0.25.10
+
+      # 何を公開するかは tools/build_site.sh に書いてあります
+      # （画面のテストも同じものを組み立てて見ます）。
+      # admin/ は入れません。認証が無く、置けば誰でも開けます。
       - name: Stage site files
+        env:
+          REQUIRE_MINIFY: "1"
         run: |
           set -eu
-          mkdir -p dist
-          cp index.html credits.html icon.svg og.svg og.png manifest.webmanifest \
-             icon-180.png icon-192.png icon-512.png icon-maskable-512.png \
-             robots.txt sitemap.xml sw.js dist/
-          # admin/ は入れません。認証が無く、置けば誰でも開けます。
-          # 管理画面は Worker が合言葉つきで配ります（server/admin.js）。
-          cp -r css js kb vendor dist/
-          # Google Search Console の所有確認用ファイル（google<数字と英字>.html）。
-          # 消すと確認が外れます。
-          cp google[0-9a-f]*.html dist/ 2>/dev/null || true
-          # エリア別のページ（areas/）と、それを含めた sitemap.xml。
-          # 収録から毎回作るので、リポジトリには入れていません。
-          node tools/build_area_pages.mjs dist
-          # 作業の残骸（エディタの .orig など）は入れません
-          find dist -type f \( -name '*.orig' -o -name '*.rej' -o -name '*.patch' \) -delete
-          touch dist/.nojekyll
+          sh tools/build_site.sh dist
           # 何かの拍子に紛れ込んだら、公開する前に止めます
           if [ -e dist/admin ]; then echo "dist/admin must not be published" >&2; exit 1; fi
           du -sh dist

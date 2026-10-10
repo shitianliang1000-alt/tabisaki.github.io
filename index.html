@@ -112,8 +112,16 @@
 <!-- 地図の部品（Leaflet 1.9.4）は、自分のところから配ります。
      unpkg から読んでいた頃は、圏外で開くと地図の部品が届かず、
      保存した旅程を開いても地図だけ出ませんでした。中身は
-     tools/vendor.sh で取ってきたものそのままです（SRI と同じハッシュ）。 -->
-<link rel="stylesheet" href="vendor/leaflet.css">
+     tools/vendor.sh で取ってきたものそのままです（SRI と同じハッシュ）。
+
+     media="print" で読み始め、js/app.js が起動したところで "all" に
+     切り替えます。地図は app.js が作るので、それより前に要ることは
+     ありません。ふつうに書くと、地図の見た目のためだけに、条件の入力欄
+     まで描くのを待たされます（PageSpeed の「レンダリングをブロック
+     しているリクエスト」）。print のうちも取りには行くので、切り替えた
+     ときには届いています。onload で切り替える定番の書き方は、CSP が
+     inline の script を許していないので使えません。 -->
+<link rel="stylesheet" href="vendor/leaflet.css" media="print" id="leaflet-css">
 <!-- 字は端末に入っているものだけを使います。Web フォントは読みません。
      San Francisco は配布できず、和文は Apple ならヒラギノ、Windows なら
      游ゴシック、Android なら Noto が最初から入っています。
