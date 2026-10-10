@@ -99,3 +99,27 @@ th, td { text-align: left; padding: 8px 16px; }
 th { color: var(--hig-label-2); font-weight: 600; }
 tr + tr td { box-shadow: inset 0 .5px 0 var(--hig-separator); }
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- 項目のタブ --- */
+.tabs {
+  display: flex; gap: 4px; overflow-x: auto; padding: 8px 20px 0;
+  max-width: 900px; margin: 0 auto;
+}
+.tabs a {
+  flex: none; padding: 8px 14px; border-radius: 999px; text-decoration: none;
+  font-weight: 600; color: var(--hig-label-2);
+}
+.tabs a[aria-current="true"] { background: var(--tabi-indigo); color: #fff; }
+.pick { margin: 0 0 14px; color: var(--hig-label-2); }
+.cap { margin: 8px 16px 0; font-weight: 600; font-size: 13px; }
+input.wide { width: 100%; min-width: 0; font: inherit; padding: 8px 10px;
+  border-radius: var(--hig-r-sm); border: .5px solid var(--hig-separator);
+  background: var(--hig-card); color: inherit; }
+.row select, .pick select { font: inherit; padding: 6px 8px; border-radius: var(--hig-r-sm);
+  border: .5px solid var(--hig-separator); background: var(--hig-card); color: inherit; }
+.num-in { width: 8em; font: inherit; padding: 6px 8px; border-radius: var(--hig-r-sm);
+  border: .5px solid var(--hig-separator); background: var(--hig-card); color: inherit; }
+button.act.small { padding: 4px 10px; font-size: 12px; flex: none; }
+button.act.ghost { background: var(--hig-fill); color: inherit; }
+.row { flex-wrap: wrap; }
+@media (max-width: 560px) { .row .k { min-width: 0; flex-basis: 100%; } }

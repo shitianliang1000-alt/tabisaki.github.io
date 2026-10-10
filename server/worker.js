@@ -1,4 +1,9 @@
 import { isAdminPath, serveAdmin } from "./admin.js";
+import { currentSettings, record, Stats, SWITCHABLE } from "./stats.js";
+import { cleanExtra } from "../js/metrics.js";
+
+// 管理画面の件数・設定の置き場（Durable Object）。wrangler.jsonc の STATS。
+export { Stats };
 
 // 呼び出しを許すページの出どころ。
 //
@@ -61,20 +66,24 @@ export const LIMITS = {
   paid: { minute: 60, hour: 400 },
 };
 
-/** 環境変数があれば、そちらを使います。 */
-function limitsFrom(env) {
+/**
+ * 環境変数があれば、そちらを使います。管理画面で上限を決めてあれば
+ * （server/stats.js の settings.limits）、それがいちばん先です。
+ */
+export function limitsFrom(env, settings = null) {
   const n = (v, fallback) => {
     const x = Number(v);
     return Number.isFinite(x) && x > 0 ? x : fallback;
   };
+  const set = settings?.limits ?? {};
   return {
     free: {
-      minute: n(env?.RATE_FREE_PER_MINUTE, LIMITS.free.minute),
-      hour: n(env?.RATE_FREE_PER_HOUR, LIMITS.free.hour),
+      minute: n(set.free?.minute, n(env?.RATE_FREE_PER_MINUTE, LIMITS.free.minute)),
+      hour: n(set.free?.hour, n(env?.RATE_FREE_PER_HOUR, LIMITS.free.hour)),
     },
     paid: {
-      minute: n(env?.RATE_PAID_PER_MINUTE, LIMITS.paid.minute),
-      hour: n(env?.RATE_PAID_PER_HOUR, LIMITS.paid.hour),
+      minute: n(set.paid?.minute, n(env?.RATE_PAID_PER_MINUTE, LIMITS.paid.minute)),
+      hour: n(set.paid?.hour, n(env?.RATE_PAID_PER_HOUR, LIMITS.paid.hour)),
     },
   };
 }
@@ -105,12 +114,70 @@ const ALLOWED_MODELS = new Set([
 ]);
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
     // 管理画面（合言葉つき）。中継の入口とは別の道です（server/admin.js）。
-    if (isAdminPath(new URL(request.url).pathname)) {
+    if (isAdminPath(url.pathname)) {
       const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
-      return serveAdmin(request, env, { onBadPassword: () => rateCheck(env, ip, 5, "paid") });
+      return serveAdmin(request, env, {
+        onBadPassword: () => rateCheck(env, ip, 5, "paid"),
+        overview: () => overviewFor(env, url.origin),
+      });
     }
+    const res = await relay(request, env);
+    // 使われかたを数えます（server/stats.js）。返事は待たせません。
+    if (request.method === "POST") {
+      const work = record(env, usageOf(request, url, res.status));
+      if (ctx?.waitUntil) ctx.waitUntil(work); else await work;
+    }
+    return res;
+  },
+};
+
+/** その入口の名前（数えるとき・止めるときの鍵）。 */
+export function endpointOf(path) {
+  return [...SWITCHABLE, "/status"].find((p) => path.endsWith(p)) ?? "other";
+}
+
+/**
+ * 1回の呼び出しで数えるもの。IP は Stats がその日の塩でハッシュにして
+ * 捨てます（保存しません）。国は Cloudflare の国コードだけです。
+ */
+export function usageOf(request, url, status) {
+  const path = endpointOf(url.pathname.replace(/\/+$/, ""));
+  const items = [["req", path, 1], ["country", request.cf?.country ?? "??", 1]];
+  if (status >= 400) items.push(["status", `${path} ${status}`, 1]);
+  return {
+    ip: request.headers.get("CF-Connecting-IP") ?? "",
+    items,
+    ...(status >= 500 ? { error: { code: `HTTP ${status}`, path, detail: "中継の返事" } } : {}),
+  };
+}
+
+/** 管理画面の「設定」に出すもの。鍵は、入っているかどうかだけです。 */
+async function overviewFor(env, selfOrigin) {
+  const settings = await currentSettings(env);
+  return {
+    secrets: {
+      GEMINI_API_KEY: hasSecret(env, "GEMINI_API_KEY"),
+      MAPS_API_KEY: hasSecret(env, "MAPS_API_KEY"),
+      GITHUB_TOKEN: hasSecret(env, "GITHUB_TOKEN"),
+    },
+    bindings: {
+      AI: Boolean(env?.AI), RATE: Boolean(env?.RATE),
+      STATS: Boolean(env?.STATS), METRICS: Boolean(env?.METRICS),
+    },
+    allowOrigin: [...allowList(env), selfOrigin],
+    rateLimit: String(env?.RATE_LIMIT ?? "").toLowerCase() === "off" ? "off" : "on",
+    limitsDefault: limitsFrom(env),
+    limits: limitsFrom(env, settings),
+    settings,
+    switchable: SWITCHABLE,
+  };
+}
+
+async function relay(request, env) {
+  {
     const origin = request.headers.get("Origin") ?? "";
     // この Worker 自身が配る管理画面からの「接続を確かめる」も通します。
     const allow = [...allowList(env), new URL(request.url).origin];
@@ -129,7 +196,14 @@ export default {
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
     // 重さに応じて数えます（Geminiの1回と /status の1回は別ものです）。
     // 枠は2つ。無料のYahoo!が、お金のかかるGeminiの枠を食べません。
-    const gate = await rateCheck(env, ip, costOf(path), poolOf(path));
+    // 管理画面で止めた入口は、外へ取りに行く前に断ります。
+    const settings = await currentSettings(env);
+    if (settings.disabled.includes(endpointOf(path))) {
+      return cors(fail(503, "DISABLED",
+        "この機能はいま止めています。しばらくしてから、もう一度お試しください。",
+        { retryable: false }), origin, allow);
+    }
+    const gate = await rateCheck(env, ip, costOf(path), poolOf(path), settings);
     if (!gate.ok) {
       return cors(fail(429, "RATE_LIMITED",
         "いま利用が集中しています。1分ほどおいてから、もう一度お試しください。",
@@ -161,7 +235,9 @@ export default {
           allowOrigin: allow,
           // あと何点使えるか。無料枠は使い切ると**その日は誰も使えません**。
           // 止まってから気づくのでは遅いので、先に見えるようにします。
-          usage: await rateUsage(env, ip),
+          usage: await rateUsage(env, ip, settings),
+          // 管理画面で止めている入口。アプリはこれを見て、先に断れます。
+          disabled: settings.disabled,
         }), origin, allow);
       }
     } catch (e) {
@@ -172,8 +248,8 @@ export default {
       return cors(text(timedOut ? "上流の応答がありませんでした" : "処理できませんでした", timedOut ? 504 : 502), origin, allow);
     }
     return cors(text("その入口はありません", 404), origin, allow);
-  },
-};
+  }
+}
 
 // 使われかたの件数（js/metrics.js から sendBeacon で届きます）。
 //
@@ -211,7 +287,36 @@ export async function metrics(request, env) {
     // 数えそこねても、使う人には関係ありません。
     console.error(e);
   }
+  // 管理画面のための件数（server/stats.js）。決まった言葉と数だけです。
+  await record(env, metricRecord(event, detail, cleanExtra(body)));
   return new Response(null, { status: 204 });
+}
+
+/** かかった秒を、見比べやすい幅に分けます。 */
+export function secsBucket(s) {
+  return s < 10 ? "0-10" : s < 30 ? "10-30" : s < 60 ? "30-60" : s < 120 ? "60-120" : "120+";
+}
+
+/** 1件の出来事から、Stats に足す件数を作ります。 */
+export function metricRecord(event, detail, extra = {}) {
+  const items = [["event", `${event}|${detail}`, 1]];
+  if (Number.isFinite(extra.s)) {
+    items.push(["secs", `${event}:${secsBucket(extra.s)}`, 1],
+               ["sum", `secs:${event}`, extra.s], ["sum", `n:${event}`, 1]);
+  }
+  if (Number.isFinite(extra.r)) {
+    items.push(["rounds", String(extra.r), 1],
+               ["sum", "rounds", extra.r], ["sum", "rounds_n", 1]);
+  }
+  for (const [k, v] of Object.entries(extra.c ?? {})) {
+    for (const one of Array.isArray(v) ? v : [v]) items.push(["cond", `${event}:${k}=${one}`, 1]);
+  }
+  return {
+    items,
+    ...(event === "plan_error"
+      ? { error: { code: "旅程を組めなかった", detail: detail || "理由不明", path: "app" } }
+      : {}),
+  };
 }
 
 /** 鍵が入っているか（値は見せません）。 */
@@ -882,13 +987,13 @@ export function poolOf(path) {
   return "paid";
 }
 
-async function rateCheck(env, ip, cost, pool = "paid") {
+async function rateCheck(env, ip, cost, pool = "paid", settings = null) {
   if (!env.RATE || String(env.RATE_LIMIT ?? "").toLowerCase() === "off") {
     return { ok: true };
   }
   const id = env.RATE.idFromName(ip); const stub = env.RATE.get(id);
   const q = new URLSearchParams({ cost: String(cost), pool,
-                                  limits: JSON.stringify(limitsFrom(env)) });
+                                  limits: JSON.stringify(limitsFrom(env, settings)) });
   return (await stub.fetch(`https://rate/check?${q}`)).json();
 }
 
@@ -899,12 +1004,12 @@ async function rateCheck(env, ip, cost, pool = "paid") {
  * 入れていたので、外から見ると usage.usage になり、画面には
  * 「1分 undefined/undefined点」と出ていました。ここで開いて渡します。
  */
-async function rateUsage(env, ip) {
+async function rateUsage(env, ip, settings = null) {
   if (!env.RATE || String(env.RATE_LIMIT ?? "").toLowerCase() === "off") {
     return null;
   }
   const id = env.RATE.idFromName(ip); const stub = env.RATE.get(id);
-  const q = new URLSearchParams({ limits: JSON.stringify(limitsFrom(env)) });
+  const q = new URLSearchParams({ limits: JSON.stringify(limitsFrom(env, settings)) });
   const body = await (await stub.fetch(`https://rate/usage?${q}`)).json();
   return body?.usage ?? body ?? null;
 }

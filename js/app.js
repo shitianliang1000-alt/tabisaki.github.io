@@ -43,7 +43,7 @@ import { $, el, loadSketch, openSheet, renderItinerary, renderProgress, renderTo
          scrollBehavior, suggestionButton } from "./ui.js";
 import { catchUp } from "./today.js";
 import { isOffline, watchConnection } from "./online.js";
-import { metricsEnabled, setMetricsEnabled, track } from "./metrics.js";
+import { conditionsOf, metricsEnabled, setMetricsEnabled, track } from "./metrics.js";
 import { watchArrival } from "./arrive.js";
 import { armNotices, askNotifyPermission, scheduleNotices }
   from "./notify.js";
@@ -1939,8 +1939,8 @@ function showView(view) {
  * 使われかたを1件数えます（js/metrics.js）。名前の無い件数だけです。
  * 中継（PROXY_URL）が無いときと、設定で外したときは送りません。
  */
-function count(event, detail = "") {
-  track(event, detail, { proxyUrl: effectiveConfig().proxyUrl });
+function count(event, detail = "", extra = null) {
+  track(event, detail, { proxyUrl: effectiveConfig().proxyUrl, extra });
 }
 
 /** 組めなかった理由を、数えるための言葉にします（js/errors.js と同じ分け方）。 */
@@ -2323,6 +2323,12 @@ async function run(override) {
   fab.querySelector(".fab-tx").textContent = "組み立てています…";
   // 出発地のあたりへ、背景の地図を寄せておきます
   moveBackgroundMap(trip.origin.lat, trip.origin.lng, 8);
+  // 数えるとき（協力してくれる人だけ）に添える、かかった時間と条件の区分。
+  const startedAt = Date.now();
+  const facts = () => ({
+    s: (Date.now() - startedAt) / 1000,
+    c: conditionsOf(trip, { pinned: state.pinned.size }),
+  });
 
   try {
     // まだ読み終わっていなければ、ここで待ちます。押した人にとっては
@@ -2341,7 +2347,8 @@ async function run(override) {
     signal.throwIfAborted();
     showRoutesUsage();
     show(itin, trip);
-    count("plan_ok", trip.transport);
+    count("plan_ok", trip.transport,
+          { ...facts(), r: Math.max(1, ...(state.plans ?? []).map((p) => p.itin?.rounds ?? 1)) });
   } catch (e) {
     if (signal.aborted) {
       // やめたのは失敗ではありません。理由も出さず、条件の画面へ戻します。
@@ -2356,7 +2363,7 @@ async function run(override) {
       }
       return;
     }
-    count("plan_error", failureKind(e));
+    count("plan_error", failureKind(e), facts());
     $("#progress").hidden = true;
     $("#placeholder").hidden = false;
     // うまくいかなかったときは、条件の画面へ戻します。理由は
