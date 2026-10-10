@@ -10,8 +10,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  appLink, buildAll, courseFits, courseItems, curatedRegions, esc,
-  examplePrompts, nextSaturday, pickPrefSpots, shardSlug, sitemapXml,
+  appLink, breadcrumbLd, buildAll, courseFits, courseItems, curatedRegions, esc,
+  examplePrompts, nearbySpots, nextSaturday, pickPrefSpots, shardSlug, sitemapXml,
 } from "../tools/build_area_pages.mjs";
 
 const BASE = "https://example.test/app/";
@@ -157,4 +157,32 @@ test("モデルコースが組めなかったエリアも、観光地の一覧�
 test("sitemap は日付つき", () => {
   const xml = sitemapXml(BASE, [`${BASE}areas/index.html`], new Date("2026-10-09T00:00:00Z"));
   assert.match(xml, /<lastmod>2026-10-09<\/lastmod>/);
+});
+
+test("エリアの観光地には、中心から遠いもの（同じ市町村の別の街）を並べない", () => {
+  const region = { id: "enoshima", lat: 35.2996, lng: 139.4803 };
+  const near = Array.from({ length: 8 }, (_, i) => ({ id: `n${i}`, lat: 35.30 + i * 0.001, lng: 139.48 }));
+  const far = { id: "atsugi", lat: 35.4475, lng: 139.3616 }; // 約20km
+  const ids = nearbySpots(region, [...near, far]).map((s) => s.id);
+  assert.equal(ids.length, 8);
+  assert.ok(!ids.includes("atsugi"));
+});
+
+test("近くに少ししか無いエリアは、近い順に並べる（空のページにしない）", () => {
+  const region = { id: "x", lat: 35, lng: 139 };
+  const spots = [
+    { id: "far", lat: 35.2, lng: 139 },
+    { id: "mid", lat: 35.1, lng: 139 },
+    { id: "near", lat: 35.01, lng: 139 },
+  ];
+  assert.deepEqual(nearbySpots(region, spots).map((s) => s.id), ["near", "mid", "far"]);
+  assert.equal(nearbySpots({ id: "nogeo" }, spots).length, 3);
+});
+
+test("パンくずの構造化データは、順番と URL を持つ", () => {
+  const ld = breadcrumbLd([{ name: "エリア", url: `${BASE}areas/index.html` }, { name: "箱根" }]);
+  assert.equal(ld["@type"], "BreadcrumbList");
+  assert.deepEqual(ld.itemListElement.map((x) => x.position), [1, 2]);
+  assert.equal(ld.itemListElement[0].item, `${BASE}areas/index.html`);
+  assert.equal(ld.itemListElement[1].item, undefined);
 });
