@@ -365,7 +365,16 @@ PROXY_URL
 
 ## 🚀 公開する（GitHub Pages）
 
-`.github/workflows/pages.yml` が、`main` への push ごとに GitHub Pages へ配置します。ビルド工程はエリア別のページ（`node tools/build_area_pages.mjs dist`）だけで、**公開するのはブラウザが読むものだけ**です（`index.html`・`css/`・`js/`・`kb/`・`admin/` と、アイコン・manifest・robots・sitemap・sw.js）。`tests/`・`tools/`・`server/`・`data/` や README は公開されません。公開に要るファイルを増やしたら、`pages.yml` の「Stage site files」にも足してください。
+`.github/workflows/pages.yml` が、`main` への push ごとに GitHub Pages へ配置します。ビルド工程はエリア別のページ（`node tools/build_area_pages.mjs dist`）だけで、**公開するのはブラウザが読むものだけ**です（`index.html`・`css/`・`js/`・`kb/`と、アイコン・manifest・robots・sitemap・sw.js）。`admin/`・`tests/`・`tools/`・`server/`・`data/` や README は公開されません。公開に要るファイルを増やしたら、`pages.yml` の「Stage site files」にも足してください。
+
+### 管理画面を開く
+
+管理画面（`admin/`）には認証が無いので、GitHub Pages には置きません。中継の Worker が、合言葉を聞いてから見せます（`server/admin.js`）。
+
+1. 合言葉を Worker に入れる（一度だけ）: `npx wrangler secret put ADMIN_PASSWORD`、またはダッシュボードの Workers & Pages → `tabisaki-github-io` → Settings → Variables and Secrets → Add で、種類を Secret、名前を `ADMIN_PASSWORD` にします。
+2. `https://tabisaki-github-io.shitianliang1000.workers.dev/admin` を開き、ユーザー名は何でも、パスワードに合言葉を入れます。
+
+合言葉を入れていないあいだ、`/admin` は 404 です。手元で見るだけなら、リポジトリの一番上で `python3 -m http.server 8000` を動かし、`http://localhost:8000/admin/` を開いてもかまいません。
 
 初回だけ、リポジトリの **Settings → Pages → Source** を「GitHub Actions」にしてください。
 

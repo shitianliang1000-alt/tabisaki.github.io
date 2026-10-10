@@ -9,7 +9,8 @@
 //   3. どれだけ呼んだか（課金に効く）
 //   4. データがどれくらい古いか
 //
-// **認証はありません。** 公開する場所には置かないでください。
+// **この画面に認証はありません。** GitHub Pages には置かず、Worker が
+// 合言葉つきで配ります（server/admin.js）。
 
 import { EMBED_MODEL, FALLBACK_MODELS, GEMINI_API_KEY, KB_INDEX_URL,
          LOCAL_BASE_URL, LOCAL_MODEL, MAPS_API_KEY, MODEL, MODEL_PROVIDER,
