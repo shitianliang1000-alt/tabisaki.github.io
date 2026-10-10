@@ -186,3 +186,64 @@ test("パンくずの構造化データは、順番と URL を持つ", () => {
   assert.equal(ld.itemListElement[0].item, `${BASE}areas/index.html`);
   assert.equal(ld.itemListElement[1].item, undefined);
 });
+
+test("県とエリアのページは、トップ › エリア › 県 › エリアで行き来できる", async () => {
+  const ENOSHIMA = { ...REGION, id: "enoshima", name: "江の島", tagline: "海と灯台" };
+  const kbDoc = {
+    index: { shards: [{ file: "spots-jp14-kanagawa.json", prefecture: "神奈川県" }] },
+    regions: [REGION, ENOSHIMA],
+    shards: new Map([["spots-jp14-kanagawa.json", [spot("a")]]]),
+  };
+  const { pages } = await buildAll(kbDoc, { base: BASE, planCourse: async () => null });
+  const html = (path) => pages.find((p) => p.path === path).html;
+  const pref = html("areas/kanagawa/index.html");
+  assert.match(pref, /href="hakone\.html"/);
+  assert.match(pref, /href="enoshima\.html"/);
+  const hakone = html("areas/kanagawa/hakone.html");
+  // パンくずの頭はアプリのトップ。県のページへも戻れる。
+  assert.match(hakone, /class="crumbs"[^>]*><a href="\.\.\/\.\.\/index\.html">旅さき<\/a>/);
+  assert.match(hakone, /href="\.\.\/\.\.\/areas\/kanagawa\/index\.html"/);
+  // 同じ県のほかのエリアへ。自分自身は並べない。
+  assert.match(hakone, /同じ県のほかのエリア[\s\S]*href="enoshima\.html"/);
+  assert.ok(!/同じ県のほかのエリア[\s\S]*href="hakone\.html"/.test(hakone));
+  // 構造化データのパンくずも、トップから始まる。
+  const ld = JSON.parse(/<script type="application\/ld\+json">(.*?)<\/script>/.exec(hakone)[1]);
+  const crumbs = ld["@graph"].find((x) => x["@type"] === "BreadcrumbList").itemListElement;
+  assert.deepEqual(crumbs.map((c) => c.name), ["旅さき", "エリア", "神奈川県", "箱根"]);
+  assert.equal(crumbs[0].item, BASE);
+});
+
+test("共有カード: エリアごとの題と説明を持つ", async () => {
+  const kbDoc = {
+    index: { shards: [{ file: "spots-jp14-kanagawa.json", prefecture: "神奈川県" }] },
+    regions: [REGION],
+    shards: new Map([["spots-jp14-kanagawa.json", [spot("a")]]]),
+  };
+  const { pages } = await buildAll(kbDoc, { base: BASE, planCourse: async () => null });
+  const hakone = pages.find((p) => p.path.endsWith("hakone.html")).html;
+  assert.match(hakone, /<meta property="og:title" content="箱根の1日モデルコース/);
+  assert.match(hakone, /<meta property="og:description" content="箱根（神奈川県）/);
+  assert.match(hakone, /<meta name="twitter:title" content="箱根の/);
+  assert.match(hakone, /<meta property="og:image" content="https:\/\/example\.test\/app\/og\.png"/);
+});
+
+test("404.html: どの深さで出ても崩れない絶対URLで、検索には載せない", async () => {
+  const kbDoc = {
+    index: { shards: [{ file: "spots-jp14-kanagawa.json", prefecture: "神奈川県" }] },
+    regions: [REGION],
+    shards: new Map([["spots-jp14-kanagawa.json", [spot("a")]]]),
+  };
+  const { pages, notFound, sitemap } = await buildAll(kbDoc, { base: BASE, planCourse: async () => null });
+  assert.equal(notFound.path, "404.html");
+  assert.ok(!pages.includes(notFound));
+  assert.ok(!sitemap.includes("404"));
+  const html = notFound.html;
+  assert.match(html, /<meta name="robots" content="noindex">/);
+  assert.ok(!html.includes('rel="canonical"'));
+  assert.match(html, /href="https:\/\/example\.test\/app\/css\/area\.css"/);
+  assert.match(html, /href="https:\/\/example\.test\/app\/index\.html"/);
+  assert.match(html, /href="https:\/\/example\.test\/app\/areas\/kanagawa\/index\.html"/);
+  // 相対パス（../ や css/ で始まるもの）が残っていないこと。
+  assert.ok(!/(href|src)="(?!https:)/.test(html), "相対リンクが残っています");
+  assert.match(html, /script-src 'none'/);
+});
