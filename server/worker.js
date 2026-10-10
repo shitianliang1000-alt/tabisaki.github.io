@@ -1,3 +1,5 @@
+import { isAdminPath, serveAdmin } from "./admin.js";
+
 // 呼び出しを許すページの出どころ。
 //
 // Worker の変数 ALLOW_ORIGIN で上書きできます（カンマ区切りで複数）。
@@ -104,8 +106,14 @@ const ALLOWED_MODELS = new Set([
 
 export default {
   async fetch(request, env) {
+    // 管理画面（合言葉つき）。中継の入口とは別の道です（server/admin.js）。
+    if (isAdminPath(new URL(request.url).pathname)) {
+      const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
+      return serveAdmin(request, env, { onBadPassword: () => rateCheck(env, ip, 5, "paid") });
+    }
     const origin = request.headers.get("Origin") ?? "";
-    const allow = allowList(env);
+    // この Worker 自身が配る管理画面からの「接続を確かめる」も通します。
+    const allow = [...allowList(env), new URL(request.url).origin];
     if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }), origin, allow);
     if (request.method !== "POST") return cors(text("POST のみです", 405), origin, allow);
     if (!allow.includes("*") && !allow.includes(origin)) {

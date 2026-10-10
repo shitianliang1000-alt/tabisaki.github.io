@@ -6,9 +6,10 @@
 <!-- 旅行者向けの画面から、技術の言葉を全部こちらへ移しました。
      「Gemini」「Routes API」「知識ベース」は、運用する人の言葉です。
 
-     ここは公開しないでください。**認証はありません。**
-     置くとしても、Basic 認証や社内ネットワークの内側にしてください。
-     読み取りしかしませんが、どのデータをどこから取っているかは分かります。 -->
+     この画面そのものには**認証がありません。** GitHub Pages には置かず、
+     Worker が合言葉つきで配ります（server/admin.js、/admin で開きます）。
+     手元で見るなら、リポジトリの一番上で python3 -m http.server 8000 を
+     動かして http://localhost:8000/admin/ を開いてください。 -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
   script-src 'self';
@@ -28,7 +29,7 @@
   <span class="mark" aria-hidden="true">✦</span>
   <h1>旅さき — 管理</h1>
   <span class="spacer"></span>
-  <a class="back" href="../index.html">旅程の画面へ</a>
+  <a class="back" href="https://shitianliang1000-alt.github.io/tabisaki.github.io/">旅程の画面へ</a>
 </header>
 
 <main id="app">

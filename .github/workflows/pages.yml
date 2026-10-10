@@ -37,13 +37,17 @@ jobs:
           cp index.html icon.svg og.svg og.png manifest.webmanifest \
              icon-180.png icon-192.png icon-512.png icon-maskable-512.png \
              robots.txt sitemap.xml sw.js dist/
-          cp -r css js kb admin dist/
+          # admin/ は入れません。認証が無く、置けば誰でも開けます。
+          # 管理画面は Worker が合言葉つきで配ります（server/admin.js）。
+          cp -r css js kb dist/
           # エリア別のページ（areas/）と、それを含めた sitemap.xml。
           # 収録から毎回作るので、リポジトリには入れていません。
           node tools/build_area_pages.mjs dist
           # 作業の残骸（エディタの .orig など）は入れません
           find dist -type f \( -name '*.orig' -o -name '*.rej' -o -name '*.patch' \) -delete
           touch dist/.nojekyll
+          # 何かの拍子に紛れ込んだら、公開する前に止めます
+          if [ -e dist/admin ]; then echo "dist/admin must not be published" >&2; exit 1; fi
           du -sh dist
           find dist -type f | sort
 
