@@ -229,8 +229,11 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // **どこへ向かう列車かは分かります**。そこを行き先にします。
   // 旅のしかたの名前（「東海道五十三次」の「東海」）は地名として読みません。
   const areaText = journey ? stripJourney(trip.note, journey) : trip.note;
-  const towardText = intent.toward.length
-    ? `${areaText} ${intent.toward.join(" ")}` : areaText;
+  // モデルが読み替えた俗称の行き先（「三都心」→ 東京・大阪・名古屋）も
+  // 足します。辞書に無い言い回しは、これが無いと地名の指定が無いことに
+  // なり、点の高い順に選ばれます。
+  const towardText = [areaText, ...intent.toward, ...(query.places ?? [])]
+    .filter(Boolean).join(" ");
   let scope = opts.ignoreAreas
     ? { regionIds: null, matched: [], missing: [] }
     : areaScope([...detectAreas(towardText, kb), ...phraseHits]);
