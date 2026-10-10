@@ -70,13 +70,27 @@ export function extractKeywords(note) {
   // カタカナ列・漢字列をそのまま取り出します。以前は2文字ずつ機械的に
   // 切っていたため、「スキューバダイビング」から「ーバ」が生まれ、
   // 「ハーバーランド」に誤って一致していました。
+  //
+  // 漢字はつながって書かれるので、場所を指さない語がくっついたまま
+  // 1語になることがあります。「日本全国有名なところ」から「日本全国有名」
+  // が取り出され、「『日本全国有名』に該当する場所は見つかりませんでした」
+  // と出ていました。そうした語の所で切って、残りだけを使います。
   if (keywords.size === 0) {
     for (const run of wordRuns(text)) {
-      if (!GENERIC_TERMS.has(run)) keywords.add(run);
+      for (const part of splitGeneric(run)) keywords.add(part);
     }
   }
 
   return { keywords: [...keywords], genres: [...genres], moods };
+}
+
+/** 語の中の「有名」「観光地」などで切り、2文字以上の残りを返します。 */
+function splitGeneric(run) {
+  if (GENERIC_TERMS.has(run)) return [];
+  const terms = [...GENERIC_TERMS].sort((a, b) => b.length - a.length);
+  let parts = [run];
+  for (const t of terms) parts = parts.flatMap((p) => p.split(t));
+  return parts.filter((p) => p.length >= 2 && !GENERIC_TERMS.has(p));
 }
 
 const PARTICLES = new Set([
