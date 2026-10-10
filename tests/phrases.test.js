@@ -14,8 +14,8 @@ import { findPlace } from "../js/places.js";
 import { makeTrip } from "../js/trip.js";
 
 const kb = await loadKnowledgeBase();
-const trip = (note) => makeTrip({
-  origin: findPlace("東京駅"), note, budgetYen: 999999,
+const trip = (note, from = "東京駅") => makeTrip({
+  origin: findPlace(from), note, budgetYen: 999999,
   departAt: new Date("2026-09-01T07:00"),
   arriveBy: new Date("2026-09-05T21:00"),
 });
@@ -54,7 +54,8 @@ test("AIが直した呼び名は、収録のエリアに当てる（収録に無
 });
 
 test("さん都心の旅は、東京・大阪・名古屋を1つずつ回り、「都心」を探さない", async () => {
-  const itin = await planTrip({ kb, trip: trip("さん都心を回りたい") });
+  // 出発地が東京以外なら、いちばん多い読み（三大都市）
+  const itin = await planTrip({ kb, trip: trip("さん都心を回りたい", "大阪駅") });
   const names = namesOf(itin).join("|");
   assert.match(names, /東京/);
   assert.match(names, /大阪/);
