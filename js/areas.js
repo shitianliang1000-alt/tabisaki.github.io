@@ -12,6 +12,7 @@
 
 import { wordRuns } from "./keywords.js";
 import { withJapanesePlaces } from "./romaji.js";
+import { WIDE_REACH_KM, shapeOf } from "./shapes.js";
 
 /** 地方名 → 都道府県。 */
 export const MACRO_AREAS = {
@@ -215,6 +216,82 @@ export function detectAreas(text, kb) {
     }
   }
   return found;
+}
+
+/**
+ * 収録にある場所の名前から、エリアを決めます（地名が当たらなかったとき）。
+ *
+ * 「琵琶湖に行きたい」は、どのエリア名にも県名にも当たりません。
+ * 地名の指定が無いことになり、湖の多い裏磐梯（福島）が出ていました。
+ * 琵琶湖は収録にあるのに、です。
+ *
+ * そのうえ琵琶湖は、**1つのエリアにまとめられません。** 岸には大津・
+ * 高島・長浜・彦根・近江八幡…とエリアが並び、浜もそれぞれの町にあります。
+ * 収録では近江八幡市に1点として入っていますが、そこだけに絞ると、
+ * 近江舞子や真野浜のような岸の浜が候補から消えます。
+ *
+ * そこで、
+ *   ・点の場所（お寺・美術館）なら、そのエリア
+ *   ・広い場所（湖・島・高原・山…。js/shapes.js）なら、代表の点から
+ *     WIDE_REACH_KM（js/shapes.js）以内にあるエリアをまとめて
+ * を候補にします。湖のまわりの浜は、それぞれのエリアの中から選ばれます。
+ *
+ * 当てるのは、定番か知られた場所（fame_tier）で、3文字以上の名前だけ
+ * です。短い名前や無名の場所は、たまたま文に含まれます（「公園」）。
+ *
+ * @returns {Array} detectAreas と同じ形（kind: "spot"）
+ */
+export function namedSpotAreas(text, kb) {
+  const s = withJapanesePlaces(text);
+  if (!s.trim()) return [];
+  const hits = new Map();
+  for (const spot of kb?.spots ?? []) {
+    if (spot?.fame_tier !== "major" && spot?.fame_tier !== "known") continue;
+    const name = String(spot.name ?? "");
+    if (name.length < 3 || !s.includes(name)) continue;
+    if (!Number.isFinite(spot.lat) || !Number.isFinite(spot.lng)) continue;
+    const had = hits.get(name);
+    // 同じ名前が2件あれば、知られているほう（定番）を代表にします。
+    if (!had || (had.fame_tier !== "major" && spot.fame_tier === "major")) {
+      hits.set(name, spot);
+    }
+  }
+  // 「琵琶湖大橋」と書いた人に、「琵琶湖」まで当てません。
+  const names = [...hits.keys()];
+  const out = [];
+  for (const [name, spot] of hits) {
+    if (names.some((n) => n !== name && n.includes(name))) continue;
+    const ids = new Set(spot.regionId ? [spot.regionId] : []);
+    if (shapeOf(spot) === "wide") {
+      // 定番の広い場所ほど大きい（琵琶湖・富士山）。知られた程度の
+      // 広い場所は、すぐ隣のエリアまでにします。
+      const reach = spot.fame_tier === "major" ? WIDE_REACH_KM : 6;
+      for (const r of kb?.regions ?? []) {
+        if (!Number.isFinite(r?.lat)) continue;
+        if (kmBetween(spot, r) <= reach) ids.add(r.id);
+      }
+    }
+    if (!ids.size) continue;
+    const prefs = new Set();
+    for (const id of ids) {
+      const p = kb?.regionsById?.get(id)?.prefecture
+        ?? kb?.regions?.find((r) => r.id === id)?.prefecture;
+      if (p) prefs.add(p);
+    }
+    out.push({ term: name, kind: "spot", prefectures: [...prefs],
+               regionIds: [...ids], groups: null });
+  }
+  return out;
+}
+
+function kmBetween(a, b) {
+  const R = 6371;
+  const r = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * r;
+  const dLng = (b.lng - a.lng) * r;
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
 function regionsIn(kb, prefectures) {

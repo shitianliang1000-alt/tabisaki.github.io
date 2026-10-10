@@ -22,7 +22,7 @@
 // 版を上げないと、前の版で溜めた 4.8MB が端末に残り続けます。
 // v5: 画面の記号を単線SVGに替え、js/ をぜんぶ先に入れるようにしました。
 // 先に入れるものが増えたので、また上げます。
-const VERSION = "tabisaki-v7";
+const VERSION = "tabisaki-v8";
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
 
@@ -93,6 +93,7 @@ const SHELL_FILES = [
   "./js/modes.js",
   "./js/nextleg.js",
   "./js/normals.js",
+  "./js/notaspot.js",
   "./js/notify.js",
   "./js/online.js",
   "./js/metrics.js",

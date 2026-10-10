@@ -16,7 +16,8 @@ import {
   aiStatus, embedQuery, hasApiKey, noteAiError, proposePlan, resetAiStatus,
   resolvedModel, understandRequest,
 } from "./ai.js";
-import { areaNote, areaScope, detectAreas, placeCandidates, unknownPlaceTerms }
+import { areaNote, areaScope, detectAreas, namedSpotAreas, placeCandidates,
+  unknownPlaceTerms }
   from "./areas.js";
 import { isTouring } from "./touring.js";
 import { readIntent } from "./intent.js";
@@ -159,6 +160,13 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   let scope = opts.ignoreAreas
     ? { regionIds: null, matched: [], missing: [] }
     : areaScope(detectAreas(towardText, kb));
+  // 地名は当たらないが、収録にある場所の名前（「琵琶湖」）が書かれて
+  // いるなら、そこから決めます。広い場所なら、まわりのエリアごと
+  // （js/areas.js の namedSpotAreas）。
+  if (!opts.ignoreAreas && !scope.regionIds) {
+    const near = namedSpotAreas(towardText, kb);
+    if (near.length) scope = { ...areaScope(near), missing: scope.missing };
+  }
 
   // 収録に無い土地は、AIに調べさせてから候補に入れます。
   //

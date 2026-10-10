@@ -157,6 +157,16 @@ export function trailEnds(spot, spots, from = null) {
 }
 
 /**
+ * 定番の広い場所が届く範囲（km）。
+ *
+ * 琵琶湖は南北に60kmあります。代表の1点（湖のまん中）から6kmでは、
+ * 岸のどこにも届きません。定番になるほどの広い場所は、それだけ大きい
+ * ものが多いので、まわりのエリアと「中の行き先」を広く取ります
+ * （js/areas.js の namedSpotAreas も同じ範囲を使います）。
+ */
+export const WIDE_REACH_KM = 25;
+
+/**
  * 広い場所の中にある、名前のついた行き先。
  *
  * 「舞洲」の中には「舞洲スポーツアイランド」があります。名前がその
@@ -166,22 +176,30 @@ export function trailEnds(spot, spots, from = null) {
  * 名前が違うだけの近所は拾いません（「舞洲」から始まらない別の施設を
  * 挙げると、島の中にあるとは限りません）。
  *
+ * 定番の広い場所（琵琶湖）は、範囲を WIDE_REACH_KM に広げ、名前を
+ * **途中に含む**ものも拾います（「滋賀県立琵琶湖博物館」「奥琵琶湖
+ * パークウェイ」）。名前に琵琶湖と入れるのは、琵琶湖のほとりにある
+ * ものです。
+ *
  * @param {object} spot
  * @param {Array} spots 収録
  * @param {number} [maxKm] この距離までを「中」とみなします
  * @returns {Array} 近い順。多くても5件
  */
-export function insideOf(spot, spots, maxKm = 6) {
+export function insideOf(spot, spots, maxKm) {
   const name = String(spot?.name ?? "").trim();
   if (!name || !Number.isFinite(spot?.lat)) return [];
+  const major = spot?.fame_tier === "major" && name.length >= 3;
+  const reach = maxKm ?? (major ? WIDE_REACH_KM : 6);
   const out = [];
   for (const s of spots ?? []) {
     if (s === spot || s.id === spot.id) continue;
     if (!Number.isFinite(s?.lat)) continue;
     const n = String(s.name ?? "");
-    if (n === name || !n.startsWith(name)) continue;
+    if (n === name) continue;
+    if (!(n.startsWith(name) || (major && n.includes(name)))) continue;
     const d = km(spot, s);
-    if (d > maxKm) continue;
+    if (d > reach) continue;
     out.push({ spot: s, km: Math.round(d * 10) / 10 });
   }
   out.sort((x, y) => x.km - y.km);
