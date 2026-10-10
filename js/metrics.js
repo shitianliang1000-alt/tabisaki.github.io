@@ -109,16 +109,17 @@ export const METRICS_KEY = "tabisaki.metrics";
 /**
  * 集計に協力するか。
  *
- * **既定は「しない」です。** 設定で入れた人のぶんだけ数えます。
- * 名前の無い件数でも、開いただけで送り始めるのは、頼まれていないことを
- * 先にしていることになります。以前の既定（する）のまま何も触って
- * いない人も、ここで「しない」に戻ります（"on" を保存した人だけが数えます）。
+ * **既定は「協力する」です。** 設定の「使われかたの集計に協力しない」に
+ * チェックを入れた人（保存した値が "off"）のぶんだけ、数えるのをやめます。
+ * 値が無い人も、前の版で "on" を保存した人も、数えます（どちらも
+ * 「止めた」とは言っていません）。前の版で "off" にした人は、そのまま
+ * 止まったままです。
  */
 export function metricsEnabled(storage = globalThis.localStorage) {
   try {
-    return storage?.getItem(METRICS_KEY) === "on";
+    return storage?.getItem(METRICS_KEY) !== "off";
   } catch {
-    return false;
+    return true;
   }
 }
 

@@ -721,6 +721,8 @@ p, li { text-wrap: pretty; }
   color: var(--hig-label-2);
 }
 .credits a { color: var(--md-sys-color-primary); }
+/* 小さい字。色は本文の補助と同じ（AA 4.5:1 を満たす --hig-label-2）。 */
+.credits .ai-note { font-size: var(--hig-t-caption2, 11px); }
 
 /* ------------------------------------------------ まだ旅程が無い画面 --- */
 
