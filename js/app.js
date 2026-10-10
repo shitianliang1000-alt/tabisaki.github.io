@@ -49,6 +49,7 @@ import { armNotices, askNotifyPermission, scheduleNotices }
   from "./notify.js";
 import { requeryNextLeg } from "./nextleg.js";
 import { orderDiff } from "./orderdiff.js";
+import { reachOf } from "./reach.js";
 import { clearTripMode, loadTripMode, saveTripMode } from "./tripmode.js";
 import { searchYahooTransit } from "./yahoo-transit.js";
 import { yahooFlags } from "./modes.js";
@@ -448,12 +449,15 @@ function setBadge(text, isError = false) {
  * DOM を作るので、ブラウザが数秒固まります。打たれた文字で絞って
  * 20件だけ差し替えます（ファイルの形ではなく、件数が問題です）。
  */
+/** はじめて開いたときの出発地。 */
+const DEFAULT_FROM = "東京駅";
+
 function fillPlaces() {
   const list = $("#place-list");
   for (const p of PLACES) {
     list.append(el("option", { value: p.name }, `${p.area}`));
   }
-  $("#depart-place").value = "東京駅";
+  $("#depart-place").value = DEFAULT_FROM;
 
   for (const id of ["#depart-place", "#end-place"]) {
     $(id)?.addEventListener("input", (e) => suggestPlaces(e.currentTarget.value));
@@ -1261,13 +1265,20 @@ function renderPinned() {
   if (!state.pinned.size) return;
   box.append(el("label", {}, "必ず行く場所（絶対条件）"));
   const list = el("div", { class: "pin-list" });
+  // 出発地が収録の駅なら、そこからの目安を札の下に添えます（js/reach.js）。
+  const from = findPlace($("#depart-place").value);
   for (const spot of state.pinned.values()) {
     const chip = el("span", { class: "pin-chip" }, `${spot.name}`);
     chip.append(el("button", {
-      type: "button", title: "外す",
+      type: "button", title: "外す", "aria-label": `${spot.name}を外す`,
       onClick: () => { state.pinned.delete(spot.id); renderPinned(); },
     }, "×"));
-    list.append(chip);
+    const reach = reachOf(from, spot);
+    if (!reach) { list.append(chip); continue; }
+    const item = el("span", { class: "pin-item" }, chip);
+    item.append(el("small", { class: `pin-reach${reach.far ? " is-far" : ""}` },
+      reach.text + (reach.far ? "。日帰りだと現地の時間がほとんど残りません" : "")));
+    list.append(item);
   }
   box.append(list);
   box.append(el("p", { class: "help" },
@@ -1420,6 +1431,13 @@ function wireForm() {
       // input を起こします。入れないと、欄は伸びず（書いた分だけ伸びる
       // 仕掛けが input を見ています）、条件も保存されません。
       note.dispatchEvent(new Event("input", { bubbles: true }));
+      // 出発地つきの札（人気の条件）。まだ既定の出発地のままなら入れます。
+      // 自分で出発地を書き換えた人の駅は、上書きしません。
+      const from = $("#depart-place");
+      if (btn.dataset.from && [DEFAULT_FROM, ""].includes(from.value.trim())) {
+        from.value = btn.dataset.from;
+        from.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       note.focus();
       // 書き換えてもらうための下書きなので、末尾にカーソルを置きます。
       note.setSelectionRange(note.value.length, note.value.length);
@@ -1451,7 +1469,11 @@ function wireForm() {
   // （PageSpeed の「強制リフロー」）。戻した文があるときは、戻した側で
   // input を起こして伸ばします（restoreConditions）。
   $("#depart-at").addEventListener("change", updateWindowHelp);
-  $("#depart-place").addEventListener("change", updateWindowHelp);
+  $("#depart-place").addEventListener("change", () => {
+    updateWindowHelp();
+    renderPinned();
+  });
+  $("#reset-form")?.addEventListener("click", resetConditions);
   $("#arrive-by").addEventListener("change", updateWindowHelp);
   // 引数なしで呼びます。そのまま渡すと、クリックイベントが
   // 「条件」として渡ってしまいます。
@@ -1692,6 +1714,23 @@ async function restorePinned(ids, regionIds = []) {
   }
   renderPinned();
   updateWindowHelp();
+}
+
+/**
+ * 条件を最初の状態に戻します。
+ *
+ * 欄を1つずつ既定値へ戻すと、既定値を2か所に書くことになり
+ * （ここと、初めて開いたときの組み立て）、どちらかがずれます。
+ * 保存した条件を消して、条件の付かない URL で開き直します。
+ * 「前につくった旅」と設定（文字の大きさ・旅行中モードなど）は残します。
+ */
+function resetConditions() {
+  const ok = globalThis.confirm?.(
+    "入力した条件をすべて最初の状態に戻します。"
+    + "画面に出ている旅程も閉じます（「前につくった旅」は残ります）。よろしいですか？");
+  if (!ok) return;
+  try { globalThis.localStorage?.removeItem(SAVE_KEY); } catch { /* 無くても戻せます */ }
+  location.replace(location.pathname);
 }
 
 /** 条件を保存します（次に開いたときに、また入力し直さなくて済むように）。 */

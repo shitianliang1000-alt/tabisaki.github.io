@@ -149,6 +149,17 @@
   <h1 class="sr-only">旅さき</h1>
 </header>
 
+<!-- 画面は全部 JavaScript で動きます。読み込めなかったとき（無効にしている・
+     拡張機能に止められた・回線が切れた）、ボタンを押しても何も起きない
+     フォームだけが残ります。理由と、JavaScript なしで読める
+     エリアのページ（areas/）への道を出しておきます。 -->
+<noscript>
+  <div class="noscript">
+    <p><strong>旅さきで旅程をつくるには、JavaScript を有効にしてください。</strong></p>
+    <p>JavaScript なしでも、<a href="areas/index.html">エリアから探す（都道府県の観光地とモデルコース）</a>は読めます。</p>
+  </div>
+</noscript>
+
 <!-- 圏外の帯。圏外のときだけ出ます（js/online.js）。
      目安の時刻を、時刻表の時刻と読み違えさせないためです。 -->
 <p id="net-status" class="net-status" role="status" aria-live="polite" hidden></p>
@@ -245,18 +256,25 @@
            カードをやめて、札に寄せました。
 
            前半は行き先の名指し、後半は旅のしかた（温泉・歴史・自然…）
-           です。どちらも押せば欄が埋まります。 -->
+           です。どちらも押せば欄が埋まります。
+
+           data-from の付いた札は、出発地も入れます（はじめての人が
+           押してそのまま「旅程をつくる」まで行けるように）。ただし
+           出発地が既定の東京駅のままのときだけです。自分の駅を
+           入れた人の出発地は書き換えません。 -->
       <div class="chip-set note-examples" role="group" aria-label="そのまま使える例">
         <button type="button" class="md-chip md-chip--assist md-state"
-                data-example="鎌倉を日帰りで、食べ歩きもしたい">鎌倉 日帰り</button>
+                data-example="鎌倉を日帰りで、食べ歩きもしたい" data-from="東京駅">鎌倉 日帰り</button>
         <button type="button" class="md-chip md-chip--assist md-state"
                 data-example="箱根で温泉に入って、美術館もめぐりたい">箱根 温泉と美術館</button>
         <button type="button" class="md-chip md-chip--assist md-state"
-                data-example="雨でも楽しめる京都をまわりたい">雨の日の京都</button>
+                data-example="雨でも楽しめる京都をまわりたい" data-from="大阪駅">雨の日の京都</button>
         <button type="button" class="md-chip md-chip--assist md-state"
                 data-example="海沿いの道をドライブして、景色のいいところに寄りたい">海沿いドライブ</button>
         <button type="button" class="md-chip md-chip--assist md-state"
                 data-example="日光で滝と社寺をめぐりたい">日光 滝と社寺</button>
+        <button type="button" class="md-chip md-chip--assist md-state"
+                data-example="湯布院で温泉に入って、ゆったり過ごしたい" data-from="博多駅">湯布院 温泉</button>
         <button type="button" class="md-chip md-chip--assist md-state"
                 data-example="温泉でゆっくり癒されたい">温泉でゆっくり</button>
         <button type="button" class="md-chip md-chip--assist md-state"
@@ -703,6 +721,12 @@
 
     <div class="tune-group" id="pinned" hidden></div>
     <div id="form-error" hidden></div>
+
+    <!-- 別の旅を一から考えたいとき。確認を挟んでから、保存した条件を
+         消して開き直します（js/app.js の resetConditions）。 -->
+    <p class="reset-row">
+      <button type="button" class="linkish" id="reset-form">条件をリセット</button>
+    </p>
 
     <div class="make hig-glass hig-glass-thick hig-scroll-edge">
       <button type="button" class="md-fab-extended md-state" id="make-plan">
