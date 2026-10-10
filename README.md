@@ -382,7 +382,6 @@ PROXY_URL
 - **旅程の結果**（成功率・かかった時間・AIに聞いた回数・入力条件の分布）は、「使われかたの集計に協力する」を入れた人のぶんだけです（初期はオフ）。決まった選択肢と数だけが届きます（`js/metrics.js`）。
 - **機能の入り切りと上限**は、管理画面で保存すると、30秒ほどで Worker に効きます。
 - **スポットの追加・削除・分類の直し**は、管理画面では「変更待ち」に積むだけで、公開サイトには出ません。書き込みは合言葉を通った管理画面からだけです。Worker の secret `GITHUB_TOKEN`（このリポジトリだけに絞った fine-grained token。Contents と Pull requests に Read and write）を入れると「PRにする」で `kb/` の変更を PR にします。入れていないときは「JSONで書き出す」→ `node tools/apply_kb_edits.mjs kb-edits.json` で手元に当てます。
-- 著作権・出典は [credits.html](credits.html) に別ページとしてまとめてあり、管理画面の「概要」からリンクしています。
 
 初回だけ、リポジトリの **Settings → Pages → Source** を「GitHub Actions」にしてください。
 
