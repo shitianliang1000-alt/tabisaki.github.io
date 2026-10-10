@@ -208,9 +208,8 @@ async function boot() {
       devKb.textContent = KB_INDEX_URL
         ? `公開知識ベース（${KB_INDEX_URL}）` : "同梱データ（KB_INDEX_URL 未設定）";
     }
-    renderAttribution(state.kb);
     // 収録件数やキーの有無は、旅行者が読んでも何もできない話です。
-    // 出典表示（renderAttribution）だけ残します。
+    // 出典は画面の下の「著作権表記」のページにまとめています（credits.html）。
     $("#ph-data").textContent = "";
   } catch (e) {
     setBadge(`データを読み込めません: ${e.message}`, true);
@@ -423,26 +422,6 @@ function rememberTrip(itin, trip) {
     trip,
   });
   renderRecent();
-}
-
-/**
- * データの出どころを画面に出します。
- * 国土数値情報は出典の表示が条件になっているので、消さないでください。
- */
-function renderAttribution(kb) {
-  const box = $("#attribution");
-  if (!box) return;
-  const list = kb.attribution ?? [];
-  if (!list.length) { box.hidden = true; return; }
-  box.hidden = false;
-  box.textContent = "";
-  box.append(el("span", {}, "データ: "));
-  list.forEach((s, i) => {
-    if (i) box.append(el("span", {}, " / "));
-    box.append(s.url
-      ? el("a", { href: s.url, target: "_blank", rel: "noreferrer" }, s.name)
-      : el("span", {}, s.name));
-  });
 }
 
 function setBadge(text, isError = false) {
