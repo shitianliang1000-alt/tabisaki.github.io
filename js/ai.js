@@ -739,6 +739,20 @@ const UNDERSTAND_SCHEMA = {
     budgetHint: S.enum(["cheap", "normal", "generous"]),
     keywords: S.strList("説明文と照合するための日本語の語（3〜8語）"),
     avoid: S.strList("利用者が明確に避けたいと言ったもの。無ければ空"),
+    // 名前のある旅のしかた（「最長片道切符」「国道1号線の旅」など）。
+    // 行き先ではなく旅の形なので、地名と同じには扱えません（js/journeys.js）。
+    journey: {
+      type: "OBJECT",
+      properties: {
+        name: S.str("旅のしかた・切符・道・路線の名前。無ければ空文字"),
+        meaning: S.str("それが何かを40字程度で"),
+        transport: S.enum(["none", "transit", "car", "walk", "local", "ferry", "air"]),
+        enjoyTravel: { type: "BOOLEAN" },
+        along: S.strList("沿って訪れる日本の地名を順に（決まっていなければ空）"),
+      },
+      required: ["name", "meaning", "transport", "enjoyTravel", "along"],
+      propertyOrdering: ["name", "meaning", "transport", "enjoyTravel", "along"],
+    },
   },
   required: ["searchText", "interests", "pace", "budgetHint", "keywords", "avoid"],
   propertyOrdering: ["searchText", "interests", "pace", "budgetHint", "keywords", "avoid"],
@@ -785,6 +799,15 @@ export async function understandRequest(note, interests, hours, opts = {}) {
     "（「癒される」ではなく「露天風呂」「渓谷」のように、物の名前で）。",
     "avoid には、利用者が明確に断ったものだけを入れてください。",
     "書かれていないことを推測で足さないでください。",
+    "",
+    "利用者の言葉に、名前のある旅のしかた（切符・道・路線・街道・巡礼など。",
+    "例: 最長片道切符、国道1号線の旅、東海道五十三次、四国八十八か所、",
+    "只見線、しまなみ海道）があれば、journey に書いてください。",
+    "name はその名前、meaning はそれが何か、transport はその旅で使う乗り物",
+    "（決まっていなければ none）、enjoyTravel は移動そのものが目的の旅なら true、",
+    "along は沿って訪れる日本の地名（市町村や観光地の名前）を順に入れます。",
+    "知らない名前を推測で説明しないでください。分からなければ name を空にします。",
+    "その名前は keywords に入れないでください（場所の名前ではないためです）。",
   ].join("\n");
 
   try {
@@ -799,6 +822,7 @@ export async function understandRequest(note, interests, hours, opts = {}) {
         ? p.budgetHint : "normal",
       keywords: Array.isArray(p.keywords) ? p.keywords : [],
       avoid: Array.isArray(p.avoid) ? p.avoid : [],
+      journey: p.journey?.name ? p.journey : null,
     };
     if (understood.size >= UNDERSTOOD_MAX) {
       understood.delete(understood.keys().next().value);
