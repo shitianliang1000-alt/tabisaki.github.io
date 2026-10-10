@@ -20,7 +20,11 @@
 //
 // ブラウザが出す「ユーザー名」は何でもかまいません。見るのは合言葉だけです。
 
+import { forgetSettings, forward } from "./stats.js";
+import { openKbPullRequest } from "./github.js";
+
 export const ADMIN_PREFIX = "/private/";
+const API_PREFIX = `${ADMIN_PREFIX}api/`;
 export const SITE_ORIGIN = "https://shitianliang1000-alt.github.io";
 export const SITE_ROOT = `${SITE_ORIGIN}/tabisaki.github.io/`;
 
@@ -39,11 +43,12 @@ export function isAdminPath(pathname) {
  * 管理画面への GET/HEAD を受けます。
  * fail(ip) は、合言葉を間違えたときに呼ばれます（回数制限に数えるため）。
  */
-export async function serveAdmin(request, env, { onBadPassword } = {}) {
+export async function serveAdmin(request, env, { onBadPassword, overview } = {}) {
   const password = String(env?.ADMIN_PASSWORD ?? "");
   // 合言葉が無い＝管理画面を出さない。在ることも言いません。
   if (!password) return plain("Not found", 404);
-  if (request.method !== "GET" && request.method !== "HEAD") {
+  const isApi = new URL(request.url).pathname.startsWith(API_PREFIX);
+  if (!isApi && request.method !== "GET" && request.method !== "HEAD") {
     return plain("Method not allowed", 405, { Allow: "GET, HEAD" });
   }
 
@@ -73,6 +78,7 @@ export async function serveAdmin(request, env, { onBadPassword } = {}) {
   if (rest === "admin") {
     return guarded(Response.redirect(new URL(`${ADMIN_PREFIX}admin/`, url).toString(), 302));
   }
+  if (isApi) return guarded(await serveApi(request, env, url, rest.slice("api/".length), overview));
   if (ADMIN_FILE.test(rest)) {
     if (!env.ADMIN_FILES) return plain("管理画面のファイルが Worker に入っていません", 503);
     const name = rest.slice("admin/".length) || "index.html";
@@ -88,6 +94,68 @@ export async function serveAdmin(request, env, { onBadPassword } = {}) {
     return guarded(res);
   }
   return plain("Not found", 404);
+}
+
+/**
+ * 管理画面の読み書き（/private/api/…）。合言葉を通ったあとにだけ来ます。
+ *
+ * 合言葉はブラウザが覚えて自動で付けるので、ほかのサイトのページから
+ * こっそり書き込ませる（CSRF）ことができてしまいます。決まった見出し
+ * （X-Admin-Request）を付けた呼び出しだけを受けます。この見出しは、
+ * ほかの出どころからは事前確認（preflight）なしには付けられず、
+ * その事前確認にはここが答えないので、ほかのサイトからは届きません。
+ */
+async function serveApi(request, env, url, path, overview) {
+  if (request.headers.get("X-Admin-Request") !== "1") return apiJson({ ok: false, error: "見出しが足りません" }, 403);
+  const origin = request.headers.get("Origin");
+  if (origin && origin !== url.origin) return apiJson({ ok: false, error: "別のサイトからは使えません" }, 403);
+  const m = request.method;
+  const body = async () => { try { return await request.json(); } catch { return null; } };
+
+  if (m === "GET" && path === "overview") return apiJson({ ok: true, ...(overview ? await overview() : {}) });
+  if (m === "GET" && path === "stats") {
+    return forward(env, "GET", `/summary?days=${encodeURIComponent(url.searchParams.get("days") ?? "30")}`);
+  }
+  if (path === "settings" && m === "GET") return forward(env, "GET", "/settings");
+  if (path === "settings" && m === "PUT") {
+    const res = await forward(env, "PUT", "/settings", await body());
+    forgetSettings();
+    return res;
+  }
+  if (path === "edits" && m === "GET") return forward(env, "GET", "/edits");
+  if (path === "edits" && m === "POST") return forward(env, "POST", "/edits", await body());
+  if (path === "edits" && m === "DELETE") {
+    const keys = url.searchParams.getAll("key");
+    const q = keys.map((k) => `key=${encodeURIComponent(k)}`).join("&");
+    if (!keys.length && url.searchParams.get("all") !== "1") {
+      return apiJson({ ok: false, error: "消すものを指定してください" }, 400);
+    }
+    return forward(env, "DELETE", `/edits${q ? `?${q}` : ""}`);
+  }
+  if (path === "edits/publish" && m === "POST") {
+    const listed = await (await forward(env, "GET", "/edits")).json();
+    const edits = listed?.edits ?? [];
+    try {
+      const out = await openKbPullRequest(env, edits);
+      // PR に入ったものだけを、変更待ちから外します。
+      const done = new Set(out.applied.map((e) => e.key));
+      const keys = edits.filter((e) => done.has(e.key)).map((e) => e.key);
+      if (keys.length) {
+        await forward(env, "DELETE", `/edits?${keys.map((k) => `key=${encodeURIComponent(k)}`).join("&")}`);
+      }
+      return apiJson({ ok: true, ...out });
+    } catch (e) {
+      console.error("Failed to publish edits:", e?.stack ?? e);
+      return apiJson({ ok: false, error: "公開処理に失敗しました" }, 502);
+    }
+  }
+  return apiJson({ ok: false, error: "その入口はありません" }, 404);
+}
+
+function apiJson(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status, headers: { "Content-Type": "application/json; charset=utf-8" },
+  });
 }
 
 /** Authorization: Basic … から合言葉だけを取り出します。無ければ null。 */

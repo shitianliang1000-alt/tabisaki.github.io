@@ -549,6 +549,8 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 案は毎回点をつけて、**いちばん良かったものを覚えておきます**
   // （作り直すほど良くなるとは限らないので、最後の案を採るのは誤りです）。
   let repaired = false;
+  // AIに案を聞いた回数（管理画面の「平均ラウンド数」。js/metrics.js）
+  let usedRounds = 1;
   // 作り直す条件。
   //
   //   ・時間の合わない立ち寄りが残っている
@@ -588,6 +590,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
         break;
       }
       stop();
+      usedRounds = round;
       const recheck = await verifyProposal(next, trip, candidates, kb,
                                            { useRoutes: false, signal });
       const round0 = { key: `round${round}`, proposal: next, checked: recheck,
@@ -631,6 +634,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   itin.headline = proposal.fromModel ? proposal.headline : "";
   itin.rationale = proposal.rationale;
   itin.verifyNote = buildVerifyNote(checked, repaired, proposal);
+  itin.rounds = usedRounds;
   // 連泊なら、その1か所。宿を動かさない旅だと分かる1行を出すために
   // 使います（stays.js が選んでいます）。
   //    駅名ではなく土地の名前で言います。「松江駅に2泊」は、駅で
