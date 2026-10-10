@@ -124,10 +124,6 @@ const state = { kb: null, map: null, bgMap: null, homeMap: null, trip: null,
 // --- 起動 -------------------------------------------------------------------
 
 async function boot() {
-  // 地図の見た目（vendor/leaflet.css）を効かせます。描くのを待たせない
-  // よう、index.html では media="print" で読んであります。
-  const leafletCss = document.getElementById("leaflet-css");
-  if (leafletCss) leafletCss.media = "all";
   // **画面を組む前に、字の大きさを当てます。**
   //
   // あとから当てると、標準の大きさで一度描いてから大きくなるので、
