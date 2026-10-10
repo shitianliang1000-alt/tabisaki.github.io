@@ -53,13 +53,53 @@ export function hotelsUrl(near, checkIn, checkOut) {
   return url.toString();
 }
 
+/**
+ * 地図アプリに渡す場所の書きかた。
+ *
+ * 駅は**名前で**渡します。旅程の「難波駅」の位置は、エリアの代表点
+ * （駅の近く）で、座標のまま渡すと地図は付近の名もない建物に旗を立てます。
+ * 「難波→住吉大社」を開いたら、知らないビルから始まっていた、の原因です。
+ * 名前なら地図が駅の出入口に当ててくれます。スポットの座標は正確なので、
+ * そのまま渡します。
+ */
+function placeParam(p) {
+  const name = String(p?.name ?? "").trim();
+  if (/駅$/.test(name)) return name;
+  return `${p.lat},${p.lng}`;
+}
+
 /** 経路を Google マップで開く（実際に移動するときに使う想定）。 */
 export function directionsUrl(from, to, mode = "transit") {
   const url = new URL("https://www.google.com/maps/dir/");
   url.searchParams.set("api", "1");
-  url.searchParams.set("origin", `${from.lat},${from.lng}`);
-  url.searchParams.set("destination", `${to.lat},${to.lng}`);
+  url.searchParams.set("origin", placeParam(from));
+  url.searchParams.set("destination", placeParam(to));
   url.searchParams.set("travelmode", mode);
+  return url.toString();
+}
+
+/**
+ * Yahoo!路線情報の検索結果へのリンク。南海・大阪メトロなど、実際の便が出ます。
+ * 駅名と位置の両方を渡すので、同名の駅に迷いません。
+ */
+export function yahooTransitUrl(from, to, at) {
+  const f = (p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+  const url = new URL("https://transit.yahoo.co.jp/search/result");
+  url.searchParams.set("from", String(from.name ?? ""));
+  url.searchParams.set("to", String(to.name ?? ""));
+  url.searchParams.set("flatlon", f(from));
+  url.searchParams.set("tlatlon", f(to));
+  const d = at instanceof Date && !Number.isNaN(at.getTime()) ? at : null;
+  if (d) {
+    const p = (n) => String(n).padStart(2, "0");
+    url.searchParams.set("y", String(d.getFullYear()));
+    url.searchParams.set("m", p(d.getMonth() + 1));
+    url.searchParams.set("d", p(d.getDate()));
+    url.searchParams.set("hh", p(d.getHours()));
+    url.searchParams.set("m1", String(Math.floor(d.getMinutes() / 10)));
+    url.searchParams.set("m2", String(d.getMinutes() % 10));
+  }
+  url.searchParams.set("type", "1");
   return url.toString();
 }
 
@@ -198,6 +238,13 @@ export function linksForItem(item, ctx = {}) {
     case "transit": {
       if (ctx.from && ctx.to) {
         out.push({ label: "経路を開く", url: directionsUrl(ctx.from, ctx.to) });
+        // 実際の便（Yahoo!路線情報）。調べた結果があればそのリンク、
+        // 目安の区間なら、同じ駅・時刻で調べるリンクを作ります。
+        const y = item.yahoo?.url
+          || (Number.isFinite(ctx.from.lat) && Number.isFinite(ctx.to.lat)
+            && ctx.from.name && ctx.to.name && !item.walk
+            ? yahooTransitUrl(ctx.from, ctx.to, item.start) : "");
+        if (y) out.push({ label: "時刻表で調べる（Yahoo!路線情報）", url: y });
       }
       break;
     }
