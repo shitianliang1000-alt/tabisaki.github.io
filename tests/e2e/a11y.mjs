@@ -50,7 +50,7 @@ let failures = 0;
  *   読み上げと色を別に測ります。
  */
 async function audit(name, { dark = false, plan = false, width = 1280,
-                             today = false } = {}) {
+                             today = false, areaMap = false } = {}) {
   const ctx = await browser.newContext({
     viewport: { width, height: 900 },
     colorScheme: dark ? "dark" : "light",
@@ -88,6 +88,17 @@ async function audit(name, { dark = false, plan = false, width = 1280,
     await page.waitForSelector("#result:not([hidden])", { timeout: 120_000 });
     await page.waitForTimeout(1500);
     clearInterval(answering);
+  }
+
+  if (areaMap) {
+    // エリアを地図で探す画面。ピンを1本押して、吹き出しまで出した形で測ります。
+    await page.click("#open-area-map");
+    await page.waitForSelector("#area-dialog .area-pin", { timeout: 15_000 });
+    await page.evaluate(() => {
+      document.querySelector('#area-dialog .area-pin[title="札幌"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await page.waitForSelector("#area-dialog .area-pop", { timeout: 5000 });
   }
 
   await page.addScriptTag({ url: "/__axe.js" });
@@ -232,6 +243,9 @@ await audit("旅の当日の画面（携帯の幅）",
             { width: 390, plan: true, today: true });
 await audit("旅の当日の画面（暗い配色）",
             { dark: true, plan: true, today: true });
+
+await audit("エリアを地図で探す画面（携帯の幅）", { width: 390, areaMap: true });
+await audit("エリアを地図で探す画面（暗い配色）", { dark: true, areaMap: true });
 
 await auditStatic("著作権表記のページ（明るい配色）", "credits.html");
 await auditStatic("著作権表記のページ（暗い配色・携帯の幅）", "credits.html",

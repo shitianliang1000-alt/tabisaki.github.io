@@ -845,6 +845,54 @@ function whenLeaflet(timeoutMs = 8000) {
   });
 }
 
+// エリアを地図で探す（js/areamap.js）。開いたときに初めて読みます。
+// 開かない人には、地図の画面の部品を読ませません。
+let areaMap = null;
+let areaModule = null;
+let areaPicked = "";
+
+function wireAreaMap() {
+  const btn = $("#open-area-map");
+  const dlg = $("#area-dialog");
+  if (!btn || !dlg?.showModal) {
+    if (btn) btn.hidden = true;
+    return;
+  }
+  $("#area-close")?.addEventListener("click", () => dlg.close());
+  dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+  btn.addEventListener("click", async () => {
+    try {
+      if (!areaMap) {
+        const [mod, kb] = await Promise.all([
+          import("./areamap.js"), state.kbPromise]);
+        areaModule = mod;
+        areaMap = mod.setupAreaMap(dlg, {
+          regions: kb?.regions ?? [], tileUrl: TILE_URL,
+          attribution: TILE_ATTRIBUTION, onPick: pickArea,
+        });
+        // Leaflet は async で読んでいます。まだ届いていなければ少し待ちます
+        // （届かなければ、一覧だけで選べます）。
+        await whenLeaflet(3000);
+      }
+      areaMap.open();
+    } catch (e) {
+      setBadge(`エリアの地図を開けませんでした: ${e.message}`, true);
+    }
+  });
+}
+
+function pickArea(area) {
+  const note = $("#note");
+  note.value = areaModule.noteWithArea(note.value, area.name, areaPicked);
+  areaPicked = area.name;
+  // 札と同じく input を起こします（欄が伸び、条件も保存されます）。
+  note.dispatchEvent(new Event("input", { bubbles: true }));
+  const said = $("#area-picked");
+  if (said) said.textContent = `「${area.name}」を入れました。続けて書き足せます。`;
+  note.focus();
+  note.setSelectionRange(note.value.length, note.value.length);
+}
+
 let homeMapStarted = false;
 
 async function startHomeMap() {
@@ -1360,6 +1408,7 @@ function wireForm() {
       updateWindowHelp();
     });
   }
+  wireAreaMap();
   for (const btn of document.querySelectorAll("[data-example]")) {
     btn.addEventListener("click", () => {
       const note = $("#note");
