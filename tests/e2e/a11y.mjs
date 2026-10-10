@@ -99,6 +99,8 @@ async function audit(name, { dark = false, plan = false, width = 1280,
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await page.waitForSelector("#area-dialog .area-pop", { timeout: 5000 });
+    // 吹き出しは薄い色から出てきます（Leaflet のフェード）。出きってから測ります。
+    await page.waitForTimeout(800);
   }
 
   await page.addScriptTag({ url: "/__axe.js" });
