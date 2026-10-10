@@ -181,6 +181,26 @@ export const STEPS = [
 ];
 
 /**
+ * 6つの段を、利用者にとっての3つの区切りにまとめたもの。
+ *
+ * 6段の一覧だけだと、どれも同じ太さの行で、「いまどこか」は小さな
+ * 丸の色でしか分かりませんでした。待っている人が知りたいのは
+ * 「いま何をしていて、全体のどのあたりか」なので、大きな区切りを
+ * 札のいちばん上に出し、細かい6段はその下に残します。
+ */
+export const PHASES = [
+  { label: "行き先えらび", doing: "行き先を選んでいます", steps: [0, 1, 2] },
+  { label: "時間の照合", doing: "営業時間と照合しています", steps: [3, 4] },
+  { label: "経路と時刻", doing: "経路と時刻を組んでいます", steps: [5] },
+];
+
+/** 段（0〜5）が、3つの区切りのどこにあたるか。 */
+export function phaseOf(step) {
+  const s = Math.max(0, Math.min(step, STEPS.length - 1));
+  return PHASES.findIndex((p) => p.steps.includes(s));
+}
+
+/**
  * 待っているあいだの画面。
  *
  * 回る輪だけだと、進んでいるのか固まったのかが分かりません。
@@ -209,6 +229,11 @@ export function renderProgress(container, step, detail = "", extra = null) {
     container.textContent = "";
     card = el("div", { class: "plan-card" });
     card.append(
+      el("ol", { class: "phase-row", "aria-label": "旅程づくりの進み具合" },
+        PHASES.map((p, i) => el("li", {},
+          el("span", { class: "phase-num", "aria-hidden": "true" }, String(i + 1)),
+          el("span", { class: "phase-label" }, p.label)))),
+      el("p", { class: "step-count" }, ""),
       el("p", { class: "step-text" }, "旅を組み立てています"),
       el("p", { class: "step-detail" }, ""),
       el("div", { class: "md-progress", role: "progressbar",
@@ -244,6 +269,17 @@ export function renderProgress(container, step, detail = "", extra = null) {
 
   card.querySelector(".step-detail").textContent =
     detail || STEPS[Math.min(step, STEPS.length - 1)];
+  // いまの区切りを、札の見出しにします。
+  const ph = phaseOf(step);
+  card.querySelector(".step-text").textContent = PHASES[ph].doing;
+  card.querySelector(".step-count").textContent =
+    `${PHASES.length}つのうち${ph + 1}つ目・${PHASES[ph].label}`;
+  card.querySelectorAll(".phase-row li").forEach((li, i) => {
+    li.className = i < ph ? "done" : i === ph ? "active" : "";
+    if (i === ph) li.setAttribute("aria-current", "step");
+    else li.removeAttribute("aria-current");
+    li.firstChild.replaceChildren(...(i < ph ? [icon("check")] : [String(i + 1)]));
+  });
   // 絵に、いまの段と材料を渡します。
   if (card.__sketch) {
     const patch = { step };

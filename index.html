@@ -127,6 +127,40 @@
   <!-- ===================== 左: 条件 ===================== -->
   <section class="pane pane-form" id="form-pane">
 
+    <!-- できあがりの見本（携帯だけ）。
+         ------------------------------------------------------------
+         携帯では条件と結果を別の画面にしているので、初めて開くと
+         入力欄が並んでいるだけに見えました。広い画面なら右半分に
+         地図と「つくりかた」が出ますが、携帯にはそれがありません。
+         **何が返ってくるのか**を、入力の前に小さく1枚だけ見せます。
+         中身は固定の見本です（通信しません）。押すと同じ旅の一文が
+         欄に入るので、そのまま試せます。前につくった旅がある人には
+         もう要らないので、そのときは出しません（css）。 -->
+    <section class="preview" aria-labelledby="preview-title">
+      <p class="preview-kicker">できあがりの例</p>
+      <h2 class="preview-title" id="preview-title">鎌倉を日帰りで・東京駅から</h2>
+      <div class="preview-body">
+        <svg class="preview-map" viewBox="0 0 96 96" aria-hidden="true" focusable="false">
+          <path class="pv-coast" d="M0 70 C20 62 34 74 52 68 S84 58 96 64 V96 H0Z"/>
+          <path class="pv-route" d="M78 12 L70 30 L58 44 L44 60 L22 62"/>
+          <circle class="pv-start" cx="78" cy="12" r="5"/>
+          <g class="pv-pin"><circle cx="70" cy="30" r="7"/><text x="70" y="33.5" font-size="9">1</text></g>
+          <g class="pv-pin"><circle cx="58" cy="44" r="7"/><text x="58" y="47.5" font-size="9">2</text></g>
+          <g class="pv-pin"><circle cx="44" cy="60" r="7"/><text x="44" y="63.5" font-size="9">3</text></g>
+          <g class="pv-pin pv-hidden"><circle cx="22" cy="62" r="7"/><text x="22" y="65.5" font-size="9">4</text></g>
+        </svg>
+        <ol class="preview-list">
+          <li><time>9:52</time><span>鶴岡八幡宮</span></li>
+          <li><time>11:30</time><span>小町通りで昼ごはん</span></li>
+          <li><time>13:20</time><span>長谷寺</span></li>
+          <li><time>15:00</time><span>由比ヶ浜 <em class="pv-tag">穴場</em></span></li>
+        </ol>
+      </div>
+      <p class="preview-note">行き先・まわる順・電車の時刻・帰りの時間まで、1枚にまとめます。</p>
+      <button type="button" class="md-btn md-btn--tonal md-state preview-try"
+              data-example="鎌倉を日帰りで、食べ歩きもしたい">この例で試す</button>
+    </section>
+
     <!-- 前につくった旅程。
          旅行サイトでいちばん戻ってくる導線がここです。中身（時刻の
          入った旅程）ではなく **条件** を覚えておいて、押されたら
@@ -312,7 +346,16 @@
          最初に出すのは「どんな旅・どこから・いつ・定番と穴場」の4つで、
          残りはここへ畳みます。触らなくても旅程は組めます。 -->
     <details class="tune" id="tune">
-      <summary><span>こだわりを追加する</span></summary>
+      <!-- 開く前に、中に何があるかを見せます。「こだわり」だけでは、
+           人数や宿のことがここにあると分かりません。中は4つの区切りに
+           分け、それぞれに見出しを付けます（縦に13項目が続くと、
+           どこまでが何の話か追えませんでした）。 -->
+      <summary><span class="tune-sum">
+        <span>こだわりを追加する（任意）</span>
+        <small class="tune-sum-sub">時間と興味・人数と移動・同行者と宿・食事と帰り</small>
+      </span></summary>
+
+      <h3 class="tune-sec">時間と興味</h3>
 
       <!-- 1日のうち、観光にあてる時間帯。帰着時刻とは別のことです。
            長さ（9時間）だけでは「いつ動くのか」が決まりません。同じ9時間
@@ -358,6 +401,7 @@
         </div>
       </div>
 
+      <h3 class="tune-sec">人数・予算・移動</h3>
       <!-- 予算と移動手段。
            どちらも「あとから直せない」たぐいの前提です。特に車が
            使えるかどうかは、バスが1日3本の土地で旅程が成立するか
@@ -476,6 +520,7 @@
           青春18きっぷなら、上の移動手段で「普通列車のみ」も選んでください。</p>
       </div>
 
+      <h3 class="tune-sec">同行者と宿</h3>
       <!-- 同行者。
            ------------------------------------------------------------
            旅程は「ふつうに歩ける大人ひとり」を前提に組まれていました。
@@ -540,6 +585,7 @@
           毎朝まとめ直すことになります。</p>
       </div>
 
+      <h3 class="tune-sec">食事と旅の終わり</h3>
       <!-- 食べたいもの。
            ------------------------------------------------------------
            6択でした。ガイドラインのセグメンテッドコントロールは

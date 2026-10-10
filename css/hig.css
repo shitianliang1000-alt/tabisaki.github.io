@@ -565,7 +565,9 @@
   background-repeat: no-repeat;
   cursor: pointer;
 }
-.md-field > *::placeholder { color: var(--hig-label-3); }
+/* 見本の文は読ませるためのものです。3段目の色では 1.7:1 しかなく、
+   日なたでは何も書いていない欄に見えました。2段目の色にします。 */
+.md-field > *::placeholder { color: var(--hig-label-2); }
 .md-field > *:focus {
   outline: none;
   box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--tabi-indigo) 22%, transparent);
@@ -836,7 +838,7 @@
 .md-sheet .sheet-toggle {
   display: flex; flex-direction: column; align-items: center; gap: 5px;
   min-width: 72px; min-height: 30px; padding: 2px 18px;
-  border: 0; background: none; color: var(--hig-label-3);
+  border: 0; background: none; color: var(--hig-label-2);
   font: inherit; font-size: var(--hig-t-caption2); line-height: 1; cursor: pointer;
 }
 .md-sheet .sheet-toggle:active { color: var(--hig-label); }
