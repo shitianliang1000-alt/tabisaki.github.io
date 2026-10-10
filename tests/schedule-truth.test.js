@@ -114,7 +114,7 @@ test("区間ごとに、その区間を通る日時で調べる", async () => {
   // 中継へ届いていれば、2区間それぞれの日付で聞いているはずです。
   if (asked.length >= 2) {
     assert.notEqual(asked[0].departAt.slice(0, 10),
-      asked[1].departAt.slice(0, 10),
+      asked.at(-1).departAt.slice(0, 10),
       `同じ日で聞いています: ${asked.map((a) => a.departAt)}`);
   }
 });

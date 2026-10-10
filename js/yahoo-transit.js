@@ -122,9 +122,18 @@ export async function searchYahooTransit(from, to, opts = {}) {
   // 立てます）。渡さなければ、これまでどおりです。
   const search = opts.search === "last" ? "last" : undefined;
 
+  // 位置も渡します（中継が Yahoo!に flatlon / tlatlon として渡します）。
+  // 名前だけだと、同じ名前の別の駅や、駅前の店に読み替えられます
+  // （「県庁前」が神戸の駅に、「京都駅前」が飲食店に）。位置があれば、
+  // Yahoo!がその近くの駅・バス停を選び、そこまでの徒歩も数えます。
+  // opts.byName を立てると、これまでどおり名前だけで聞きます。
+  const at = (p) => (!opts.byName && Number.isFinite(p?.lat) && Number.isFinite(p?.lng)
+    ? { lat: p.lat, lng: p.lng } : undefined);
   const body = JSON.stringify({
     from: fromName,
     to: toName,
+    fromAt: at(from),
+    toAt: at(to),
     departAt: departAt.toISOString(),
     modes: opts.modes ?? undefined,
     prefer: opts.prefer?.length ? opts.prefer : undefined,

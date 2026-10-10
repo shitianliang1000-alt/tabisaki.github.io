@@ -352,7 +352,7 @@ test("待ちが無ければ、余計に足さない", () => {
 // 経由地があると駅の位置からの目安に落ちていました。区間ごとに聞きます。
 
 /** 駅データとYahoo!の応答を差し替えます。 */
-function withYahoo(stops, reply, fn) {
+function withYahoo(stops, reply, fn, { located = true } = {}) {
   const real = globalThis.fetch;
   const asked = [];
   globalThis.fetch = async (url, init) => {
@@ -365,7 +365,12 @@ function withYahoo(stops, reply, fn) {
     }
     const body = JSON.parse(init?.body ?? "{}");
     asked.push(body);
-    return { ok: true, json: async () => reply(body) };
+    // 今の中継は、位置を受け取ったらそれで聞いたと返します。
+    const out = reply(body);
+    // located: false は、位置を受け取らない古い中継（名前だけで聞く）。
+    const answer = located && (body.fromAt || body.toAt) && out
+      && typeof out === "object" ? { byLocation: true, ...out } : out;
+    return { ok: true, json: async () => answer };
   };
   clearRouteCache();
   resetRoutesBreaker();
@@ -587,7 +592,7 @@ test("両端の最寄りが同じでも、次の候補で聞き直す", () =>
         "停留所までの徒歩が足されていません");
       assert.equal(r.legs[0].minutes,
         14 + r.legs[0].walkA + r.legs[0].walkB);
-    }));
+    }, { located: false }));
 
 test("最初の名前で引けなければ、別の停留所名で試す", () =>
   withYahoo(CLUSTER,
@@ -712,7 +717,7 @@ test("1区間目だけ外したら、あとで拾い直す", () => {
       "1区間目を拾い直していません（ここだけ目安のまま）");
     assert.equal(r.routed, true);
     assert.match(r.modeNote ?? "", /聞き直し/);
-  });
+  }, { located: false });
 });
 
 test("ぜんぶ外しているときは、拾い直さない（同じ答えが返るだけ）", () =>
@@ -816,7 +821,7 @@ test("停留所までの徒歩を、区間の所要時間に足す", () =>
     // 一行にも書きます。「1分」とだけ出すと、歩く時間が無いように読めます。
     assert.match(leg.line, /徒歩/,
       `前後の徒歩が一行に出ていません: ${leg.line}`);
-  }));
+  }, { located: false }));
 
 test("出発地そのものが駅なら、その端の徒歩は数えない", () =>
   withYahoo(STOPS, () => ({
@@ -881,7 +886,7 @@ test("5km以内に無ければ、広げて探す", () =>
     assert.equal(r.legs[0].routed, true);
     // 駅まで歩く時間も足します（10kmなら2時間半です）。
     assert.ok(r.legs[0].walkA > 0, "駅までの徒歩が0になっています");
-  }));
+  }, { located: false }));
 
 test("どこにも停留所が無いなら、「目安」ではなくそう言う", () =>
   withYahoo([], () => ({ routed: false }), async (asked) => {
@@ -893,3 +898,51 @@ test("どこにも停留所が無いなら、「目安」ではなくそう言�
       `理由が出ていません: ${r.modeNote}`);
     assert.match(r.modeNote ?? "", /車/);
   }));
+
+// --- 位置で聞く ------------------------------------------------------------
+//
+// 名前で聞くと「県庁前」が神戸に、「京都駅前」が飲食店になります。
+// まず位置で聞き、Yahoo!に近くの駅・バス停を選ばせます。
+
+test("まず位置で聞き、引けたら停留所名では聞かない", () =>
+  withYahoo(CLUSTER, () => ({
+    routed: true, minutes: 38, rideMinutes: 21, waitMinutes: 5,
+    summary: "10:05 発→ 10:43 着 38分",
+    meta: { departure: "10:05", arrival: "10:43", transfers: 1, fareYen: 460,
+      distanceKm: 4.7, alternatives: [],
+      legs: [
+        { from: "京都駅", to: "烏丸御池/京都市営バス", departure: "10:05",
+          arrival: "10:08", minutes: 3, line: "出口：徒歩 徒歩3分" },
+        { from: "烏丸御池/京都市営バス", to: "銀閣寺前/京都市営バス",
+          departure: "10:20", arrival: "10:41", minutes: 21,
+          line: "京都市営バス・３２号・平安神宮 銀閣寺行" },
+      ] },
+  }), async (asked) => {
+    const r = await computeRoute([FAR_FROM_STOP_A, FAR_FROM_STOP_B], {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    assert.equal(asked.length, 1, "位置で引けたのに、名前でも聞いています");
+    assert.deepEqual(asked[0].fromAt,
+      { lat: FAR_FROM_STOP_A.lat, lng: FAR_FROM_STOP_A.lng });
+    const leg = r.legs[0];
+    assert.equal(leg.routed, true);
+    // 停留所までの徒歩は Yahoo!の答えに入っています。二重に足しません。
+    assert.equal(leg.walkA, 0);
+    assert.equal(leg.walkB, 0);
+    assert.equal(leg.minutes, 38);
+    assert.ok(leg.kinds.includes("bus"), `バスと分かっていません: ${leg.kinds}`);
+    assert.equal(leg.stations.from, "烏丸御池");
+  }));
+
+test("位置を受け取らない中継なら、停留所名で聞き直す", () =>
+  withYahoo(CLUSTER, () => ({
+    routed: true, minutes: 14, rideMinutes: 14, waitMinutes: 0,
+    summary: "10:05 発→ 10:19 着 14分",
+  }), async (asked) => {
+    const r = await computeRoute([NEAR_A, NEAR_B], {
+      mode: "TRANSIT", departAt: new Date("2026-10-01T10:00:00+09:00"),
+    });
+    assert.ok(asked.length >= 2, "名前で聞き直していません");
+    assert.ok(asked.slice(1).every((b) => !b.fromAt), "名前の問い合わせに位置が付いています");
+    assert.equal(r.legs[0].routed, true);
+  }, { located: false }));
