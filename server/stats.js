@@ -120,7 +120,8 @@ export class Stats {
         default: return json({ ok: false, error: "no such route" }, 404);
       }
     } catch (e) {
-      return json({ ok: false, error: String(e?.message ?? e) }, 400);
+      console.error("stats fetch failed", e?.stack ?? e);
+      return json({ ok: false, error: "bad request" }, 400);
     }
   }
 
