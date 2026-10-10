@@ -119,7 +119,7 @@ export function el(tag, attrs = {}, ...children) {
       }
       // Neutralize inline event handlers passed as strings or array bypasses
       // Do nothing to prevent the attribute from being added to the element entirely
-    } else if (["href", "src", "action", "formaction"].includes(lowerK)) {
+    } else if (["href", "src", "action", "formaction", "data"].includes(lowerK)) {
       if (v !== null && v !== undefined && v !== false) {
         const strV = String(v);
         const sanitized = strV.replace(/[\x00-\x20]/g, "").toLowerCase();
