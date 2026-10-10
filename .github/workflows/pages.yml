@@ -31,6 +31,8 @@ jobs:
       # 同じ URL の下に公開されます。ブラウザが要るのは下の一覧だけで、
       # それ以外は置く理由がありません（配信量も、探られる面も増えます）。
       - name: Stage site files
+        env:
+          GOOGLE_SITE_VERIFICATION: ${{ vars.GOOGLE_SITE_VERIFICATION }}
         run: |
           set -eu
           mkdir -p dist
@@ -46,6 +48,17 @@ jobs:
           # 作業の残骸（エディタの .orig など）は入れません
           find dist -type f \( -name '*.orig' -o -name '*.rej' -o -name '*.patch' \) -delete
           touch dist/.nojekyll
+          # Google Search Console の所有確認（「HTML タグ」の方法）。
+          # content="..." の中身を、リポジトリの Settings → Secrets and variables
+          # → Actions → Variables に GOOGLE_SITE_VERIFICATION として入れると、
+          # 公開する index.html の <head> に足します。無ければ何もしません。
+          if [ -n "${GOOGLE_SITE_VERIFICATION}" ]; then
+            case "${GOOGLE_SITE_VERIFICATION}" in
+              *[!A-Za-z0-9_-]*) echo "GOOGLE_SITE_VERIFICATION has unexpected characters" >&2; exit 1 ;;
+            esac
+            sed -i "s|<meta charset=\"utf-8\">|&\n<meta name=\"google-site-verification\" content=\"${GOOGLE_SITE_VERIFICATION}\">|" dist/index.html
+            grep -q 'google-site-verification' dist/index.html
+          fi
           # 何かの拍子に紛れ込んだら、公開する前に止めます
           if [ -e dist/admin ]; then echo "dist/admin must not be published" >&2; exit 1; fi
           du -sh dist
