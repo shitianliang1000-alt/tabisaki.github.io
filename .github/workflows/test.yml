@@ -32,9 +32,20 @@ jobs:
           node-version: 22
       - name: Install browser
         run: |
-          npm install --no-save playwright-core axe-core
+          npm install --no-save playwright-core axe-core esbuild@0.25.10
           npx playwright-core install --with-deps chromium
+      # 公開と同じ組み立て（注釈を削ったもの）を見ます。削りかたで壊れて
+      # いても、手元のファイルを見ていては気づけません。
+      # tests/ は公開しませんが、画面のテストが使う見本のページがあるので、
+      # ここでだけ横に置きます。
+      - name: Build the site
+        env:
+          REQUIRE_MINIFY: "1"
+        run: |
+          sh tools/build_site.sh dist
+          cp -r tests dist/tests
       - name: Serve the site
+        working-directory: dist
         run: |
           python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 &
           for i in $(seq 1 20); do
