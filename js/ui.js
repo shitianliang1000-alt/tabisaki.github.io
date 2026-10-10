@@ -20,6 +20,8 @@ import { itineraryText } from "./share.js";
 import { KIND_NOTE } from "./modes.js";
 import { icon } from "./icons.js";
 import { NOTICE_LIMITS } from "./notify.js";
+import { describeOrderDiff } from "./orderdiff.js";
+import { laterToday } from "./tripmode.js";
 
 // 行の先頭の記号の「名前」です。形は js/icons.js が持っています。
 //
@@ -374,6 +376,30 @@ export function renderItinerary(container, itin, trip, handlers = {}) {
       // 「松江 2日 → 出雲 1日」だけでは、宿を動かすのかどうかが
       // 分かりません。連泊はそこが要点なので、1行で言います。
       stayLine(itin)));
+
+  // 旅行中モードの入口（当日は「今日の旅」の札の中にあります）。
+  if (handlers.onTripMode) {
+    const go = el("button", {
+      type: "button", class: "md-chip md-chip--assist md-state trip-mode-entry",
+    }, el("span", {}, "旅行中モードで開く"));
+    go.addEventListener("click", () => handlers.onTripMode());
+    container.append(go);
+  }
+
+  // 回る順を変えた直後なら、前と比べて移動がどう変わったかを出します。
+  // 新しい旅程が出るだけでは、入れ替えて得だったのかが分かりません。
+  const change = describeOrderDiff(itin.orderDiff);
+  if (change) {
+    container.append(el("section", {
+      class: `panel order-diff order-diff--${change.tone}`, role: "status",
+    },
+      el("p", { class: "order-diff-head" },
+        el("span", { class: "order-diff-badge" },
+          change.tone === "better" ? "短くなりました"
+            : change.tone === "worse" ? "長くなりました" : "移動は同じです"),
+        el("b", {}, change.head)),
+      ...change.lines.map((t) => el("p", { class: "fine" }, t))));
+  }
 
   // 判断を、数字より先に置きます。
   //
@@ -1178,6 +1204,21 @@ export function renderToday(container, itin, trip, handlers = {}) {
   const step = currentStep(itin, now);
   const box = el("section", { class: "today" });
 
+  // 旅行中モード（js/tripmode.js）。ワンタップで、画面をこの札と
+  // 「このあとの予定」だけにします。開き直しても、そのまま始まります。
+  if (handlers.onTripMode) {
+    const on = handlers.tripMode === true;
+    const b = el("button", {
+      type: "button", "aria-pressed": String(on),
+      class: `md-btn md-state trip-mode-btn ${on ? "md-btn--text" : "md-btn--filled"}`,
+    }, el("span", {}, on ? "ふだんの画面に戻る" : "旅行中モードにする"));
+    b.addEventListener("click", () => handlers.onTripMode(!on));
+    box.append(el("div", { class: "trip-mode-bar" },
+      el("p", { class: "trip-mode-label" },
+        on ? "旅行中モード" : "旅の当日は、次の予定だけを大きく出せます"),
+      b));
+  }
+
   if (step.phase === "before") {
     box.append(el("p", { class: "today-when" }, "旅はまだ始まっていません"),
                el("p", { class: "today-next" },
@@ -1253,6 +1294,18 @@ export function renderToday(container, itin, trip, handlers = {}) {
         el("span", {}, `「${arrivable.title}」に着いた`));
       btn.addEventListener("click", () => handlers.onArrived(arrivable.id));
       box.append(el("div", { class: "today-actions" }, btn));
+    }
+  }
+
+  // 旅行中モードでは、旅程の一覧を隠すので、その日の残りをここに
+  // 短く並べます。「次の次」が見えないと、時間の配りかたが決められません。
+  if (handlers.tripMode) {
+    const later = laterToday(itin, step);
+    if (later.length) {
+      box.append(el("p", { class: "today-label today-later-label" }, "このあとの予定"),
+        el("ol", { class: "today-later" }, later.map((i) =>
+          el("li", {}, el("span", { class: "time" }, fmtTime(i.start)),
+                       el("span", {}, i.title)))));
     }
   }
 

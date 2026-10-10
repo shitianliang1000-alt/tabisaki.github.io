@@ -1056,6 +1056,43 @@ p, li { text-wrap: pretty; }
   background: var(--md-sys-color-surface-container-high);
   border-bottom: .5px solid var(--hig-separator);
 }
+/* 旅行中モード（js/tripmode.js）。画面を「今日の旅」の札だけにします。
+   入力欄・地図・旅程の一覧・分析は隠すだけで、消しません。 */
+.trip-mode-bar {
+  display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: 8px 12px;
+  margin: 0 0 14px;
+}
+.trip-mode-label {
+  margin: 0; font-size: var(--hig-t-footnote); font-weight: 600;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.trip-mode-btn { min-height: 44px; }
+.trip-mode-entry { margin: 0 0 12px; min-height: 44px; }
+.today .today-later-label { margin-top: 20px; }
+.today-later {
+  list-style: none; margin: 6px 0 0; padding: 0;
+  display: grid; gap: 6px;
+}
+.today-later li {
+  display: grid; grid-template-columns: 4em 1fr; gap: 8px;
+  font-size: var(--hig-t-body);
+}
+.today-later .time {
+  font-variant-numeric: tabular-nums;
+  color: var(--md-sys-color-on-surface-variant);
+}
+body[data-trip-mode="on"] .layout { grid-template-columns: 1fr; }
+body[data-trip-mode="on"] .pane-form,
+body[data-trip-mode="on"] .make,
+body[data-trip-mode="on"] .back-to-form,
+body[data-trip-mode="on"] #placeholder,
+body[data-trip-mode="on"] #map,
+body[data-trip-mode="on"] #itinerary { display: none !important; }
+body[data-trip-mode="on"] .pane-result { display: block !important; }
+body[data-trip-mode="on"] .result { display: block; max-width: 720px; margin: 0 auto; }
+body[data-trip-mode="on"] .today { margin-top: 0; min-height: 60vh; }
+
 .today-when {
   margin: 0 0 10px; font-size: var(--hig-t-footnote);
   color: var(--md-sys-color-on-surface-variant);
@@ -2172,6 +2209,29 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   border-top: .5px solid var(--hig-separator);
 }
 .saved-note .md-chip { margin-top: 10px; }
+
+/* 回る順を変えた直後の差（js/orderdiff.js）。色だけに頼らず、
+   札の言葉（短くなりました／長くなりました）でも分かるようにします。 */
+.order-diff-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin: 0;
+}
+.order-diff-badge {
+  display: inline-flex; align-items: center; min-height: 28px;
+  padding: 2px 12px; border-radius: 999px;
+  font-size: var(--hig-t-footnote); font-weight: 600;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+}
+.order-diff--better .order-diff-badge {
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+}
+.order-diff--worse .order-diff-badge {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+.order-diff .fine { margin: 6px 0 0; }
 
 .talk-row { display: flex; gap: 12px; align-items: flex-start; }
 /* min-width: 0 が無いと、入力欄が中身の幅より縮まず、
