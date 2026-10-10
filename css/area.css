@@ -82,6 +82,7 @@ section {
 .c-text { grid-column: 2; font-size: var(--hig-t-subhead); color: var(--hig-label-2); }
 .course .c-move .c-title, .course .c-free .c-title { color: var(--hig-label-2); font-size: var(--hig-t-subhead); }
 .course .c-spot .c-title { font-weight: 600; }
+.course .c-end .c-title { font-weight: 600; }
 
 .area-foot {
   max-width: 760px; margin: 0 auto;

@@ -10,7 +10,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  appLink, breadcrumbLd, buildAll, courseFits, courseItems, curatedRegions, esc,
+  appLink, breadcrumbLd, buildAll, courseFits, courseItems, courseLink, courseSpotIds, curatedRegions, esc,
   examplePrompts, nearbySpots, nextSaturday, pickPrefSpots, shardSlug, sitemapXml,
 } from "../tools/build_area_pages.mjs";
 
@@ -106,9 +106,29 @@ test("モデルコース: よそのエリアへ行った旅程は出さない", 
 test("モデルコースの行は、時刻・名前・分で並ぶ", () => {
   const got = courseItems(itinOf(["a"]));
   assert.deepEqual(got.map((x) => [x.kind, x.time, x.minutes]),
-    [["move", "9:00", 20], ["spot", "9:20", 40]]);
+    [["move", "9:00", 20], ["spot", "9:20", 40], ["end", "10:00", 0]]);
   assert.equal(got[1].text, "説明a");
+  assert.equal(got[2].title, "解散");
   assert.equal(courseItems({ days: [] }), null);
+});
+
+test("モデルコースの最後は、着く駅と時刻で終わる", () => {
+  const itin = itinOf(["a"]);
+  itin.days[0].items.push({ kind: "transit", title: "移動", to: { name: "箱根湯本駅" },
+    start: new Date(2026, 9, 17, 10), end: new Date(2026, 9, 17, 10, 25) });
+  const got = courseItems(itin);
+  assert.deepEqual(got.at(-1), { kind: "end", time: "10:25", minutes: 0, title: "箱根湯本駅着・解散" });
+});
+
+test("モデルコースをアプリで開くリンクに、寄る場所とエリアが入る", () => {
+  assert.deepEqual(courseSpotIds(itinOf(["a", "b", "a"])), ["a", "b"]);
+  const url = courseLink("../../", "箱根を1日でめぐる", "hakone", ["a", "b"]);
+  assert.match(url, /^\.\.\/\.\.\/index\.html\?/);
+  const q = new URLSearchParams(url.split("?")[1]);
+  assert.equal(q.get("q"), "箱根を1日でめぐる");
+  assert.equal(q.get("pin"), "a,b");
+  assert.equal(q.get("area"), "hakone");
+  assert.equal(courseLink("", "x", "hakone", []), "index.html?q=x");
 });
 
 test("全ページ: 一覧・県・エリアができ、名前は逃がしてある", async () => {
