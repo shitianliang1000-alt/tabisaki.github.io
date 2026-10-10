@@ -19,7 +19,7 @@ export const GEMINI_API_KEY = "";
 export const MAPS_API_KEY = "";
 
 /** 経路APIを使うか。 */
-export const USE_ROUTES_API = true;
+export const USE_ROUTES_API = false;
 
 // --- 3. どのモデルを、どこで動かすか ---------------------------------------
 /**
@@ -79,7 +79,7 @@ export const TILE_ATTRIBUTION =
 
 // --- 6. 挙動の調整 ----------------------------------------------------------
 export const TUNING = {
-  safetyBufferMin: 15,
+  safetyBufferMin: 10,
   // 開くまで待つのは、ここまで。
   //
   // 75分にしていました。旅程には「浅草寺が開くまで約60分」という行が
@@ -112,9 +112,9 @@ export const TUNING = {
   // 4人で乗っても、ガソリン代は1台ぶんです。ここを人数倍すると、
   // 家族旅行の概算が4倍になります。
   /** ガソリン。全国平均のレギュラー価格帯（円/L）。 */
-  fuelYenPerL: 175,
+  fuelYenPerL: 166,
   /** 燃費（km/L）。コンパクトカーの実用値あたり。 */
-  kmPerL: 15,
+  kmPerL: 19,
   /** 高速道路（普通車・円/km）。NEXCO の対距離料金の目安。 */
   tollYenPerKm: 24.6,
   /** 高速道路のターミナルチャージ（1回あたり・円）。 */
@@ -127,7 +127,7 @@ export const TUNING = {
   seatsPerCar: 5,
   transitThresholdKm: 2.5,
   // ここまでは歩く、という距離。これを超えたら電車かバスを調べます。
-  walkableKm: 1.5,
+  walkableKm: 1.0,
   // 徒歩の実測（Googleの経路API）に使う回数。ここは課金対象なので絞ります。
   maxTransitRequests: 8,
   // Yahoo!路線情報に聞く回数。こちらは課金されず、中継側で1時間控える
