@@ -145,7 +145,8 @@ async function serveApi(request, env, url, path, overview) {
       }
       return apiJson({ ok: true, ...out });
     } catch (e) {
-      return apiJson({ ok: false, error: String(e?.message ?? e) }, 502);
+      console.error("Failed to publish edits:", e?.stack ?? e);
+      return apiJson({ ok: false, error: "公開処理に失敗しました" }, 502);
     }
   }
   return apiJson({ ok: false, error: "その入口はありません" }, 404);
