@@ -281,7 +281,16 @@ function walkMinutes(km) {
   return Math.max(5, Math.round((km / 4.2) * 60) + 4);
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 待っているあいだに「やめる」が押されたら、すぐ起きて止まります。
+// 回数制限の待ちは1回で最長65秒です。押してから1分以上なにも
+// 起きないのでは、やめるボタンの意味がありません。
+const sleep = (ms, signal) => new Promise((resolve, reject) => {
+  if (signal?.aborted) { reject(signal.reason); return; }
+  const done = () => { signal?.removeEventListener("abort", stop); resolve(); };
+  const timer = setTimeout(done, ms);
+  const stop = () => { clearTimeout(timer); reject(signal.reason); };
+  signal?.addEventListener("abort", stop, { once: true });
+});
 
 /** 呼び出しの記録。画面で「何回呼んで、何が返ったか」を見せるため。 */
 const usage = { calls: 0, failures: 0, lastError: "", skipped: 0 };
@@ -621,7 +630,7 @@ async function computeViaStations(points, opts) {
     const worthWaiting = cool.retryable || yahooLegs.some(Boolean);
     if (worthWaiting && yahooBudget > 0 && cool.waiting
         && waited < MAX_COOLDOWN_WAITS) {
-      await sleep(Math.min(cool.seconds + 1, 65) * 1000);
+      await sleep(Math.min(cool.seconds + 1, 65) * 1000, opts.signal);
       waited++;
     }
     // 歩く距離は、聞きません。
@@ -638,6 +647,9 @@ async function computeViaStations(points, opts) {
     const legKm = haversineKm(points[i], points[i + 1]);
     const onFoot = legKm <= (TUNING.walkableKm ?? 1.5);
     if (onFoot) walkLegs++;
+    // やめると言われたら、残りの区間は聞きません。外れた区間を
+    // 目安で埋めて続けると、要らない問い合わせが最後まで走ります。
+    opts.signal?.throwIfAborted();
     const hit = (!onFoot && yahooBudget > 0 && !yahooCooldown().waiting)
       ? await yahooLeg(points[i], points[i + 1],
                        { ...opts, departAt: at, tries: yahooBudget })
@@ -707,7 +719,7 @@ async function computeViaStations(points, opts) {
       const cool2 = yahooCooldown();
       if (cool2.waiting) {
         if (!cool2.retryable || waited >= MAX_COOLDOWN_WAITS) continue;
-        await sleep(Math.min(cool2.seconds + 1, 65) * 1000);
+        await sleep(Math.min(cool2.seconds + 1, 65) * 1000, opts.signal);
         waited++;
       }
       const again = await yahooLeg(points[i], points[i + 1],
@@ -1402,6 +1414,9 @@ export async function computeRoute(points, opts = {}) {
 
     // 区間ごとにYahoo!路線情報へ聞き、引けない区間だけ駅の位置から見積もります。
     const result = await computeViaStations(points, opts);
+    // 途中でやめた結果は控えません。目安で埋まった半端な答えが残ると、
+    // 次に同じ条件で組んだときに、それが返ってきます。
+    opts.signal?.throwIfAborted();
     routeCache.set(key, result);
     return result;
   }
@@ -1409,6 +1424,7 @@ export async function computeRoute(points, opts = {}) {
   const hit = routeCache.get(key);
   if (hit) return hit;
   const result = await computeRouteUncached(points, { ...opts, mode });
+  opts.signal?.throwIfAborted();
   routeCache.set(key, result);
   return result;
 }

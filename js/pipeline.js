@@ -108,6 +108,14 @@ const JOURNEY_WORDS = /^(移動|楽しみ|楽しむ|青春|18|きっぷ|切符|�
 export async function planTrip({ trip, kb, onProgress = () => {},
                                  ...opts }) {
     const hours = (trip.arriveBy - trip.departAt) / 3600000;
+  // 「やめる」（js/app.js の AbortController）。
+  //
+  // signal は下の通信にも渡しますが、それだけでは止まりません。AIや
+  // 経路の呼び出しは、失敗すると**目安に落ちて先へ進む**作りです
+  // （止まらないための工夫です）。中止もその「失敗」に見えるので、
+  // 段の切れ目ごとに、やめると言われていないかを確かめます。
+  const signal = opts.signal;
+  const stop = () => signal?.throwIfAborted();
 
   onProgress(0);
   // 希望文から、乗り物の指定を読み取ります。
@@ -133,7 +141,8 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 案ごとに読み取り直すと、同じ文をモデルに3回投げることになります
   // （変わるのはペースと穴場の割合だけで、希望文は同じです）。
   const query = opts.query
-    ?? await understandRequest(trip.note, trip.interests, hours);
+    ?? await understandRequest(trip.note, trip.interests, hours, { signal });
+  stop();
   // ペースは、利用者が選んでいればそちらを使います。
   // 希望文からの推測で上書きすると、「もっとゆっくり」を押したのに
   // 何も変わらない、ということが起きます（実際に起きていました）。
@@ -150,7 +159,8 @@ export async function planTrip({ trip, kb, onProgress = () => {},
 
   onProgress(1);
   const vector = opts.vector !== undefined ? opts.vector
-    : (kb.hasVectors ? await embedQuery(query.searchText) : null);
+    : (kb.hasVectors ? await embedQuery(query.searchText, { signal }) : null);
+  stop();
   // 地名は絞り込み（scope）で使うので、スポットの検索語からは外します。
   // 「四国」を語として残すと、名前に四国を含む「四国中央市」の
   // 地元の祭りばかりが上位に来ます（実際にそうなりました）。
@@ -175,6 +185,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   // 書かれていなければ、どの県が候補になるか分からないので全部です。
   // **分からないときに勘で絞る**と、行けたはずの旅先が黙って消えます。
   await loadNeededSpots(kb, trip, { ...opts, onProgress });
+  stop();
 
   // 車の旅なら、走って気持ちのいい場所を前に出します（js/touring.js）。
   const touring = isTouring(trip);
@@ -296,6 +307,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
       for (const [name, country] of targets) {
         onProgress(1, `「${name}」を調べています`);
         await bring(name, country);
+        stop();
       }
     } else if (named.length) {
       for (const term of named.slice(0, 3)) {
@@ -520,13 +532,14 @@ export async function planTrip({ trip, kb, onProgress = () => {},
                      spread: Boolean(spreadGroups),
                      enjoyTravel,
                      // 車で来ている人に、駅前だけを並べないための合図です。
-                     touring: isTouring(trip) };
+                     touring: isTouring(trip), signal };
   let proposal = await proposePlan(candidates, query, trip.note,
                                    maxSpots, targets, "", planOpts);
+  stop();
 
   onProgress(3, "移動時間と営業時間を照合しています");
   let checked = await verifyProposal(proposal, trip, candidates, kb,
-                                     { useRoutes: false });
+                                     { useRoutes: false, signal });
 
   // 通る案になるまで、作り直します。
   //
@@ -568,12 +581,15 @@ export async function planTrip({ trip, kb, onProgress = () => {},
                                  targets, issuesToPrompt(best.checked.result),
                                  planOpts);
       } catch (e) {
+        // やめると言われたのなら、最善を出さずに止まります。
+        stop();
         // 途中で聞けなくなっても、それまでの最善は残っています。
         noteAiError(e);
         break;
       }
+      stop();
       const recheck = await verifyProposal(next, trip, candidates, kb,
-                                           { useRoutes: false });
+                                           { useRoutes: false, signal });
       const round0 = { key: `round${round}`, proposal: next, checked: recheck,
                        itin: draftItinerary(recheck, trip, kb) };
       const pick = pickBest([best, round0],
@@ -594,8 +610,9 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   onProgress(4, "採用した案の経路を確認しています",
              { route: (checked.result?.visits ?? []).map((v) => v.spot) });
   const routed = await verifyProposal(proposal, trip, candidates, kb,
-                                      { useRoutes: true,
+                                      { useRoutes: true, signal,
                                         nightTrain: intent.nightTrain });
+  stop();
   if (routed.result.visits.length) checked = routed;
 
   onProgress(5, "", { route: (checked.result?.visits ?? []).map((v) => v.spot) });
@@ -751,6 +768,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
   //    ここでは提案を出すだけで、旅程は変えません。押されたときだけ
   //    条件を書き換えて、同じ手順で組み直します。
   itin.replan = await buildReplan(itin, candidates, opts);
+  stop();
   //    予定どおりに行けなかったときの代わりも、ここで1か所ずつ決めます。
   //    雨や休館は現地で分かることなので、出発前に近くの代わりを
   //    決めておかないと、電波の弱い場所で探すことになります。
@@ -799,6 +817,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
     spots: kb.spots,
     nearestStop,
   });
+  stop();
 
   // 8.5 終電の線。
   //
@@ -826,6 +845,7 @@ export async function planTrip({ trip, kb, onProgress = () => {},
       return null;
     }
   });
+  stop();
 
   // 8.55 切符のこと。
   //
@@ -1377,7 +1397,8 @@ async function verifyProposal(proposal, trip, candidates, kb, opts = {}) {
   // 判断です。
   if (useRoutes && opts.measureFinal !== false) {
     const measured = await measureFinalOrder(trimmed, ctx, trip,
-                                             { stays, outbound, nightOut });
+                                             { stays, outbound, nightOut,
+                                               signal: opts.signal });
     if (measured) {
       trimmed = measured.trimmed;
       travelFn = measured.travelFn;
@@ -1615,6 +1636,7 @@ async function measureFinalOrder(trimmed, ctx, trip, ctxIn) {
       try {
         const part = await routeChain(g.points, {
           mode: g.mode, departAt: g.times[0], departTimes: g.times,
+          signal: ctxIn.signal,
           // **選ばれた乗り物を、そのまま下まで渡します。**
           //
           // ここで落ちていたので、時刻表への問い合わせは画面の選択と

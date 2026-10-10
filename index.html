@@ -45,7 +45,6 @@
      万一どこかに script が紛れ込んでも、ここに無い先へは出られません。
 
      ここに並んでいるのが、このアプリの外部依存のすべてです。
-       unpkg          … 地図の部品（Leaflet）
        tile.osm       … 地図のタイル
        upload.wikimedia … スポットの写真
        *.googleapis   … AI と経路（キーを直に持つ場合）
@@ -63,8 +62,8 @@
      公開時は HTTP ヘッダーでも付けてください（server/README.md）。 -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
-  script-src 'self' https://unpkg.com;
-  style-src 'self' 'unsafe-inline' https://unpkg.com;
+  script-src 'self';
+  style-src 'self' 'unsafe-inline';
   font-src 'self';
   worker-src 'self';
   manifest-src 'self';
@@ -81,7 +80,11 @@
   form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<!-- 地図の部品（Leaflet 1.9.4）は、自分のところから配ります。
+     unpkg から読んでいた頃は、圏外で開くと地図の部品が届かず、
+     保存した旅程を開いても地図だけ出ませんでした。中身は
+     tools/vendor.sh で取ってきたものそのままです（SRI と同じハッシュ）。 -->
+<link rel="stylesheet" href="vendor/leaflet.css">
 <!-- 字は端末に入っているものだけを使います。Web フォントは読みません。
      San Francisco は配布できず、和文は Apple ならヒラギノ、Windows なら
      游ゴシック、Android なら Noto が最初から入っています。
@@ -963,8 +966,7 @@
      旅行者が使うのは移動中の回線です。地図が遅い日に、条件の入力まで
      待たされる理由はありません（地図は旅程づくりに要りません）。
      app.js は window.L を待たずに動き、届いた時点で地図を出します。 -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        crossorigin="" async></script>
+<script src="vendor/leaflet.js" async></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>
