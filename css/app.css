@@ -611,6 +611,26 @@ p, li { text-wrap: pretty; }
   width: 32px; height: 32px; border-radius: 50%;
 }
 
+/* 出発地からの目安（js/reach.js）。札の下に小さく添えます。 */
+.pin-item { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.pin-reach {
+  padding-left: 16px;
+  font-size: var(--hig-t-caption1); color: var(--hig-label-2);
+}
+/* 色だけに頼らず、文でも「日帰りだと…」と言います。 */
+.pin-reach.is-far { color: var(--hig-red-deep); font-weight: 600; }
+
+/* 条件をリセット。旅程をつくるボタンの上に、右寄せで小さく置きます。 */
+.reset-row { margin: 0 0 8px; text-align: right; }
+
+/* JavaScript が動かないときだけ出る案内（index.html の noscript）。 */
+.noscript {
+  margin: 12px 16px; padding: 12px 56px 12px 16px; /* 右上の設定ボタンに重ねない */
+  border-radius: 12px;
+  background: var(--hig-red-tint); color: var(--hig-red-deep);
+}
+.noscript p { margin: 4px 0; }
+
 /* ------------------------------------------- 前につくった旅 --- */
 /* 覚えているのは条件だけです（js/history.js）。押されたら組み直します。
    カードではなく行にしています。ここは目的地ではなく通り道なので、
