@@ -801,8 +801,6 @@ async function yahooLeg(a, b, opts) {
     if (!fromNames.length || !toNames.length) {
       return { spent: 0, miss: true, noTransit: true };
     }
-    if (!pairs.length) return { spent: 0, miss: true };
-
     // 残りの回数を超えて試しません。1区間に使い切ると、後ろの区間が
     // まるごと「目安」になります。
     const tries = Math.max(1,
@@ -811,6 +809,7 @@ async function yahooLeg(a, b, opts) {
     let to = null;
     let yahoo = null;
     let spent = 0;
+    let byLocation = false;
     // **指定された乗り物を、問い合わせにそのまま乗せます。**
     //
     // ここを渡していなかったので、画面で何を選んでも Yahoo!への
@@ -819,10 +818,35 @@ async function yahooLeg(a, b, opts) {
     const ask = { ...opts,
       modes: yahooFlags(opts.transport ?? "any"),
       prefer: preferredKinds(opts.transport ?? "any") };
-    for (const cand of pairs.slice(0, tries)) {
+
+    // **まず、その場所の位置で聞きます。**
+    //
+    // 名前で聞くと、Yahoo!が同じ名前の別の場所に読み替えます。
+    //
+    //   「県庁前駅」（那覇）→ 県庁前(兵庫県)。沖縄の旅の行き帰りが
+    //     東京⇔神戸の新幹線になり、飛行機が一度も出ませんでした。
+    //   「京都駅前」（市バスの乗り場）→ 駅前の飲食店。
+    //
+    // 位置で聞けば、Yahoo!がその近くの駅・バス停を探し、停留所までの
+    // 徒歩・バス・電車・飛行機をつないで答えます。近くのバス停から
+    // 乗る区間も、ここで初めて引けるようになります。
+    const label = (p, fallback) => ({ ...p, name: String(p?.name ?? "").trim() || fallback });
+    spent++;
+    const near = await searchYahooTransit(label(a, "出発地"), label(b, "目的地"), ask);
+    // 位置を受け付けない古い中継だと、名前だけで聞いた答えが返ります
+    // （スポット名で聞いたもの）。それは使わず、下の停留所名で聞きます。
+    if (near?.routed && near.minutes > 0 && near.byLocation === true) {
+      yahoo = near;
+      from = a;
+      to = b;
+      byLocation = true;
+    }
+
+    // 位置で引けなければ、これまでどおり近くの停留所の名前で聞きます。
+    for (const cand of byLocation ? [] : pairs.slice(0, tries - 1)) {
       spent++;
-      const r = await searchYahooTransit(cand.from, cand.to, ask);
-      if (r?.routed && r.minutes > 0) {
+      const r = await searchYahooTransit(cand.from, cand.to, { ...ask, byName: true });
+      if (r?.routed && r.minutes > 0 && plausibleRoute(r, a, b)) {
         from = cand.from;
         to = cand.to;
         yahoo = r;
@@ -843,9 +867,10 @@ async function yahooLeg(a, b, opts) {
     // 歩く27分をどちらの端にも数えていませんでした。
     //
     // 出発地そのものが駅なら（東京駅発など）、その端の徒歩は0です。
-    const walkA = haversineKm(a, from) < NEAR_STOP_KM
+    // 位置で聞いたときは、Yahoo!の答えに停留所までの徒歩が入っています。
+    const walkA = byLocation || haversineKm(a, from) < NEAR_STOP_KM
       ? 0 : estimateMinutes(a, from, { slow: isSlowTerrain(a) });
-    const walkB = haversineKm(to, b) < NEAR_STOP_KM
+    const walkB = byLocation || haversineKm(to, b) < NEAR_STOP_KM
       ? 0 : estimateMinutes(to, b, { slow: isSlowTerrain(b) });
     const total = walkA + yahoo.minutes + walkB;
 
@@ -865,6 +890,7 @@ async function yahooLeg(a, b, opts) {
                meters: Math.round(straightKm * 1000) };
     }
 
+    const steps = summarizeYahooRoute(yahoo.meta, { walkA, walkB });
     return {
       spent,
       minutes: total,
@@ -885,11 +911,14 @@ async function yahooLeg(a, b, opts) {
         ?? yahoo.summary ?? "Yahoo!路線情報",
       routed: true,
       searchedAt: yahoo.searchedAt ?? null,
-      stations: { from: from.name, to: to.name, walkMeasured: false },
+      stations: byLocation
+        ? { from: steps?.boardAt ?? a.name ?? null,
+            to: steps?.alightAt ?? b.name ?? null, walkMeasured: true }
+        : { from: from.name, to: to.name, walkMeasured: false },
       yahoo: yahoo.meta ?? null,
       // 乗る路線と乗り場の手順（どのバスに、どこから乗るのか）。
       // 旅程の行の「乗換の手順」で開けます。
-      transit: summarizeYahooRoute(yahoo.meta, { walkA, walkB }) ?? undefined,
+      transit: steps ?? undefined,
       alternatives: yahoo.meta?.alternatives ?? [],
       // **何に乗る区間なのか。**
       //
@@ -909,6 +938,20 @@ async function yahooLeg(a, b, opts) {
     usage.lastError = `Yahoo Transit: ${String(e?.message ?? e).slice(0, 200)}`;
     return { spent: 0, miss: true };
   }
+}
+
+/**
+ * 名前で聞いた答えが、頼んだ2地点のあいだの経路として筋が通っているか。
+ *
+ * 名前は別の場所に読み替えられることがあります（「県庁前」→ 神戸）。
+ * 那覇の2駅のあいだを聞いて、1,000km先を回る答えが返ったら、それは
+ * 聞いた場所の経路ではありません。距離が分からなければ通します。
+ */
+export function plausibleRoute(r, a, b) {
+  const km = Number(r?.meta?.distanceKm);
+  if (!(km > 0)) return true;
+  const straight = haversineKm(a, b);
+  return km <= straight * 3 + 30;
 }
 
 /**

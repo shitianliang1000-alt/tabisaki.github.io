@@ -369,8 +369,28 @@ async function yahooTransit(request) {
   const p = tokyoParts(requested);
   const u = new URL(YAHOO_TRANSIT_URL);
   u.searchParams.set("from", from);
-  u.searchParams.set("flatlon", "");
   u.searchParams.set("to", to);
+  // **場所は、名前ではなく位置で渡せます。**
+  //
+  // 名前だけで聞くと、Yahoo!が別の場所に読み替えます。実際に起きて
+  // いたのは
+  //
+  //   「県庁前駅」（那覇・ゆいレール）→ 県庁前(兵庫県)。沖縄の旅の行きが
+  //     東京→神戸の新幹線になり、飛行機の便が一度も出ませんでした。
+  //   「京都駅前」（市バスの乗り場）→ 駅前の飲食店。バスに乗る経路が
+  //     返りませんでした。
+  //
+  // 位置（flatlon / tlatlon）を渡すと、Yahoo!がその近くの駅・バス停を
+  // 選び、そこまでの徒歩も含めて答えます（名前は表示用に使われます）。
+  const at = (v) => {
+    const lat = Number(v?.lat);
+    const lng = Number(v?.lng);
+    // 日本の範囲だけ受け付けます。おかしな値で上流を叩きません。
+    if (!(lat >= 20 && lat <= 46 && lng >= 122 && lng <= 154)) return "";
+    return `${lat.toFixed(6)},${lng.toFixed(6)}`;
+  };
+  u.searchParams.set("flatlon", at(body?.fromAt));
+  u.searchParams.set("tlatlon", at(body?.toAt));
   u.searchParams.set("y", p.year);
   u.searchParams.set("m", p.month);
   u.searchParams.set("d", p.day);
@@ -554,6 +574,8 @@ async function yahooTransit(request) {
   return json({
     routed: true,
     search: "depart",
+    // 位置で聞いたか（古い中継は名前だけで聞きます。呼ぶ側の見分け用）
+    byLocation: Boolean(u.searchParams.get("flatlon") || u.searchParams.get("tlatlon")),
     minutes: best.minutes,
     rideMinutes: best.rideMinutes,
     waitMinutes: best.waitMinutes,
@@ -707,7 +729,9 @@ export function parseRouteDetail(html) {
   let tm;
   while ((tm = transportRe.exec(detail))) {
     const text = cleanText(tm[1]);
-    if (text) transports.push(text.replace(/^\[?(?:train|line)\]?\s*/i, ""));
+    // 徒歩の区間には「地図でルートを表示」というリンクの文字が付きます。
+    if (text) transports.push(text.replace(/^\[?(?:train|line)\]?\s*/i, "")
+      .replace(/\s*地図でルートを表示\s*$/, ""));
   }
 
   const legs = [];
