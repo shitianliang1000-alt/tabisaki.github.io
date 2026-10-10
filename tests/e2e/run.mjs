@@ -20,8 +20,12 @@ const EXE = process.env.CHROME
 let failures = 0;
 const results = [];
 
+/** いま確かめている項目の名前（ページの例外に添えます）。 */
+let current = "（最初の読み込み）";
+
 /** 1つ確かめる。落ちても続けます（どこまで壊れているかを知りたいので）。 */
 async function check(name, fn) {
+  current = name;
   try {
     await fn();
     results.push(`  ok   ${name}`);
@@ -95,7 +99,10 @@ await page.addInitScript(() => {
 
 // ページ側の例外は、そのままこちらの失敗にします。
 const pageErrors = [];
-page.on("pageerror", (e) => pageErrors.push(e.message));
+// どの確認の最中に出たかと、呼び出し元も残します。地図の例外のように
+// 遅れて出るものは、名前だけでは出どころが分かりません。
+page.on("pageerror", (e) => pageErrors.push(
+  `${e.message}（${current} の最中）\n${(e.stack ?? "").split("\n").slice(1, 6).join("\n")}`));
 
 // 外へ出られない環境（CI のサンドボックスなど）では、外の相手を
 // 待たずに切ります。相手が黙って応えないと、切断まで1件ごとに数十秒
@@ -1780,7 +1787,10 @@ await check("エリアのページから来ると、旅の希望が欄に入っ�
   const text = "箱根で温泉と美術館をめぐる日帰り";
   await page.goto(`${BASE}/index.html?q=${encodeURIComponent(text)}`,
     { waitUntil: "domcontentloaded" });
-  await until(page, () => !document.getElementById("make-plan").disabled);
+  // 「旅程をつくる」は読み込みの前から押せる形で置いてあるので、
+  // 押せるかどうかでは、条件を戻し終えたかは分かりません。収録を読み、
+  // 条件を戻したあとに出る件数（#key-kb）を待ちます。
+  await until(page, () => document.getElementById("key-kb")?.textContent !== "");
   const got = await page.$eval("#note", (e) => e.value);
   assert(got === text, `欄に入っていません: ${got}`);
   const started = await page.$eval("#progress", (e) => !e.hidden);
