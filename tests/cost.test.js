@@ -11,6 +11,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { TUNING } from "../js/config.js";
+
 import { costBreakdown } from "../js/cost.js";
 
 /** 1日ぶんの、運転する旅程。 */
@@ -36,11 +38,11 @@ test("運転する区間を、鉄道の運賃で数えない", () => {
 test("ガソリン代が、距離と燃費から出ている", () => {
   const car = costBreakdown(driveItin(150), { transport: "car" });
   const fuel = car.rows.find((r) => r.key === "fuel");
-  // 150km ÷ 15km/L × 175円/L = 1,750円
-  assert.equal(fuel.yen, 1750);
+  // 150km ÷ 燃費 × ガソリン価格（設定 TUNING の値。設定を変えても追える）
+  assert.equal(fuel.yen, Math.round((150 / TUNING.kmPerL) * TUNING.fuelYenPerL));
   // 前提をそのまま書きます（読む人が自分の車に置き換えられるように）。
-  assert.match(fuel.note, /15km\/L/);
-  assert.match(fuel.note, /175円\/L/);
+  assert.match(fuel.note, new RegExp(`${TUNING.kmPerL}km/L`));
+  assert.match(fuel.note, new RegExp(`${TUNING.fuelYenPerL}円/L`));
 });
 
 test("短い区間には、高速道路を乗せない", () => {
@@ -60,7 +62,8 @@ test("車の費用は、人数ではなく台数で増える", () => {
   // 6人なら2台です。
   const six = costBreakdown(driveItin(150), { transport: "car", people: 6 });
   assert.equal(six.cars, 2);
-  assert.equal(fuelOf(six), fuelOf(one) * 2);
+  // 円未満の丸めで1円ずれることがあります。
+  assert.ok(Math.abs(fuelOf(six) - fuelOf(one) * 2) <= 1);
 });
 
 test("レンタカー代は、借りる旅のときだけ", () => {
